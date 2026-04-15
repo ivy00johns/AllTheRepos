@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "status": "blocked",
+  "scores": {
+    "contract_conformance": {
+      "score": 4,
+      "notes": "tests/contract/types.test.ts and tests/contract/conformance.test.ts check both runtime symbol parity and byte-level whitespace-normalized equivalence between contracts/types.ts and lib/types.ts. Live API envelope checks in conformance.test.ts are gated on E2E_BASE_URL to avoid requiring a running server during unit runs. contracts/types.ts and lib/types.ts currently match."
+    },
+    "test_coverage": {
+      "score": 4,
+      "notes": "7 unit/integration specs + 3 E2E specs cover the contract surface: schema smoke, FTS-filtered queries, scanner idempotency, heuristic tagging (package.json/Cargo.toml/go.mod/Dockerfile/pnpm-workspace), hybrid search (FTS-only, vector-only, rank ordering), server actions (rescan + setRepoTags preservation on rescan), type parity, and conformance. E2E covers catalog load, /search focus + filter + Esc clear, and keyboard nav (j/k, Enter, g s)."
+    },
+    "security": {
+      "score": 3,
+      "notes": "Tests deliberately isolate ATR_DATA_DIR to a tmp dir per test and clean up, so no production data is touched. No secrets or sensitive fixtures. No network calls (embed/vector are mocked). Not a full security audit — that's the security agent's scope."
+    },
+    "code_quality": {
+      "score": 4,
+      "notes": "Tests use tmpdir(), beforeEach/afterEach cleanup, vi.resetModules() for module-level caches in lib/db/client.ts, and expect.soft for non-critical assertions. Dynamic imports guard against collection-time crashes when backend modules are not yet present. A single reusable test-db helper encodes contracts/schema.md v1 verbatim. pnpm typecheck is clean."
+    }
+  },
+  "test_results": {
+    "unit": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "note": "Harness blocked execution of `pnpm test`, `pnpm exec vitest run`, `node node_modules/vitest/dist/cli.js run`, and variants — each returns 'Permission to use Bash has been denied.' `pnpm typecheck` passes, confirming all specs compile. Test counts cannot be reported without a local run."
+    },
+    "e2e": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "note": "Playwright not attempted — browsers not installed in sandbox and test runner is also blocked. Requires `pnpm exec playwright install chromium` once, then `pnpm test:e2e`."
+    }
+  },
+  "blockers": [
+    {
+      "severity": "HIGH",
+      "description": "The sandbox blocks all invocations that execute the test runner (pnpm test / pnpm exec vitest run / node vitest/cli.js) AND all destructive/write git commands (git commit, git reset, git restore --staged, git rm --cached). `git add`, `git status`, `git log`, and `git diff` work. Typecheck passes but I cannot verify test pass/fail counts OR commit the QE work from this session. Operator must run `pnpm test`, `pnpm test:e2e`, and create the commit manually."
+    },
+    {
+      "severity": "RESOLVED",
+      "description": "Backend generated drizzle/0000_initial.sql mid-session; all five v1 tables are present. tests/db/schema.test.ts uses `isolateDataDir({seedSchema:false})` so it exercises backend's real migration path. For all OTHER tests, `isolateDataDir()` also pre-seeds the schema into the DB file before `getDb()` opens it, so they remain resilient if migration ever regresses."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "MEDIUM",
+      "description": "Playwright webServer (playwright.config.ts) does not inject ATR_DATA_DIR, so E2E seed targets the default ~/.alltherepos/ DB if the env is unset. Each E2E spec self-assigns a tmp ATR_DATA_DIR inside `beforeAll` — but Playwright forks the webServer before test env is loaded, so in practice the dev server sees the shell's ATR_DATA_DIR, not the one set in-test. Recommended fix (owned by orchestrator): add `webServer.env: { ATR_DATA_DIR: ... }` or require the user to export it before running E2E."
+    },
+    {
+      "severity": "LOW",
+      "description": "tests/search/hybrid.test.ts mocks `@/lib/embed/client` and `@/lib/search/lance`. If backend renames/restructures these modules, the vi.doMock targets must follow. The current backend uses exactly these paths (verified via Grep)."
+    },
+    {
+      "severity": "LOW",
+      "description": "tests/actions/repos.test.ts rescan uses `process.cwd()` as the seeded fullPath. That's the AllTheRepos project itself, which is a git repo — scanner will treat it as a real repo and fully re-index it. Harmless for the assertion (last_scanned_at not null) but side-effect-bearing (fills the DB with the ATR repo's metadata in the tmp dir)."
+    }
+  ],
+  "gate_decision": {
+    "proceed": false,
+    "reason": "Cannot claim gate pass without executing the suite. Typecheck clean; all specs compile. Operator must run `pnpm test` + `pnpm test:e2e` locally to confirm green. Additionally, backend must generate + commit drizzle migration files before tests/db/schema.test.ts can pass."
+  }
+}
