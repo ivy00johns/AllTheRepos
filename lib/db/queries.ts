@@ -39,6 +39,39 @@ function previewOf(readme: string | null): string | null {
     : readme.slice(0, REPO_PREVIEW_MAX);
 }
 
+/**
+ * Convert a raw better-sqlite3 row (snake_case columns) to a Drizzle-shaped
+ * RepoRow (camelCase). Needed wherever we use `prepare().get()` instead of
+ * `db.select()` — better-sqlite3 doesn't apply Drizzle's column mapping.
+ */
+export function mapRawRepoRow(raw: Record<string, unknown>): RepoRow {
+  return {
+    id: raw.id as number,
+    slug: raw.slug as string,
+    name: raw.name as string,
+    fullPath: raw.full_path as string,
+    remoteUrl: (raw.remote_url as string | null) ?? null,
+    defaultBranch: (raw.default_branch as string | null) ?? null,
+    currentBranch: (raw.current_branch as string | null) ?? null,
+    lastCommitHash: (raw.last_commit_hash as string | null) ?? null,
+    lastCommitDate: (raw.last_commit_date as string | null) ?? null,
+    lastCommitMsg: (raw.last_commit_msg as string | null) ?? null,
+    isDirty: Boolean(raw.is_dirty),
+    primaryLanguage: (raw.primary_language as string | null) ?? null,
+    languagesJson: (raw.languages_json as string) ?? "[]",
+    tagsJson: (raw.tags_json as string) ?? "[]",
+    description: (raw.description as string | null) ?? null,
+    readmeContent: (raw.readme_content as string | null) ?? null,
+    readmeHash: (raw.readme_hash as string | null) ?? null,
+    sizeBytes: (raw.size_bytes as number | null) ?? null,
+    lastScannedAt: (raw.last_scanned_at as string | null) ?? null,
+    lastOpenedAt: (raw.last_opened_at as string | null) ?? null,
+    createdAt: raw.created_at as string,
+    updatedAt: raw.updated_at as string,
+    source: (raw.source as RepoRow["source"]) ?? "filesystem_scan",
+  };
+}
+
 export function rowToRepo(row: RepoRow): Repo {
   return {
     id: row.id,
@@ -334,7 +367,8 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
   const existingStmt = sqlite.prepare(
     "SELECT * FROM repos WHERE full_path = ?",
   );
-  const existing = existingStmt.get(input.fullPath) as RepoRow | undefined;
+  const existingRaw = existingStmt.get(input.fullPath) as Record<string, unknown> | undefined;
+  const existing = existingRaw ? mapRawRepoRow(existingRaw) : undefined;
 
   if (!existing) {
     const allTags: Tag[] = input.heuristicTags.slice(0, 12);
@@ -371,7 +405,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
         now,
         "filesystem_scan",
       );
-    const created = existingStmt.get(input.fullPath) as RepoRow;
+    const created = mapRawRepoRow(existingStmt.get(input.fullPath) as Record<string, unknown>);
     return { row: created, created: true };
   }
 
@@ -434,7 +468,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
       now,
       existing.id,
     );
-  const updated = existingStmt.get(input.fullPath) as RepoRow;
+  const updated = mapRawRepoRow(existingStmt.get(input.fullPath) as Record<string, unknown>);
   return { row: updated, created: false };
 }
 
@@ -487,10 +521,11 @@ export async function setUserTagsBySlug(
   values: string[],
 ): Promise<RepoRow | null> {
   const sqlite = getSqlite();
-  const row = sqlite
+  const rawRow = sqlite
     .prepare("SELECT * FROM repos WHERE slug = ?")
-    .get(slug) as RepoRow | undefined;
-  if (!row) return null;
+    .get(slug) as Record<string, unknown> | undefined;
+  if (!rawRow) return null;
+  const row = mapRawRepoRow(rawRow);
   const existing = parseJson<Tag[]>(row.tagsJson, []);
   const merged = mergeUserTags(existing, values).slice(0, 12);
   sqlite
@@ -498,9 +533,10 @@ export async function setUserTagsBySlug(
       "UPDATE repos SET tags_json = ?, updated_at = ? WHERE id = ?",
     )
     .run(JSON.stringify(merged), new Date().toISOString(), row.id);
-  return sqlite
+  const refreshedRaw = sqlite
     .prepare("SELECT * FROM repos WHERE id = ?")
-    .get(row.id) as RepoRow;
+    .get(row.id) as Record<string, unknown>;
+  return mapRawRepoRow(refreshedRaw);
 }
 
 export async function markRepoOpened(slug: string): Promise<void> {

@@ -158,9 +158,10 @@ export function createTestDb(): TestDbHandle {
 /**
  * Point ATR_DATA_DIR at a fresh tmp dir so lib/db/client.ts writes there.
  *
- * When `seedSchema` is true (default), the contract schema is applied to a
- * pre-existing SQLite file before lib/db/client.ts opens it. This keeps tests
- * independent of whether backend has generated drizzle migration files yet.
+ * When `seedSchema` is true, the contract schema is applied to a pre-existing
+ * SQLite file before lib/db/client.ts opens it. Default is false now that
+ * backend's drizzle migrations land — opt in only when testing the schema in
+ * isolation from the migrator.
  */
 export function isolateDataDir(
   opts: { seedSchema?: boolean } = {},
@@ -169,7 +170,7 @@ export function isolateDataDir(
   const prev = process.env.ATR_DATA_DIR;
   process.env.ATR_DATA_DIR = dir;
 
-  if (opts.seedSchema !== false) {
+  if (opts.seedSchema === true) {
     const dbPath = path.join(dir, "alltherepos.db");
     const sqlite = new Database(dbPath);
     sqlite.pragma("journal_mode = WAL");

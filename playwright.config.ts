@@ -21,5 +21,9 @@ export default defineConfig({
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: {
+      ATR_DATA_DIR: process.env.ATR_DATA_DIR ?? `/tmp/atr-e2e-${Date.now()}`,
+      NODE_ENV: "test",
+    },
   },
 });

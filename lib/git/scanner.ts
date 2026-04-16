@@ -1,5 +1,10 @@
-import findGitRepos from "find-git-repositories";
+import { createRequire } from "node:module";
 import type { ScanProgressEvent, Tag } from "@/lib/types";
+
+// Load the native addon via CJS require — Vite/ESM cannot import .node directly.
+const requireCjs = createRequire(import.meta.url);
+const findGitRepos: (rootPath: string, cb?: (paths: string[]) => void) => Promise<string[]> =
+  requireCjs("find-git-repositories");
 import {
   upsertRepo,
   type UpsertRepoInput,
@@ -35,7 +40,9 @@ export async function* scanPaths(
     if (!raw || typeof raw !== "string") continue;
     const root = canonicalPath(raw);
     try {
-      const found = (await findGitRepos(root)) as string[];
+      // find-git-repositories requires a progress callback even when the
+      // promise resolves to the full list; pass a no-op so it doesn't throw.
+      const found = (await findGitRepos(root, () => {})) as string[];
       for (const gitDir of found) {
         const canonical = canonicalPath(
           gitDir.endsWith("/.git") ? gitDir.slice(0, -5) : gitDir,
