@@ -26,9 +26,11 @@ The Next.js app continues to work unchanged. The Electron migration is **additiv
 
 ### Prerequisites
 
-- Node 22+ (Phase 0 has been scaffolded against Node 21+ as well; use 22+ for development going forward to match the production Electron 36 runtime)
+- **Node 22+ is required** for the Electron dev server. Vite 7 uses `crypto.hash()`, which doesn't exist in Node 21.0–21.6 and bombs with `TypeError: crypto.hash is not a function`. An `.nvmrc` is checked in — run `nvm use` from the repo root to pick up Node 22 automatically. `engines.node` in `package.json` enforces this at install time.
 - pnpm 9+ (pinned via `packageManager` field)
 - macOS for `pnpm electron:dist` (DMG output)
+
+If `pnpm electron:dev` fails with `crypto.hash is not a function`, your shell is using Node ≤21.6. Run `nvm use` (or `nvm use 22`) and retry.
 
 ### Quickstart
 
