@@ -1,79 +1,184 @@
 # AllTheRepos
 
-A local-first hub for the dozens-to-thousands of git repositories on a developer's machine. Currently shipping as a Next.js app at `localhost:3939`; migrating to a native macOS Electron desktop app.
+A local-first hub for the dozens-to-thousands of git repositories on a developer's machine. Two stacks live in this repo while we migrate: the legacy **Next.js** web app at `localhost:3939`, and the in-progress **Electron desktop app** (`pnpm electron:dev`) — see [`NEW-PLAN.md`](./NEW-PLAN.md) for the full architecture.
 
-## Web app (Next.js, localhost)
+Current state: Phase 0 (scaffold) and Phase 1 (feature parity) of the Electron migration are complete. The desktop app boots, IPC works end-to-end, and the catalog renders against the migrated SQLite + LanceDB from `~/.alltherepos/`.
 
-```bash
-pnpm install
-pnpm dev          # http://localhost:3939
-pnpm typecheck
-pnpm test
-pnpm test:e2e
-```
+---
 
-Code layout:
+## Prerequisites
 
-- `app/` — Next.js App Router pages and route handlers
-- `components/` — React components (shadcn/ui + custom)
-- `lib/` — services, db, business logic
-- `contracts/` — shared schemas
-- `drizzle/` — SQLite migrations
+- **Node 22+**. Vite 7 calls `crypto.hash()`, which doesn't exist in Node 21.0–21.6 and crashes with `TypeError: crypto.hash is not a function`. An `.nvmrc` is checked in — run `nvm use` (and `nvm install` first time) from the repo root to pick up Node 22 automatically. `engines.node` enforces this at `pnpm install` time.
+- **pnpm 9+** (pinned via `packageManager` field).
+- **macOS** for `pnpm electron:dist` (DMG output). Other Electron commands work cross-platform.
+- **Optional**: Ollama running at `http://localhost:11434` for embedding-based hybrid search. Without it, search degrades to FTS5 only.
 
-## Electron app (Phase 0)
+> If you ever see `TypeError: crypto.hash is not a function`, your shell is on Node ≤21.6. Run `nvm use` and retry.
 
-The Next.js app continues to work unchanged. The Electron migration is **additive** — Phase 0 lays down the build tooling so we can start porting features into `src/main`, `src/preload`, and `src/renderer` without touching the running web app.
+---
 
-### Prerequisites
-
-- **Node 22+ is required** for the Electron dev server. Vite 7 uses `crypto.hash()`, which doesn't exist in Node 21.0–21.6 and bombs with `TypeError: crypto.hash is not a function`. An `.nvmrc` is checked in — run `nvm use` from the repo root to pick up Node 22 automatically. `engines.node` in `package.json` enforces this at install time.
-- pnpm 9+ (pinned via `packageManager` field)
-- macOS for `pnpm electron:dist` (DMG output)
-
-If `pnpm electron:dev` fails with `crypto.hash is not a function`, your shell is using Node ≤21.6. Run `nvm use` (or `nvm use 22`) and retry.
-
-### Quickstart
+## Quick start
 
 ```bash
-pnpm install
-pnpm electron:dev      # launches electron-vite dev with HMR (requires src/main/index.ts)
-pnpm electron:build    # type-check + bundle main / preload / renderer into out/
-pnpm electron:pack     # build + package an unsigned .app under release/
-pnpm electron:dist     # build + produce an unsigned .dmg under release/
+nvm use                            # picks up Node 22 from .nvmrc
+pnpm install                       # installs both stacks' deps
+pnpm electron:dev                  # boots the Electron desktop app
 ```
 
-The `electron:dev`, `electron:pack`, and `electron:dist` scripts each chain `pnpm electron:rebuild` first, which runs `electron-builder install-app-deps` and rebuilds `better-sqlite3` (and any other native module) against the bundled Electron ABI. If you ever see a `NODE_MODULE_VERSION` mismatch when launching Electron, run `pnpm electron:rebuild` (or `node scripts/rebuild-natives.mjs`).
+The Electron build chains `electron:rebuild` first to compile native modules (`better-sqlite3`, `find-git-repositories`) against Electron's Node ABI. First boot takes ~30s on a clean tree; subsequent boots are fast.
 
-### Known Issues (Phase 0)
+---
 
-- **Native modules require dual rebuilds.** `better-sqlite3` and `find-git-repositories` ship a single set of `.node` binaries. Tests run under host Node (`pnpm test`); Electron runs under Electron's bundled Node. Switching between them requires a rebuild:
-  - For tests: `pnpm rebuild better-sqlite3 find-git-repositories`
-  - For Electron: `pnpm electron:rebuild` (chained into `electron:dev` / `electron:dist`)
+## Desktop app (Electron, current focus)
 
-  Resolving this properly (dual binaries, ABI auto-targeting) is a Phase 1 task.
+```bash
+pnpm electron:dev                  # dev — rebuilds natives, then launches
+pnpm electron:build                # produces out/{main,preload,renderer}
+pnpm electron:pack                 # DMG output (unsigned, local dev)
+pnpm electron:dist                 # DMG output (release config)
+pnpm electron:rebuild              # force-rebuild natives for Electron's ABI
+```
 
-- **Carried-over WIP error in `lib/github/client.ts:224`** — implicit `any` on `edge` callback param. This is from the prior `feature/github-api-integration` WIP commit, not Phase 0 scope. Resolution is owned by the GitHub integration feature.
+### Architecture (one-paragraph version)
 
-### Code layout
+Three TypeScript codebases share `src/shared/` (types + Zod schemas + IPC channel constants):
 
-- `src/main/` — Electron main process (services, IPC handlers, workers, native shell)
-- `src/preload/` — `contextBridge` API exposed to the renderer as `window.atr.*`
-- `src/renderer/` — React UI (Vite root: `src/renderer/index.html`)
-- `src/shared/` — types, Zod schemas, constants imported by both main and renderer
-- `resources/` — entitlements, icons, DMG background
-- `scripts/` — build / rebuild / notarize utilities
+- **`src/main/`** — main process. Node services for catalog (Drizzle + better-sqlite3 + FTS5), scan (`find-git-repositories` worker thread), search (FTS + LanceDB hybrid with RRF), git (`simple-git`), settings (atomic-rename JSON store), and groups. Singleton instances; renderer never touches Node APIs.
+- **`src/preload/`** — `contextBridge.exposeInMainWorld('atr', ...)`. The renderer talks to the main process through `window.atr.<namespace>.<method>()` only.
+- **`src/renderer/`** — Vite + React 19 + Tailwind 4 + shadcn + TanStack Router + TanStack Query + Zustand. Pure web app. 16 components ported verbatim from the Next.js side.
 
-Path aliases (configured across `tsconfig.json`, `tsconfig.node.json`, `tsconfig.web.json`, and `electron.vite.config.ts`):
+21 IPC channels are wired, every one with Zod-validated input AND output and a frame-origin check. See [`contracts/ipc.v1.md`](./contracts/ipc.v1.md) and [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md).
 
-| alias        | resolves to       | used by                  |
-|--------------|-------------------|--------------------------|
-| `@/*`        | repo root         | Next.js app (legacy)     |
-| `@shared/*`  | `src/shared/*`    | main + preload + renderer |
-| `@main/*`    | `src/main/*`      | main process             |
-| `@renderer/*`| `src/renderer/*`  | renderer                 |
+### Routes (TanStack Router, memory history)
 
-### Phase 0 status
+| Route          | What it shows                                             |
+| -------------- | --------------------------------------------------------- |
+| `/`            | Three-column catalog (sidebar + repo grid + detail panel) |
+| `/repos/$slug` | Standalone repo detail page                               |
+| `/settings`    | Scan paths + ignore globs + provider config               |
+| `/debug`       | Phase 0 ping/pong card — useful when nothing else works   |
 
-This README section is updated as Phase 0 lands its pieces. Today: build tooling, tsconfig split, electron-builder config, and entitlements skeleton are in place. The IPC ping, Tailwind/shadcn renderer wiring, and Vitest/Playwright Electron tests land via the backend, frontend, and QE agents respectively.
+### Data location
 
-See `NEW-PLAN.md` for the full architecture and migration plan (§3.2 folder structure, §3.4 security baseline, §7 packaging, §8 stack, §9 phased build plan).
+- SQLite + LanceDB + settings.json live at `~/Library/Application Support/AllTheRepos/` (i.e., `app.getPath('userData')`).
+- On first boot, if `~/.alltherepos/` exists, the legacy DB / Lance dir / notes are **copied** (not moved) and a `MIGRATED` sentinel is written. The source is preserved for muscle-memory CLI access.
+
+---
+
+## Web app (Next.js, legacy)
+
+```bash
+pnpm dev                           # http://localhost:3939
+pnpm build
+pnpm start
+```
+
+The Next.js app remains fully functional during the migration. Phase 1 was implemented **additively** — nothing under `app/`, `components/`, or `lib/` was removed.
+
+---
+
+## Testing
+
+```bash
+pnpm test                          # vitest (host Node ABI required for native modules)
+pnpm test:e2e                      # Playwright against the Next.js dev server
+pnpm exec playwright test \
+  --config playwright.electron.config.ts   # Playwright against the Electron build
+```
+
+Current status: **203 unit tests passing** (44 Phase 0 + 135 Phase 1 + 24 legacy MVP), 5 skipped, 0 failed. **2 Playwright Electron E2E tests passing** (catalog flow + debug ping). See [`qa-report.json`](./qa-report.json) for the full gate report.
+
+---
+
+## Known Issues
+
+### The dual-rebuild dance (Phase 1 / Phase 2 work item)
+
+`better-sqlite3` and `find-git-repositories` ship a single set of `.node` binaries. Tests run under host Node (module version 137 on Node 24); Electron runs under its bundled Node (module version 135 for Electron 36). Switching between them requires a rebuild:
+
+```bash
+# Before pnpm test, if you just ran electron:dev/build:
+pnpm rebuild better-sqlite3 find-git-repositories
+
+# Before pnpm electron:dev, if you just ran pnpm test:
+pnpm electron:rebuild              # invokes electron-rebuild -f
+```
+
+`pnpm electron:dev`, `electron:pack`, and `electron:dist` chain `electron:rebuild` automatically; no need to run it manually before those. `pnpm install` does **not** rebuild — by design, so default state is test-ready.
+
+Resolving this properly (dual prebuilt binaries, ABI auto-targeting) is a Phase 2 task.
+
+### Phase 1 UX cleanup items (`qa-report.json` LOW issues)
+
+- **Double SearchBar on `/`** — both the top-bar and the catalog-shell mount one. Top-bar binds to Zustand `activeFilter.q`; shell binds to URL search params. Phase 2 will unify the sources.
+- **Settings link duplicated** in top-bar + group-sidebar. Cosmetic.
+- **`src/renderer/fonts/` ships empty** — Plex/JetBrains Mono `.woff2` files are placeholders (see `src/renderer/fonts/README.md`). Renderer falls back to system fonts. Drop the 6 files in to fix.
+- **`repo-detail-content.tsx`'s "Open in VS Code" button** still uses `vscode://file/...` directly instead of routing through `git:openInEditor` allowlist. Phase 2 task.
+- **`catalog:smartFilter` is a Phase 1 stub** returning `[]` — real LLM tagging lands in Phase 4.
+
+### Other
+
+- **Scanner test flake on hosts with 1Password GPG signing.** `tests/git/scanner.test.ts` uses `simple-git` to commit in temp repos. If your global `commit.gpgsign = true` runs through 1Password's agent, the commits fail. Workaround: `git config --global commit.gpgsign false` or pass `--no-gpg-sign` in the test (legacy maintenance, not a Phase 1 regression).
+- **Carried-over WIP** in `lib/github/client.ts` — early GitHub API integration commit from the prior branch. Untouched by the Electron migration.
+
+---
+
+## Project structure
+
+```
+.
+├── NEW-PLAN.md                   # 850-line Electron architecture brief
+├── README.md                     # you are here
+├── package.json                  # both stacks, main field points to out/main/index.js
+├── electron.vite.config.ts       # main + preload + renderer build config
+├── electron-builder.yml          # DMG packaging
+├── tsconfig.json                 # Next.js side
+├── tsconfig.node.json            # main + preload + shared + contracts
+├── tsconfig.web.json             # renderer + shared + contracts
+├── playwright.config.ts          # Next.js E2E
+├── playwright.electron.config.ts # Electron E2E
+├── vitest.config.ts              # both stacks
+├── drizzle/                      # SQLite migrations
+├── contracts/                    # IPC v1 + data layer v1 + types + schema
+├── app/, components/, lib/       # legacy Next.js code (preserved)
+├── src/
+│   ├── shared/                   # types + schemas + IPC constants (both processes)
+│   ├── main/                     # Node main process
+│   │   ├── index.ts              # app boot, single-instance lock
+│   │   ├── window/               # BrowserWindow factory
+│   │   ├── security/             # CSP + shell.openExternal allowlist
+│   │   ├── ipc/                  # 6 namespaces of ipcMain.handle
+│   │   ├── services/             # catalog, scan, search, git, settings, etc.
+│   │   ├── workers/              # scanner.worker.ts
+│   │   └── db/                   # client + schema + queries + migrate + migration
+│   ├── preload/                  # contextBridge typed API
+│   └── renderer/                 # Vite + React + TanStack
+│       ├── routes/               # __root, index, repos.$slug, settings, debug
+│       ├── components/           # ui primitives + catalog + groups + search + layout
+│       ├── hooks/                # useRepos, useRepo, useSearch, useGroups, etc.
+│       ├── stores/               # Zustand: ui, scan
+│       ├── lib/                  # cn, atr, query-client
+│       └── styles/               # globals.css with Tailwind 4 @theme
+├── tests/                        # vitest unit + Playwright e2e
+├── scripts/
+│   ├── rebuild-natives.mjs       # electron-rebuild -f wrapper
+│   ├── notarize.mjs              # placeholder for Phase 5
+│   └── run-electron-e2e.mjs      # build + test in one command
+└── resources/
+    └── entitlements.mac.plist    # JIT + hardened runtime
+```
+
+---
+
+## Documentation map
+
+| Doc                                                          | Purpose                                                  |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| [`NEW-PLAN.md`](./NEW-PLAN.md)                               | Full Electron migration architecture, all 6 phases       |
+| [`contracts/ipc.v1.md`](./contracts/ipc.v1.md)               | Frozen IPC channel registry (Phase 0 + 1)                |
+| [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md) | SQLite + LanceDB + settings file locations and migration |
+| [`contracts/api.md`](./contracts/api.md)                     | Legacy Next.js Server Action / Route Handler contracts   |
+| [`contracts/schema.md`](./contracts/schema.md)               | Drizzle schema doc                                       |
+| [`contracts/types.ts`](./contracts/types.ts)                 | Shared entity types                                      |
+| [`qa-report.json`](./qa-report.json)                         | Latest QA gate decision + test counts                    |
+| [`docs/initial-plan.md`](./docs/initial-plan.md)             | Earlier planning notes                                   |
