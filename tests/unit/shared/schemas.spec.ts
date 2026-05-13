@@ -19,6 +19,37 @@ import {
   ScanEventSchema,
   PingInputSchema,
   PingResponseSchema,
+  // ---- Phase 1 additions
+  SettingsSchema,
+  SearchFiltersSchema,
+  SearchHitSchema,
+  ListReposInputSchema,
+  ListReposResultSchema,
+  GetRepoInputSchema,
+  RepoDetailSchema,
+  SearchReposInputSchema,
+  SearchReposResultSchema,
+  RescanRepoInputSchema,
+  SetRepoTagsInputSchema,
+  SmartFilterInputSchema,
+  StartScanInputSchema,
+  StartScanResultSchema,
+  ScanStatusInputSchema,
+  ScanStatusResultSchema,
+  CancelScanInputSchema,
+  CancelScanResultSchema,
+  GitStatusInputSchema,
+  GitStatusSchema,
+  GitBranchSchema,
+  GitBranchesResultSchema,
+  OpenInEditorInputSchema,
+  GetSettingsInputSchema,
+  UpdateSettingsInputSchema,
+  ListGroupsInputSchema,
+  CreateGroupInputSchema,
+  RenameGroupInputSchema,
+  DeleteGroupInputSchema,
+  SetGroupMembersInputSchema,
 } from "../../../src/shared/schemas";
 
 // ---------------------------------------------------------------------------
@@ -228,9 +259,7 @@ describe("TagSchema", () => {
   });
 
   it("rejects an unknown source", () => {
-    expect(() =>
-      TagSchema.parse({ value: "rust", source: "ai" }),
-    ).toThrow();
+    expect(() => TagSchema.parse({ value: "rust", source: "ai" })).toThrow();
   });
 });
 
@@ -321,5 +350,720 @@ describe("GroupSchema", () => {
       smartFilter: { language: "rust" },
     };
     expect(GroupSchema.parse(smart)).toEqual(smart);
+  });
+});
+
+// ===========================================================================
+// Phase 1 schema coverage
+// ===========================================================================
+//
+// Each Phase 1 IPC channel has an input + output schema in
+// `src/shared/schemas.ts`. These tests target the small handful that gate
+// the live IPC handlers: SettingsSchema, list/search inputs, scan job
+// shapes, git status / branch shapes, and group CRUD inputs.
+//
+// Owner: qe-agent (Phase 1).
+
+// ---------------------------------------------------------------------------
+// SettingsSchema (round-trips through settings:get / settings:update)
+// ---------------------------------------------------------------------------
+
+describe("SettingsSchema", () => {
+  const valid = {
+    scanPaths: ["/Users/foo/Projects"],
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    ollamaEmbedModel: "nomic-embed-text",
+    openaiEmbedModel: null,
+    defaultEditor: "vscode" as const,
+    schemaVersion: 1,
+  };
+
+  it("accepts a fully-populated settings blob", () => {
+    expect(SettingsSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("accepts each editor enum value", () => {
+    for (const editor of ["vscode", "cursor", "none"] as const) {
+      expect(
+        SettingsSchema.parse({ ...valid, defaultEditor: editor }).defaultEditor,
+      ).toBe(editor);
+    }
+  });
+
+  it("rejects an unknown editor enum value", () => {
+    expect(() =>
+      SettingsSchema.parse({ ...valid, defaultEditor: "sublime" }),
+    ).toThrow();
+  });
+
+  it("rejects an empty ollamaBaseUrl", () => {
+    expect(() =>
+      SettingsSchema.parse({ ...valid, ollamaBaseUrl: "" }),
+    ).toThrow();
+  });
+
+  it("rejects an empty scan path entry", () => {
+    expect(() => SettingsSchema.parse({ ...valid, scanPaths: [""] })).toThrow();
+  });
+
+  it("rejects a negative schemaVersion", () => {
+    expect(() =>
+      SettingsSchema.parse({ ...valid, schemaVersion: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects a non-integer schemaVersion", () => {
+    expect(() =>
+      SettingsSchema.parse({ ...valid, schemaVersion: 1.5 }),
+    ).toThrow();
+  });
+});
+
+describe("GetSettingsInputSchema", () => {
+  it("accepts an empty object", () => {
+    expect(GetSettingsInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() => GetSettingsInputSchema.parse({ extra: 1 })).toThrow();
+  });
+});
+
+describe("UpdateSettingsInputSchema (partial of SettingsSchema)", () => {
+  it("accepts an empty patch", () => {
+    expect(UpdateSettingsInputSchema.parse({})).toEqual({});
+  });
+
+  it("accepts a single-key patch", () => {
+    expect(
+      UpdateSettingsInputSchema.parse({ defaultEditor: "cursor" }),
+    ).toEqual({ defaultEditor: "cursor" });
+  });
+
+  it("rejects an unknown editor in a patch", () => {
+    expect(() =>
+      UpdateSettingsInputSchema.parse({ defaultEditor: "atom" }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog:list inputs / outputs
+// ---------------------------------------------------------------------------
+
+describe("ListReposInputSchema", () => {
+  it("accepts an empty object (all fields optional)", () => {
+    expect(ListReposInputSchema.parse({})).toEqual({});
+  });
+
+  it("accepts a populated query", () => {
+    const q = {
+      q: "rust",
+      language: "rust",
+      tags: ["wasm"],
+      groupId: 7,
+      smart: false,
+      dirtyOnly: true,
+      sort: "lastCommit" as const,
+      order: "desc" as const,
+      limit: 50,
+      offset: 0,
+    };
+    expect(ListReposInputSchema.parse(q)).toEqual(q);
+  });
+
+  it("rejects limit > 200", () => {
+    expect(() => ListReposInputSchema.parse({ limit: 201 })).toThrow();
+  });
+
+  it("rejects limit < 1", () => {
+    expect(() => ListReposInputSchema.parse({ limit: 0 })).toThrow();
+  });
+
+  it("rejects a negative offset", () => {
+    expect(() => ListReposInputSchema.parse({ offset: -1 })).toThrow();
+  });
+
+  it("rejects an unknown sort key", () => {
+    expect(() => ListReposInputSchema.parse({ sort: "foo" })).toThrow();
+  });
+
+  it("rejects an unknown order", () => {
+    expect(() => ListReposInputSchema.parse({ order: "sideways" })).toThrow();
+  });
+
+  it("accepts null language (preserved as null)", () => {
+    expect(ListReposInputSchema.parse({ language: null })).toEqual({
+      language: null,
+    });
+  });
+});
+
+describe("ListReposResultSchema", () => {
+  it("accepts an empty result", () => {
+    const empty = { items: [], total: 0, limit: 50, offset: 0 };
+    expect(ListReposResultSchema.parse(empty)).toEqual(empty);
+  });
+
+  it("rejects a negative total", () => {
+    expect(() =>
+      ListReposResultSchema.parse({
+        items: [],
+        total: -1,
+        limit: 0,
+        offset: 0,
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog:get
+// ---------------------------------------------------------------------------
+
+describe("GetRepoInputSchema", () => {
+  it("accepts a string slug", () => {
+    expect(GetRepoInputSchema.parse({ slug: "foo" })).toEqual({ slug: "foo" });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => GetRepoInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects a missing slug", () => {
+    expect(() => GetRepoInputSchema.parse({})).toThrow();
+  });
+});
+
+describe("RepoDetailSchema", () => {
+  const baseRepo = {
+    id: 1,
+    slug: "x",
+    name: "x",
+    fullPath: "/repos/x",
+    remoteUrl: null,
+    defaultBranch: null,
+    currentBranch: null,
+    lastCommitHash: null,
+    lastCommitDate: null,
+    lastCommitMsg: null,
+    isDirty: false,
+    primaryLanguage: null,
+    languages: [],
+    tags: [],
+    description: null,
+    readmePreview: null,
+    readmeHash: null,
+    sizeBytes: null,
+    lastScannedAt: null,
+    lastOpenedAt: null,
+    createdAt: "2026-05-13T00:00:00.000Z",
+    updatedAt: "2026-05-13T00:00:00.000Z",
+    source: "filesystem_scan" as const,
+  };
+
+  it("accepts the Repo shape extended with readmeContent + groups", () => {
+    const detail = { ...baseRepo, readmeContent: "# x", groups: [] };
+    expect(RepoDetailSchema.parse(detail)).toEqual(detail);
+  });
+
+  it("accepts a null readmeContent", () => {
+    const detail = { ...baseRepo, readmeContent: null, groups: [] };
+    expect(RepoDetailSchema.parse(detail)).toEqual(detail);
+  });
+
+  it("rejects when readmeContent is missing", () => {
+    const detail = { ...baseRepo, groups: [] };
+    expect(() => RepoDetailSchema.parse(detail)).toThrow();
+  });
+
+  it("rejects a group entry without a name", () => {
+    const detail = {
+      ...baseRepo,
+      readmeContent: null,
+      groups: [{ id: 1 }],
+    };
+    expect(() => RepoDetailSchema.parse(detail)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog:search
+// ---------------------------------------------------------------------------
+
+describe("SearchFiltersSchema", () => {
+  it("accepts an empty filter object", () => {
+    expect(SearchFiltersSchema.parse({})).toEqual({});
+  });
+
+  it("accepts populated filters", () => {
+    const f = {
+      language: "rust",
+      tags: ["wasm"],
+      groupIds: [1, 2],
+      dirtyOnly: true,
+    };
+    expect(SearchFiltersSchema.parse(f)).toEqual(f);
+  });
+});
+
+describe("SearchReposInputSchema", () => {
+  it("accepts a minimal query", () => {
+    expect(SearchReposInputSchema.parse({ q: "hello" })).toEqual({
+      q: "hello",
+    });
+  });
+
+  it("accepts a populated query", () => {
+    const input = {
+      q: "rust async",
+      mode: "hybrid" as const,
+      filters: { language: "rust" },
+      limit: 50,
+    };
+    expect(SearchReposInputSchema.parse(input)).toEqual(input);
+  });
+
+  it("rejects an empty q", () => {
+    expect(() => SearchReposInputSchema.parse({ q: "" })).toThrow();
+  });
+
+  it("rejects an unknown mode", () => {
+    expect(() =>
+      SearchReposInputSchema.parse({ q: "x", mode: "lexical" }),
+    ).toThrow();
+  });
+
+  it("rejects limit > 200", () => {
+    expect(() =>
+      SearchReposInputSchema.parse({ q: "x", limit: 201 }),
+    ).toThrow();
+  });
+});
+
+describe("SearchHitSchema", () => {
+  const repo = {
+    id: 1,
+    slug: "x",
+    name: "x",
+    fullPath: "/repos/x",
+    remoteUrl: null,
+    defaultBranch: null,
+    currentBranch: null,
+    lastCommitHash: null,
+    lastCommitDate: null,
+    lastCommitMsg: null,
+    isDirty: false,
+    primaryLanguage: null,
+    languages: [],
+    tags: [],
+    description: null,
+    readmePreview: null,
+    readmeHash: null,
+    sizeBytes: null,
+    lastScannedAt: null,
+    lastOpenedAt: null,
+    createdAt: "2026-05-13T00:00:00.000Z",
+    updatedAt: "2026-05-13T00:00:00.000Z",
+    source: "filesystem_scan" as const,
+  };
+
+  it("accepts a hybrid hit with snippet", () => {
+    const hit = {
+      repo,
+      score: 0.87,
+      matchKind: "hybrid" as const,
+      snippet: "async fn",
+    };
+    expect(SearchHitSchema.parse(hit)).toEqual(hit);
+  });
+
+  it("accepts a vector hit with null snippet", () => {
+    const hit = {
+      repo,
+      score: 0.5,
+      matchKind: "vector" as const,
+      snippet: null,
+    };
+    expect(SearchHitSchema.parse(hit)).toEqual(hit);
+  });
+
+  it("rejects an unknown matchKind", () => {
+    expect(() =>
+      SearchHitSchema.parse({
+        repo,
+        score: 1,
+        matchKind: "lexical",
+        snippet: null,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a non-numeric score", () => {
+    expect(() =>
+      SearchHitSchema.parse({
+        repo,
+        score: "high",
+        matchKind: "fts",
+        snippet: null,
+      }),
+    ).toThrow();
+  });
+
+  it("SearchReposResultSchema accepts an empty array", () => {
+    expect(SearchReposResultSchema.parse([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog:rescan + catalog:setTags + catalog:smartFilter inputs
+// ---------------------------------------------------------------------------
+
+describe("RescanRepoInputSchema", () => {
+  it("accepts a slug", () => {
+    expect(RescanRepoInputSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => RescanRepoInputSchema.parse({ slug: "" })).toThrow();
+  });
+});
+
+describe("SetRepoTagsInputSchema", () => {
+  it("accepts up to 12 tags", () => {
+    const tags = Array.from({ length: 12 }, (_, i) => `t${i}`);
+    expect(SetRepoTagsInputSchema.parse({ slug: "x", tags })).toEqual({
+      slug: "x",
+      tags,
+    });
+  });
+
+  it("rejects > 12 tags", () => {
+    const tags = Array.from({ length: 13 }, (_, i) => `t${i}`);
+    expect(() => SetRepoTagsInputSchema.parse({ slug: "x", tags })).toThrow();
+  });
+
+  it("accepts an empty tag list (caller may clear all)", () => {
+    expect(SetRepoTagsInputSchema.parse({ slug: "x", tags: [] })).toEqual({
+      slug: "x",
+      tags: [],
+    });
+  });
+});
+
+describe("SmartFilterInputSchema", () => {
+  it("accepts a minimal prompt", () => {
+    expect(SmartFilterInputSchema.parse({ prompt: "rust async" })).toEqual({
+      prompt: "rust async",
+    });
+  });
+
+  it("rejects an empty prompt", () => {
+    expect(() => SmartFilterInputSchema.parse({ prompt: "" })).toThrow();
+  });
+
+  it("rejects limit > 200", () => {
+    expect(() =>
+      SmartFilterInputSchema.parse({ prompt: "x", limit: 999 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scan:* shapes
+// ---------------------------------------------------------------------------
+
+describe("StartScanInputSchema", () => {
+  it("accepts an empty object", () => {
+    expect(StartScanInputSchema.parse({})).toEqual({});
+  });
+
+  it("accepts a path override", () => {
+    expect(StartScanInputSchema.parse({ paths: ["/Users/foo"] })).toEqual({
+      paths: ["/Users/foo"],
+    });
+  });
+
+  it("rejects an empty string path entry", () => {
+    expect(() => StartScanInputSchema.parse({ paths: [""] })).toThrow();
+  });
+});
+
+describe("StartScanResultSchema", () => {
+  it("accepts a running job handle", () => {
+    const out = {
+      jobId: "uuid-1",
+      status: "running" as const,
+      startedAt: "2026-05-13T00:00:00.000Z",
+    };
+    expect(StartScanResultSchema.parse(out)).toEqual(out);
+  });
+
+  it("rejects status != 'running'", () => {
+    expect(() =>
+      StartScanResultSchema.parse({
+        jobId: "x",
+        status: "done",
+        startedAt: "2026-05-13T00:00:00.000Z",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ScanStatusInputSchema / ScanStatusResultSchema", () => {
+  it("input accepts a job id", () => {
+    expect(ScanStatusInputSchema.parse({ jobId: "uuid-1" })).toEqual({
+      jobId: "uuid-1",
+    });
+  });
+
+  it("input rejects an empty job id", () => {
+    expect(() => ScanStatusInputSchema.parse({ jobId: "" })).toThrow();
+  });
+
+  it("result accepts every status enum value", () => {
+    const base = {
+      jobId: "u",
+      processed: 0,
+      total: 0,
+      startedAt: "2026-05-13T00:00:00.000Z",
+      endedAt: null,
+      errorMessage: null,
+    };
+    for (const status of [
+      "running",
+      "done",
+      "error",
+      "cancelled",
+      "unknown",
+    ] as const) {
+      expect(ScanStatusResultSchema.parse({ ...base, status }).status).toBe(
+        status,
+      );
+    }
+  });
+
+  it("result rejects an unknown status", () => {
+    expect(() =>
+      ScanStatusResultSchema.parse({
+        jobId: "u",
+        status: "queued",
+        processed: 0,
+        total: 0,
+        startedAt: "2026-05-13T00:00:00.000Z",
+        endedAt: null,
+        errorMessage: null,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("CancelScanInputSchema / CancelScanResultSchema", () => {
+  it("input accepts a job id", () => {
+    expect(CancelScanInputSchema.parse({ jobId: "u" })).toEqual({
+      jobId: "u",
+    });
+  });
+
+  it("result accepts cancelled=true|false", () => {
+    expect(
+      CancelScanResultSchema.parse({ jobId: "u", cancelled: true }),
+    ).toEqual({ jobId: "u", cancelled: true });
+    expect(
+      CancelScanResultSchema.parse({ jobId: "u", cancelled: false }),
+    ).toEqual({ jobId: "u", cancelled: false });
+  });
+
+  it("result rejects a non-boolean cancelled flag", () => {
+    expect(() =>
+      CancelScanResultSchema.parse({ jobId: "u", cancelled: "yes" }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// git:* shapes
+// ---------------------------------------------------------------------------
+
+describe("GitStatusInputSchema / GitStatusSchema", () => {
+  it("input requires a slug", () => {
+    expect(GitStatusInputSchema.parse({ slug: "x" })).toEqual({ slug: "x" });
+    expect(() => GitStatusInputSchema.parse({})).toThrow();
+  });
+
+  it("output accepts a clean repo", () => {
+    const s = {
+      slug: "x",
+      isDirty: false,
+      ahead: 0,
+      behind: 0,
+      currentBranch: "main",
+      upstream: "origin/main",
+    };
+    expect(GitStatusSchema.parse(s)).toEqual(s);
+  });
+
+  it("output rejects negative ahead/behind", () => {
+    expect(() =>
+      GitStatusSchema.parse({
+        slug: "x",
+        isDirty: false,
+        ahead: -1,
+        behind: 0,
+        currentBranch: null,
+        upstream: null,
+      }),
+    ).toThrow();
+  });
+
+  it("output accepts null branch + null upstream (detached HEAD case)", () => {
+    const s = {
+      slug: "x",
+      isDirty: true,
+      ahead: 0,
+      behind: 0,
+      currentBranch: null,
+      upstream: null,
+    };
+    expect(GitStatusSchema.parse(s)).toEqual(s);
+  });
+});
+
+describe("GitBranchSchema / GitBranchesResultSchema", () => {
+  it("accepts a current branch with null commit metadata", () => {
+    const b = {
+      name: "main",
+      isCurrent: true,
+      lastCommitHash: null,
+      lastCommitDate: null,
+      lastCommitMsg: null,
+    };
+    expect(GitBranchSchema.parse(b)).toEqual(b);
+  });
+
+  it("rejects an empty branch name", () => {
+    expect(() =>
+      GitBranchSchema.parse({
+        name: "",
+        isCurrent: false,
+        lastCommitHash: null,
+        lastCommitDate: null,
+        lastCommitMsg: null,
+      }),
+    ).toThrow();
+  });
+
+  it("GitBranchesResultSchema accepts an empty list", () => {
+    expect(GitBranchesResultSchema.parse([])).toEqual([]);
+  });
+});
+
+describe("OpenInEditorInputSchema", () => {
+  it("accepts slug-only payload", () => {
+    expect(OpenInEditorInputSchema.parse({ slug: "x" })).toEqual({
+      slug: "x",
+    });
+  });
+
+  it("accepts each editor option", () => {
+    for (const editor of ["vscode", "cursor", "none"] as const) {
+      expect(OpenInEditorInputSchema.parse({ slug: "x", editor }).editor).toBe(
+        editor,
+      );
+    }
+  });
+
+  it("rejects an unknown editor", () => {
+    expect(() =>
+      OpenInEditorInputSchema.parse({ slug: "x", editor: "vim" }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// groups:* shapes
+// ---------------------------------------------------------------------------
+
+describe("ListGroupsInputSchema", () => {
+  it("accepts an empty object", () => {
+    expect(ListGroupsInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() => ListGroupsInputSchema.parse({ x: 1 })).toThrow();
+  });
+});
+
+describe("CreateGroupInputSchema", () => {
+  it("accepts a minimal manual group", () => {
+    expect(CreateGroupInputSchema.parse({ name: "Frontend" })).toEqual({
+      name: "Frontend",
+    });
+  });
+
+  it("accepts a smart group with a nested filter", () => {
+    const input = {
+      name: "Rust repos",
+      description: null,
+      isSmart: true,
+      smartFilter: { language: "rust" },
+      parentGroupId: null,
+    };
+    expect(CreateGroupInputSchema.parse(input)).toEqual(input);
+  });
+
+  it("rejects an empty name", () => {
+    expect(() => CreateGroupInputSchema.parse({ name: "" })).toThrow();
+  });
+});
+
+describe("RenameGroupInputSchema", () => {
+  it("accepts {id, name}", () => {
+    expect(RenameGroupInputSchema.parse({ id: 1, name: "New" })).toEqual({
+      id: 1,
+      name: "New",
+    });
+  });
+
+  it("rejects an empty name", () => {
+    expect(() => RenameGroupInputSchema.parse({ id: 1, name: "" })).toThrow();
+  });
+
+  it("rejects a non-integer id", () => {
+    expect(() =>
+      RenameGroupInputSchema.parse({ id: 1.5, name: "x" }),
+    ).toThrow();
+  });
+});
+
+describe("DeleteGroupInputSchema", () => {
+  it("accepts an integer id", () => {
+    expect(DeleteGroupInputSchema.parse({ id: 1 })).toEqual({ id: 1 });
+  });
+
+  it("rejects a missing id", () => {
+    expect(() => DeleteGroupInputSchema.parse({})).toThrow();
+  });
+});
+
+describe("SetGroupMembersInputSchema", () => {
+  it("accepts a groupId + slug list", () => {
+    expect(
+      SetGroupMembersInputSchema.parse({ groupId: 1, slugs: ["a", "b"] }),
+    ).toEqual({ groupId: 1, slugs: ["a", "b"] });
+  });
+
+  it("accepts an empty slug list (caller clears membership)", () => {
+    expect(SetGroupMembersInputSchema.parse({ groupId: 1, slugs: [] })).toEqual(
+      { groupId: 1, slugs: [] },
+    );
+  });
+
+  it("rejects an empty-string slug entry", () => {
+    expect(() =>
+      SetGroupMembersInputSchema.parse({ groupId: 1, slugs: [""] }),
+    ).toThrow();
   });
 });

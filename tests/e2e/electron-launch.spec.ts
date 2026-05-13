@@ -1,22 +1,26 @@
 /**
- * Phase 0 E2E — Electron app launch + system:ping round-trip.
+ * Phase 0 E2E (updated for Phase 1) — Electron app launch + system:ping
+ * round-trip via the new `/debug` route.
  *
  * Per NEW-PLAN.md §9 Phase 0 deliverable: "one passing E2E test that opens
- * the window". This test:
+ * the window". Phase 1 moved the ping/pong card out of `/` (now the
+ * catalog) into `/debug`. TanStack Router is configured with
+ * `createMemoryHistory` so we cannot navigate via URL — instead we click
+ * the Debug nav button rendered in the top bar.
+ *
+ * This test:
  *   1. Launches Electron via `_electron.launch` pointing at the built
  *      main-process bundle (`out/main/index.js`).
  *   2. Waits for the first window to load.
- *   3. Asserts the renderer surfaces a successful ping response:
+ *   3. Navigates to `/debug` by clicking the top-bar "Debug" link.
+ *   4. Asserts the renderer surfaces a successful ping response:
  *      "pong" text and a numeric mainProcessPid.
- *   4. Optionally clicks a "Ping again" button if the renderer renders
- *      one (graceful no-op if it doesn't — the contract only requires
- *      the initial ping to render).
+ *   5. Optionally clicks "Ping again" to re-verify the round-trip.
  *
  * Pre-requisite: `pnpm electron:build` (or `node scripts/run-electron-e2e.mjs`)
- * must have produced `out/main/index.js`. Without that, the test fails fast
- * with a clear error explaining how to fix it.
+ * must have produced `out/main/index.js`.
  *
- * Owner: qe-agent (Phase 0).
+ * Owner: qe-agent (Phase 0 — refreshed in Phase 1).
  */
 
 import { existsSync } from "node:fs";
@@ -26,7 +30,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
 
-test.describe("Electron main window", () => {
+test.describe("Electron main window — /debug ping", () => {
   test.beforeAll(() => {
     if (!existsSync(MAIN_ENTRY)) {
       throw new Error(
@@ -35,7 +39,7 @@ test.describe("Electron main window", () => {
     }
   });
 
-  test("opens, surfaces ping, and exposes a numeric main-process pid", async () => {
+  test("opens, navigates to /debug, surfaces ping, exposes numeric pid", async () => {
     const app = await electron.launch({
       args: [MAIN_ENTRY],
       cwd: REPO_ROOT,
@@ -50,9 +54,16 @@ test.describe("Electron main window", () => {
       const win = await app.firstWindow();
       await win.waitForLoadState("domcontentloaded");
 
-      // The renderer should call window.atr.system.ping() on mount and
-      // render the result. Wait for "pong" to show up — generous timeout
-      // covers cold start.
+      // The renderer mounts at `/` (catalog). Click the top-bar "Debug"
+      // link to navigate to `/debug` where the ping card lives. Memory
+      // history means the route only changes via in-app links — we
+      // cannot just `goto('/debug')`.
+      const debugLink = win.getByRole("link", { name: /^debug$/i });
+      await expect(debugLink).toBeVisible({ timeout: 15_000 });
+      await debugLink.click();
+
+      // The DebugPage component pings on mount; wait for the rendered
+      // response to settle.
       await expect(win.locator("body")).toContainText("pong", {
         timeout: 15_000,
       });
@@ -66,9 +77,8 @@ test.describe("Electron main window", () => {
         `expected a numeric pid in body text but got: ${bodyText.slice(0, 200)}`,
       ).not.toBeNull();
 
-      // If the renderer offers a "Ping again" button, click it and assert
-      // "pong" remains visible. If the button isn't there, that's fine —
-      // the initial ping satisfies the Phase 0 contract.
+      // Round-trip the ping a second time via "Ping again" to prove the
+      // bridge isn't a one-shot.
       const pingAgain = win.getByRole("button", { name: /ping again/i });
       if ((await pingAgain.count()) > 0) {
         await pingAgain.first().click();

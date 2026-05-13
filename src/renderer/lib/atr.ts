@@ -9,22 +9,98 @@
  *   - swap in a different transport later (e.g. electron-trpc) without
  *     churning every call site.
  *
- * Types come from `src/preload/index.d.ts` (owned by the backend agent).
- * In Phase 0 the preload may not yet expose its `.d.ts`, so we fall back
- * to a structural type sourced from the shared Phase 0 schemas.
+ * The structural shape below mirrors `src/preload/index.d.ts`'s
+ * `AtrApi` (currently Phase 0 `system` namespace). Phase 1 extends the
+ * renderer-side view of the bridge to cover catalog/scan/git/settings/
+ * groups even before the preload exports them — backend agents will
+ * physically wire the missing methods in their own files. Until then
+ * the hooks built on top of this module receive `undefined` at runtime
+ * and short-circuit (see `getAtr()` null check below).
  */
 
-import type { PingInput, PingResponse } from "@shared/types";
+import type {
+  CancelScanInput,
+  CancelScanResult,
+  CreateGroupInput,
+  CreateGroupResult,
+  DeleteGroupInput,
+  DeleteGroupResult,
+  GetRepoInput,
+  GetRepoResult,
+  GetSettingsResult,
+  GitBranchesInput,
+  GitBranchesResult,
+  GitStatus,
+  GitStatusInput,
+  ListGroupsResult,
+  ListReposInput,
+  ListReposResult,
+  OpenInEditorInput,
+  OpenInEditorResult,
+  PingInput,
+  PingResponse,
+  RenameGroupInput,
+  RenameGroupResult,
+  RescanRepoInput,
+  RescanRepoResult,
+  ScanEvent,
+  ScanStatusInput,
+  ScanStatusResult,
+  SearchReposInput,
+  SearchReposResult,
+  SetGroupMembersInput,
+  SetGroupMembersResult,
+  SetRepoTagsInput,
+  SetRepoTagsResult,
+  SmartFilterInput,
+  SmartFilterResult,
+  StartScanInput,
+  StartScanResult,
+  UpdateSettingsInput,
+  UpdateSettingsResult,
+} from "@shared/types";
 
 /**
- * Phase 0 IPC surface as exposed on `window.atr` by the preload script.
- *
- * Keep this in sync with `src/preload/index.d.ts`. New namespaces land
- * here as later phases unlock them.
+ * Phase 0 + Phase 1 IPC surface as exposed on `window.atr` by the
+ * preload script. Keep in sync with `src/preload/index.d.ts`.
  */
 export interface AtrBridge {
   system: {
     ping(input?: PingInput): Promise<PingResponse>;
+  };
+  catalog: {
+    list(input: ListReposInput): Promise<ListReposResult>;
+    get(input: GetRepoInput): Promise<GetRepoResult>;
+    search(input: SearchReposInput): Promise<SearchReposResult>;
+    rescan(input: RescanRepoInput): Promise<RescanRepoResult>;
+    setTags(input: SetRepoTagsInput): Promise<SetRepoTagsResult>;
+    smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
+  };
+  scan: {
+    start(input: StartScanInput): Promise<StartScanResult>;
+    status(input: ScanStatusInput): Promise<ScanStatusResult>;
+    cancel(input: CancelScanInput): Promise<CancelScanResult>;
+    /**
+     * Subscribe to push-style scan events from the main process.
+     * Returns an `unsubscribe` function that removes the listener.
+     */
+    onProgress(cb: (event: ScanEvent) => void): () => void;
+  };
+  git: {
+    status(input: GitStatusInput): Promise<GitStatus>;
+    branches(input: GitBranchesInput): Promise<GitBranchesResult>;
+    openInEditor(input: OpenInEditorInput): Promise<OpenInEditorResult>;
+  };
+  settings: {
+    get(): Promise<GetSettingsResult>;
+    update(input: UpdateSettingsInput): Promise<UpdateSettingsResult>;
+  };
+  groups: {
+    list(): Promise<ListGroupsResult>;
+    create(input: CreateGroupInput): Promise<CreateGroupResult>;
+    rename(input: RenameGroupInput): Promise<RenameGroupResult>;
+    delete(input: DeleteGroupInput): Promise<DeleteGroupResult>;
+    setMembers(input: SetGroupMembersInput): Promise<SetGroupMembersResult>;
   };
 }
 

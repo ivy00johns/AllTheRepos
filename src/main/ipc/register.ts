@@ -1,14 +1,19 @@
 /**
  * Central IPC handler registration.
  *
- * Phase 0 wires only the `system` namespace. As later phases add
- * `catalog:*`, `git:*`, `scan:*`, etc., import their `register*Handlers`
- * function here and call it from {@link registerIpcHandlers}.
+ * Phase 0 wired `system:*` only. Phase 1 adds the catalog / scan / git /
+ * settings / groups namespaces. Each domain module owns its own
+ * `register*Handlers()` function; this module is just the orchestrator.
  *
  * Keep this file the single source of truth for "which namespaces are
  * live" — handlers should not self-register at module-import time.
  */
 
+import { registerCatalogHandlers } from "./catalog";
+import { registerGitHandlers } from "./git";
+import { registerGroupsHandlers } from "./groups";
+import { registerScanHandlers } from "./scan";
+import { registerSettingsHandlers } from "./settings";
 import { registerSystemHandlers } from "./system";
 
 /**
@@ -20,4 +25,9 @@ import { registerSystemHandlers } from "./system";
  */
 export function registerIpcHandlers(): void {
   registerSystemHandlers();
+  registerCatalogHandlers();
+  registerScanHandlers();
+  registerGitHandlers();
+  registerSettingsHandlers();
+  registerGroupsHandlers();
 }
