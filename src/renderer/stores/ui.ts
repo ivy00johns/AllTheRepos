@@ -54,6 +54,16 @@ interface PersistedUiState {
 interface TransientUiState {
   /** Currently-selected repo slug in the catalog grid (not persisted). */
   activeRepoSlug: string | null;
+  /**
+   * Whether the in-app Cmd-K command palette overlay is open.
+   *
+   * Lives in Zustand (not local component state) so the action
+   * `app.open-command-palette` — which is dispatched from outside the
+   * palette component (e.g. via a native-menu accelerator) — can flip
+   * the flag without needing a ref. Transient: a fresh window starts
+   * closed every time.
+   */
+  paletteOpen: boolean;
 }
 
 interface UiActions {
@@ -63,6 +73,12 @@ interface UiActions {
   setActiveFilter(filter: Partial<ActiveFilter>): void;
   resetFilter(): void;
   setActiveRepoSlug(slug: string | null): void;
+  /** Open the in-app command palette. Idempotent. */
+  openPalette(): void;
+  /** Close the in-app command palette. Idempotent. */
+  closePalette(): void;
+  /** Toggle the in-app command palette. */
+  togglePalette(): void;
 }
 
 export type UiState = PersistedUiState & TransientUiState & UiActions;
@@ -76,9 +92,9 @@ export const useUiStore = create<UiState>()(
       density: "comfortable",
       activeFilter: DEFAULT_FILTER,
       activeRepoSlug: null,
+      paletteOpen: false,
 
-      setSidebarCollapsed: (collapsed) =>
-        set({ sidebarCollapsed: collapsed }),
+      setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setDensity: (density) => set({ density }),
@@ -86,6 +102,9 @@ export const useUiStore = create<UiState>()(
         set((s) => ({ activeFilter: { ...s.activeFilter, ...filter } })),
       resetFilter: () => set({ activeFilter: DEFAULT_FILTER }),
       setActiveRepoSlug: (slug) => set({ activeRepoSlug: slug }),
+      openPalette: () => set({ paletteOpen: true }),
+      closePalette: () => set({ paletteOpen: false }),
+      togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
     }),
     {
       name: PERSIST_KEY,

@@ -66,6 +66,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "."),
       "@shared": path.resolve(__dirname, "src/shared"),
       "@main": path.resolve(__dirname, "src/main"),
+      // Phase 2 — needed so unit tests can import renderer-only modules
+      // (e.g. the action registry, which is plain TS with no DOM deps).
+      "@renderer": path.resolve(__dirname, "src/renderer"),
     },
   },
 });

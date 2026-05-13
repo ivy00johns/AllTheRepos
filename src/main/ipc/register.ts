@@ -2,13 +2,16 @@
  * Central IPC handler registration.
  *
  * Phase 0 wired `system:*` only. Phase 1 adds the catalog / scan / git /
- * settings / groups namespaces. Each domain module owns its own
- * `register*Handlers()` function; this module is just the orchestrator.
+ * settings / groups namespaces. Phase 2 adds `app:*` (dock badge,
+ * native notifications, spotlight orchestration, action registry).
+ * Each domain module owns its own `register*Handlers()` function; this
+ * module is just the orchestrator.
  *
  * Keep this file the single source of truth for "which namespaces are
  * live" — handlers should not self-register at module-import time.
  */
 
+import { registerAppHandlers } from "./app";
 import { registerCatalogHandlers } from "./catalog";
 import { registerGitHandlers } from "./git";
 import { registerGroupsHandlers } from "./groups";
@@ -30,4 +33,5 @@ export function registerIpcHandlers(): void {
   registerGitHandlers();
   registerSettingsHandlers();
   registerGroupsHandlers();
+  registerAppHandlers();
 }

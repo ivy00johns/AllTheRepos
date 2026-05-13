@@ -24,6 +24,9 @@
  *
  * Phase 0 channels: `SYSTEM.*` (stable v1).
  * Phase 1 channels: `CATALOG.*`, `SCAN.*`, `GIT.*`, `SETTINGS.*`, `GROUPS.*`.
+ * Phase 2 channels: `APP.*` (dock / notify / spotlight / actions registry),
+ *                   `MENU.ON_COMMAND`, `PROTOCOL.ON_DEEP_LINK`,
+ *                   `TRAY.ON_OPEN_REPO` (all push-style events).
  */
 export const IPC = {
   /** System namespace — health checks, app lifecycle, version info. */
@@ -94,6 +97,57 @@ export const IPC = {
     /** Replace the entire member set for a group. */
     SET_MEMBERS: "groups:setMembers",
   },
+
+  /**
+   * App namespace — Phase 2. Native shell affordances exposed to the
+   * renderer: dock badge, native notifications, spotlight window
+   * show/hide, and the renderer-owned action-registry handshake.
+   */
+  APP: {
+    /** Set (or clear, when `count` is null) the macOS dock badge. */
+    SET_DOCK_BADGE: "app:setDockBadge",
+    /** Show a native desktop notification. */
+    NOTIFY: "app:notify",
+    /** Show the spotlight window (idempotent — focus if already open). */
+    SHOW_SPOTLIGHT: "app:showSpotlight",
+    /** Hide the spotlight window (idempotent — no-op if hidden). */
+    HIDE_SPOTLIGHT: "app:hideSpotlight",
+    /**
+     * Renderer pushes its full action registry on boot so main can
+     * build the native Application menu and bind accelerators.
+     * Re-callable: each call REPLACES the previously-registered
+     * registry wholesale (no diff/merge semantics).
+     */
+    REGISTER_ACTIONS: "app:registerActions",
+  },
+
+  /**
+   * Menu namespace — Phase 2. Push-style stream only: main fires
+   * `menu:on:command` when the user activates a native menu item or
+   * its accelerator. Payload carries the renderer-owned `commandId`
+   * (an `Action.id`) that the renderer's dispatch table executes.
+   */
+  MENU: {
+    ON_COMMAND: "menu:on:command",
+  },
+
+  /**
+   * Protocol namespace — Phase 2. Push-style stream only: main fires
+   * `protocol:on:deep-link` when the OS opens an `alltherepos://` URL
+   * (`app.on('open-url')` on macOS).
+   */
+  PROTOCOL: {
+    ON_DEEP_LINK: "protocol:on:deep-link",
+  },
+
+  /**
+   * Tray namespace — Phase 2. Push-style stream only: main fires
+   * `tray:on:open-repo` when the user clicks a recent-repo entry in
+   * the tray popover. Renderer routes to the repo detail page.
+   */
+  TRAY: {
+    ON_OPEN_REPO: "tray:on:open-repo",
+  },
 } as const;
 
 /**
@@ -103,13 +157,25 @@ export const IPC = {
 export type IpcChannel =
   | (typeof IPC.SYSTEM)[keyof typeof IPC.SYSTEM]
   | (typeof IPC.CATALOG)[keyof typeof IPC.CATALOG]
-  | Exclude<(typeof IPC.SCAN)[keyof typeof IPC.SCAN], typeof IPC.SCAN.ON_PROGRESS>
+  | Exclude<
+      (typeof IPC.SCAN)[keyof typeof IPC.SCAN],
+      typeof IPC.SCAN.ON_PROGRESS
+    >
   | (typeof IPC.GIT)[keyof typeof IPC.GIT]
   | (typeof IPC.SETTINGS)[keyof typeof IPC.SETTINGS]
-  | (typeof IPC.GROUPS)[keyof typeof IPC.GROUPS];
+  | (typeof IPC.GROUPS)[keyof typeof IPC.GROUPS]
+  | (typeof IPC.APP)[keyof typeof IPC.APP];
 
-/** Push-style event channels (main → renderer). */
-export type IpcEventChannel = typeof IPC.SCAN.ON_PROGRESS;
+/**
+ * Push-style event channels (main → renderer).
+ * Phase 1: `scan:on:progress`.
+ * Phase 2: `menu:on:command`, `protocol:on:deep-link`, `tray:on:open-repo`.
+ */
+export type IpcEventChannel =
+  | typeof IPC.SCAN.ON_PROGRESS
+  | typeof IPC.MENU.ON_COMMAND
+  | typeof IPC.PROTOCOL.ON_DEEP_LINK
+  | typeof IPC.TRAY.ON_OPEN_REPO;
 
 /** The renderer surface exposed on `window.atr`. */
 export const PRELOAD_BRIDGE_KEY = "atr" as const;

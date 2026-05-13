@@ -1,11 +1,12 @@
-# IPC Contract v1 — Phase 0 + Phase 1 (frozen)
+# IPC Contract v1 — Phase 0 + Phase 1 + Phase 2 (frozen)
 
 This document is the authoritative registry of IPC channels exposed by
 the Electron main process to the renderer via the preload `contextBridge`.
-Phase 0 channels are **stable v1**. Phase 1 channels are added below and
-are also **frozen at v1**. Any further additions get a new version
-document (`ipc.v2.md`). Both phase sections in this file are normative
-for Phase 1 implementers.
+Phase 0 channels are **stable v1**. Phase 1 channels are **frozen at v1**.
+Phase 2 channels (added in §"Phase 2 channels" below) are **also frozen
+at v1**. Any further additions get a new version document (`ipc.v2.md`).
+All three phase sections in this file are normative for Phase 2
+implementers.
 
 Consumers (main, preload, renderer, qe-agent) MUST import channel names
 from `src/shared/ipc.ts` and schemas from `src/shared/schemas.ts`. Do
@@ -28,21 +29,33 @@ not hard-code channel strings.
 
 ## Reserved namespaces
 
-| Namespace   | Phase | Notes                                                  |
-| ----------- | ----- | ------------------------------------------------------ |
-| `system`    | 0     | Health, ping, app lifecycle, version info.             |
-| `catalog`   | 1     | Repo list / detail / search / tags / smart filter.     |
-| `scan`      | 1     | Scanner job lifecycle + `scan:on:progress` stream.     |
-| `git`       | 1     | Per-repo git status / branches / open-in-editor.       |
-| `settings`  | 1     | User preferences read/write (electron-store backed).   |
-| `groups`    | 1     | Group CRUD + repo membership.                          |
-| `launcher`  | 2     | "Open in VSCode / Cursor / Finder / Term".             |
-| `process`   | 3     | Port / running-server detection.                       |
-| `claude`    | 3     | Claude Code projects + MCP scan.                       |
+| Namespace  | Phase | Notes                                                      |
+| ---------- | ----- | ---------------------------------------------------------- |
+| `system`   | 0     | Health, ping, app lifecycle, version info.                 |
+| `catalog`  | 1     | Repo list / detail / search / tags / smart filter.         |
+| `scan`     | 1     | Scanner job lifecycle + `scan:on:progress` stream.         |
+| `git`      | 1     | Per-repo git status / branches / open-in-editor.           |
+| `settings` | 1     | User preferences read/write (electron-store backed).       |
+| `groups`   | 1     | Group CRUD + repo membership.                              |
+| `app`      | 2     | Dock badge, native notify, spotlight, actions registry.    |
+| `menu`     | 2     | `menu:on:command` push stream (native menu activation).    |
+| `protocol` | 2     | `protocol:on:deep-link` push stream (alltherepos:// URLs). |
+| `tray`     | 2     | `tray:on:open-repo` push stream (recent-repo click).       |
+| `launcher` | 2+    | "Open in VSCode / Cursor / Finder / Term" (deferred).      |
+| `process`  | 3     | Port / running-server detection.                           |
+| `claude`   | 3     | Claude Code projects + MCP scan.                           |
 
 The `system`, `catalog`, `scan`, `git`, `settings`, and `groups`
-namespaces are implemented in Phase 1. The remaining rows are listed so
-later agents know which prefixes are pre-allocated.
+namespaces are implemented in Phase 1. The `app`, `menu`, `protocol`,
+and `tray` namespaces are added in Phase 2. The remaining rows are
+listed so later agents know which prefixes are pre-allocated.
+
+Note: `launcher:*` is intentionally **deferred past Phase 2**. NEW-PLAN.md
+§5.3 (launch actions) is loosely Phase 2 scope, but the minimum Phase 2
+surface — "open in editor" — is already covered by the Phase 1
+`git:openInEditor` channel. A richer launcher namespace (Finder,
+Terminal, browser, Claude Code, etc.) will land in a follow-up wave or
+Phase 3 and gets its own contract version when it does.
 
 ## Phase 0 channels
 
@@ -68,8 +81,8 @@ the main-process handler is registered, and that Zod parsing is wired.
 {
   ok: true;
   pong: "pong";
-  mainProcessPid: number;       // process.pid in the main process
-  receivedAt: string;           // ISO-8601 timestamp at handler entry
+  mainProcessPid: number; // process.pid in the main process
+  receivedAt: string; // ISO-8601 timestamp at handler entry
 }
 ```
 
@@ -86,14 +99,14 @@ the renderer can keep ping calls cache-busted during dev.
 
 ## File map
 
-| File                       | Owner             | Purpose                                  |
-| -------------------------- | ----------------- | ---------------------------------------- |
-| `src/shared/types.ts`      | contract-author   | Re-exports + Phase 0 type additions.     |
-| `src/shared/schemas.ts`    | contract-author   | Zod schemas for entities + IPC payloads. |
-| `src/shared/ipc.ts`        | contract-author   | Channel name constants (`as const`).     |
-| `contracts/ipc.v1.md`      | contract-author   | This document.                           |
-| `src/main/ipc/system.ts`   | backend / infra   | `ipcMain.handle(IPC.SYSTEM.PING, ...)`.  |
-| `src/preload/api.ts`       | backend / infra   | `window.atr.system.ping` wrapper.        |
+| File                     | Owner           | Purpose                                  |
+| ------------------------ | --------------- | ---------------------------------------- |
+| `src/shared/types.ts`    | contract-author | Re-exports + Phase 0 type additions.     |
+| `src/shared/schemas.ts`  | contract-author | Zod schemas for entities + IPC payloads. |
+| `src/shared/ipc.ts`      | contract-author | Channel name constants (`as const`).     |
+| `contracts/ipc.v1.md`    | contract-author | This document.                           |
+| `src/main/ipc/system.ts` | backend / infra | `ipcMain.handle(IPC.SYSTEM.PING, ...)`.  |
+| `src/preload/api.ts`     | backend / infra | `window.atr.system.ping` wrapper.        |
 
 The right-hand `src/main/...` and `src/preload/...` files are NOT part
 of Phase 0's contract-author deliverable — they are the consumers of
@@ -389,29 +402,37 @@ and sends the full set.
 
 ## Channel ↔ schema ↔ constant cross-reference
 
-| Channel string             | IPC constant                   | Input schema                    | Output schema                    |
-| -------------------------- | ------------------------------ | ------------------------------- | -------------------------------- |
-| `system:ping`              | `IPC.SYSTEM.PING`              | `PingInputSchema`               | `PingResponseSchema`             |
-| `catalog:list`             | `IPC.CATALOG.LIST`             | `ListReposInputSchema`          | `ListReposResultSchema`          |
-| `catalog:get`              | `IPC.CATALOG.GET`              | `GetRepoInputSchema`            | `GetRepoResultSchema`            |
-| `catalog:search`           | `IPC.CATALOG.SEARCH`           | `SearchReposInputSchema`        | `SearchReposResultSchema`        |
-| `catalog:rescan`           | `IPC.CATALOG.RESCAN`           | `RescanRepoInputSchema`         | `RescanRepoResultSchema`         |
-| `catalog:setTags`          | `IPC.CATALOG.SET_TAGS`         | `SetRepoTagsInputSchema`        | `SetRepoTagsResultSchema`        |
-| `catalog:smartFilter`      | `IPC.CATALOG.SMART_FILTER`     | `SmartFilterInputSchema`        | `SmartFilterResultSchema`        |
-| `scan:start`               | `IPC.SCAN.START`               | `StartScanInputSchema`          | `StartScanResultSchema`          |
-| `scan:status`              | `IPC.SCAN.STATUS`              | `ScanStatusInputSchema`         | `ScanStatusResultSchema`         |
-| `scan:cancel`              | `IPC.SCAN.CANCEL`              | `CancelScanInputSchema`         | `CancelScanResultSchema`         |
-| `scan:on:progress` (event) | `IPC.SCAN.ON_PROGRESS`         | — (push-only)                   | `ScanEventSchema`                |
-| `git:status`               | `IPC.GIT.STATUS`               | `GitStatusInputSchema`          | `GitStatusSchema`                |
-| `git:branches`             | `IPC.GIT.BRANCHES`             | `GitBranchesInputSchema`        | `GitBranchesResultSchema`        |
-| `git:openInEditor`         | `IPC.GIT.OPEN_IN_EDITOR`       | `OpenInEditorInputSchema`       | `OpenInEditorResultSchema`       |
-| `settings:get`             | `IPC.SETTINGS.GET`             | `GetSettingsInputSchema`        | `GetSettingsResultSchema`        |
-| `settings:update`          | `IPC.SETTINGS.UPDATE`          | `UpdateSettingsInputSchema`     | `UpdateSettingsResultSchema`     |
-| `groups:list`              | `IPC.GROUPS.LIST`              | `ListGroupsInputSchema`         | `ListGroupsResultSchema`         |
-| `groups:create`            | `IPC.GROUPS.CREATE`            | `CreateGroupInputSchema`        | `CreateGroupResultSchema`        |
-| `groups:rename`            | `IPC.GROUPS.RENAME`            | `RenameGroupInputSchema`        | `RenameGroupResultSchema`        |
-| `groups:delete`            | `IPC.GROUPS.DELETE`            | `DeleteGroupInputSchema`        | `DeleteGroupResultSchema`        |
-| `groups:setMembers`        | `IPC.GROUPS.SET_MEMBERS`       | `SetGroupMembersInputSchema`    | `SetGroupMembersResultSchema`    |
+| Channel string                  | IPC constant                | Input schema                 | Output schema                 |
+| ------------------------------- | --------------------------- | ---------------------------- | ----------------------------- |
+| `system:ping`                   | `IPC.SYSTEM.PING`           | `PingInputSchema`            | `PingResponseSchema`          |
+| `catalog:list`                  | `IPC.CATALOG.LIST`          | `ListReposInputSchema`       | `ListReposResultSchema`       |
+| `catalog:get`                   | `IPC.CATALOG.GET`           | `GetRepoInputSchema`         | `GetRepoResultSchema`         |
+| `catalog:search`                | `IPC.CATALOG.SEARCH`        | `SearchReposInputSchema`     | `SearchReposResultSchema`     |
+| `catalog:rescan`                | `IPC.CATALOG.RESCAN`        | `RescanRepoInputSchema`      | `RescanRepoResultSchema`      |
+| `catalog:setTags`               | `IPC.CATALOG.SET_TAGS`      | `SetRepoTagsInputSchema`     | `SetRepoTagsResultSchema`     |
+| `catalog:smartFilter`           | `IPC.CATALOG.SMART_FILTER`  | `SmartFilterInputSchema`     | `SmartFilterResultSchema`     |
+| `scan:start`                    | `IPC.SCAN.START`            | `StartScanInputSchema`       | `StartScanResultSchema`       |
+| `scan:status`                   | `IPC.SCAN.STATUS`           | `ScanStatusInputSchema`      | `ScanStatusResultSchema`      |
+| `scan:cancel`                   | `IPC.SCAN.CANCEL`           | `CancelScanInputSchema`      | `CancelScanResultSchema`      |
+| `scan:on:progress` (event)      | `IPC.SCAN.ON_PROGRESS`      | — (push-only)                | `ScanEventSchema`             |
+| `git:status`                    | `IPC.GIT.STATUS`            | `GitStatusInputSchema`       | `GitStatusSchema`             |
+| `git:branches`                  | `IPC.GIT.BRANCHES`          | `GitBranchesInputSchema`     | `GitBranchesResultSchema`     |
+| `git:openInEditor`              | `IPC.GIT.OPEN_IN_EDITOR`    | `OpenInEditorInputSchema`    | `OpenInEditorResultSchema`    |
+| `settings:get`                  | `IPC.SETTINGS.GET`          | `GetSettingsInputSchema`     | `GetSettingsResultSchema`     |
+| `settings:update`               | `IPC.SETTINGS.UPDATE`       | `UpdateSettingsInputSchema`  | `UpdateSettingsResultSchema`  |
+| `groups:list`                   | `IPC.GROUPS.LIST`           | `ListGroupsInputSchema`      | `ListGroupsResultSchema`      |
+| `groups:create`                 | `IPC.GROUPS.CREATE`         | `CreateGroupInputSchema`     | `CreateGroupResultSchema`     |
+| `groups:rename`                 | `IPC.GROUPS.RENAME`         | `RenameGroupInputSchema`     | `RenameGroupResultSchema`     |
+| `groups:delete`                 | `IPC.GROUPS.DELETE`         | `DeleteGroupInputSchema`     | `DeleteGroupResultSchema`     |
+| `groups:setMembers`             | `IPC.GROUPS.SET_MEMBERS`    | `SetGroupMembersInputSchema` | `SetGroupMembersResultSchema` |
+| `app:setDockBadge`              | `IPC.APP.SET_DOCK_BADGE`    | `SetDockBadgeInputSchema`    | `SetDockBadgeResultSchema`    |
+| `app:notify`                    | `IPC.APP.NOTIFY`            | `NotifyInputSchema`          | `NotifyResultSchema`          |
+| `app:showSpotlight`             | `IPC.APP.SHOW_SPOTLIGHT`    | `ShowSpotlightInputSchema`   | `ShowSpotlightResultSchema`   |
+| `app:hideSpotlight`             | `IPC.APP.HIDE_SPOTLIGHT`    | `HideSpotlightInputSchema`   | `HideSpotlightResultSchema`   |
+| `app:registerActions`           | `IPC.APP.REGISTER_ACTIONS`  | `RegisterActionsInputSchema` | `RegisterActionsResultSchema` |
+| `menu:on:command` (event)       | `IPC.MENU.ON_COMMAND`       | — (push-only)                | `MenuCommandPayloadSchema`    |
+| `protocol:on:deep-link` (event) | `IPC.PROTOCOL.ON_DEEP_LINK` | — (push-only)                | `DeepLinkPayloadSchema`       |
+| `tray:on:open-repo` (event)     | `IPC.TRAY.ON_OPEN_REPO`     | — (push-only)                | `TrayOpenRepoPayloadSchema`   |
 
 ## Error envelope
 
@@ -429,3 +450,177 @@ channel's success-path schema is honored.
 - `zod` (already on the tree). No new shared deps.
 - Main process will add `electron-store` for the `settings:*` namespace;
   that's a backend-services concern, not a contract concern.
+
+---
+
+## Phase 2 channels (frozen)
+
+Phase 2 adds the "feels like a real Mac app" surface: a menu-bar tray
+popover, global hotkey + spotlight window, native Application menu
+built from a renderer-owned actions registry, native macOS
+notifications, an `alltherepos://` URL scheme, and a dock-badge channel
+the running-server count will plug into in Phase 3.
+
+Companion contracts in this directory:
+
+- `contracts/actions.v1.md` — the Action shape, scope rules, shortcut
+  format, and the Phase 2 baseline action list.
+- `contracts/protocol.v1.md` — the `alltherepos://` URL grammar and
+  the `DeepLinkPayload` mapping.
+
+All Phase 2 channels live under bridge key `atr` like Phase 1. Renderer
+call sites use `window.atr.<namespace>.<verb>(input)`. Every handler
+MUST `.parse()` its input through the named schema before doing work
+and SHOULD `.parse()` its response in dev mode. Event publishers SHOULD
+`.parse()` payloads before `webContents.send(...)` in dev mode.
+
+### App namespace
+
+#### `app:setDockBadge`
+
+Set (or clear) the macOS dock badge. The renderer is the source of
+truth in Phase 2 (e.g. settings UI test button); in Phase 3 the
+running-server service in main will call the same handler internally
+when the process namespace lights up.
+
+- **Constant:** `IPC.APP.SET_DOCK_BADGE`
+- **Input schema:** `SetDockBadgeInputSchema`
+- **Output schema:** `SetDockBadgeResultSchema`
+- **Renderer call:** `window.atr.app.setDockBadge({ count })`
+- **Idempotency:** last-write-wins; safe to retry.
+- **Notes:**
+  - `count: null` clears the badge.
+  - `count: 0` is treated identically to `null` (the dock has no
+    "0 badge" state).
+  - Capped at 9999 by the schema. Callers wanting a "9999+" UX should
+    clamp on their side and pass 9999.
+  - On non-macOS platforms the handler is a no-op that still resolves
+    successfully with `badge: ""`.
+
+#### `app:notify`
+
+Show a native desktop notification (macOS NotificationCenter /
+Windows toast / Linux libnotify, via Electron's `Notification`).
+
+- **Constant:** `IPC.APP.NOTIFY`
+- **Input schema:** `NotifyInputSchema`
+- **Output schema:** `NotifyResultSchema`
+- **Renderer call:** `window.atr.app.notify({ title, body, silent?, actions? })`
+- **Idempotency:** **NOT idempotent** — each call queues a fresh
+  notification banner. Callers SHOULD dedupe upstream.
+- **Notes:**
+  - Renderer-initiated path only. Main-process services (scan
+    complete, etc.) call Electron's `Notification` API directly
+    without going through IPC.
+  - `actions` is schema-capped at 3 but macOS only reliably renders
+    1 action button on a banner-style notification.
+  - `silent: true` suppresses the system notification sound.
+
+#### `app:showSpotlight`
+
+Show the global spotlight window. Idempotent — if the window is
+already visible the handler focuses it.
+
+- **Constant:** `IPC.APP.SHOW_SPOTLIGHT`
+- **Input schema:** `ShowSpotlightInputSchema` (`z.object({}).strict()`)
+- **Output schema:** `ShowSpotlightResultSchema` (`{ visible: true }`)
+- **Renderer call:** `window.atr.app.showSpotlight()`
+- **Idempotency:** safe to retry.
+- **Notes:** the global hotkey (`CommandOrControl+Shift+Space`) calls
+  this handler internally; exposing it on the bridge lets the in-app
+  command palette transition into spotlight mode without rebinding
+  the hotkey.
+
+#### `app:hideSpotlight`
+
+Hide the global spotlight window. Idempotent — no-op if hidden.
+
+- **Constant:** `IPC.APP.HIDE_SPOTLIGHT`
+- **Input schema:** `HideSpotlightInputSchema` (`z.object({}).strict()`)
+- **Output schema:** `HideSpotlightResultSchema` (`{ visible: false }`)
+- **Renderer call:** `window.atr.app.hideSpotlight()`
+- **Idempotency:** safe to retry.
+- **Notes:** the spotlight window's own `blur` handler dismisses
+  itself; this channel exists for explicit programmatic close
+  (e.g. after a result is selected).
+
+#### `app:registerActions`
+
+Renderer pushes its full action registry on boot so main can build the
+native Application menu and bind accelerators. **Re-callable** — each
+call REPLACES the previously-registered registry wholesale (main
+rebuilds the native menu and re-binds accelerators on every call). The
+contract-author chose "replace, not merge" so the renderer doesn't
+have to manage diffs; the cost is a single full menu rebuild per
+call, which is cheap.
+
+- **Constant:** `IPC.APP.REGISTER_ACTIONS`
+- **Input schema:** `RegisterActionsInputSchema`
+- **Output schema:** `RegisterActionsResultSchema`
+- **Renderer call:** `window.atr.app.registerActions({ actions })`
+- **Idempotency:** last-write-wins.
+- **Notes:**
+  - See `contracts/actions.v1.md` for the `Action` shape and the
+    baseline Phase 2 action list.
+  - Actions with `devOnly: true` SHOULD be filtered out by the
+    renderer before calling this handler in a production build.
+  - The handler MUST silently skip (counting in `skipped`) any action
+    whose `shortcut` cannot be bound (e.g. malformed Accelerator or
+    OS-level conflict). It MUST NOT throw on a single-action failure
+    so a typo in one entry doesn't break the whole menu build.
+
+### Menu namespace (push-only)
+
+#### `menu:on:command` (event stream — main → renderer)
+
+Fired when the user activates a native menu item or its accelerator
+shortcut. Carries the renderer-owned `commandId` (an `Action.id`) so
+the renderer's dispatch table can execute the handler.
+
+- **Constant:** `IPC.MENU.ON_COMMAND`
+- **Payload schema:** `MenuCommandPayloadSchema` (`{ commandId: string }`)
+- **Preload wrapper:** `window.atr.menu.onCommand(cb): () => void`
+  (returns an unsubscribe function).
+- **Notes:** the `commandId` is guaranteed to be the exact `id` from
+  the most-recently-registered actions registry. If the renderer's
+  registry has drifted (e.g. a hot-reload between `app:registerActions`
+  calls), unknown ids SHOULD be ignored with a dev warning rather
+  than crashing.
+
+### Protocol namespace (push-only)
+
+#### `protocol:on:deep-link` (event stream — main → renderer)
+
+Fired when the OS opens an `alltherepos://` URL via the registered
+protocol handler. On macOS this hooks `app.on('open-url')`. The URL
+is pre-parsed into the canonical `DeepLinkPayload` shape.
+
+- **Constant:** `IPC.PROTOCOL.ON_DEEP_LINK`
+- **Payload schema:** `DeepLinkPayloadSchema` (`{ path, params }`)
+- **Preload wrapper:** `window.atr.protocol.onDeepLink(cb): () => void`
+- **Notes:** see `contracts/protocol.v1.md` for the full URL grammar
+  and the path-capture → params mapping. Phase 2 implements the
+  `repo/<slug>` and `settings` paths; `action/<id>` is locked but
+  optional in Phase 2.
+
+### Tray namespace (push-only)
+
+#### `tray:on:open-repo` (event stream — main → renderer)
+
+Fired when the user clicks a recent-repo row in the tray popover.
+The renderer is responsible for routing to the repo detail page.
+
+- **Constant:** `IPC.TRAY.ON_OPEN_REPO`
+- **Payload schema:** `TrayOpenRepoPayloadSchema` (`{ slug: string }`)
+- **Preload wrapper:** `window.atr.tray.onOpenRepo(cb): () => void`
+- **Notes:** if the main window is closed when the click fires, the
+  tray subsystem MUST re-show / re-create the window before the event
+  is delivered, so the renderer can rely on the route change taking
+  effect.
+
+## Required deps (Phase 2)
+
+- No new shared deps — `zod` already on the tree.
+- Main will add no shared-layer deps for Phase 2; it consumes Electron's
+  built-in `Tray`, `Notification`, `Menu`, `globalShortcut`, `app.dock`,
+  and `app.setAsDefaultProtocolClient` APIs. That's a backend concern.

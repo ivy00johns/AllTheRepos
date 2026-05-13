@@ -60,7 +60,6 @@ describe("handleGroupsList", () => {
 
   it("rejects when the service returns a malformed group", async () => {
     vi.mocked(catalogService.listGroups).mockResolvedValue([
-      // @ts-expect-error - intentionally bad
       { ...fixtureGroup, name: "" },
     ]);
     await expect(handleGroupsList({})).rejects.toThrow();

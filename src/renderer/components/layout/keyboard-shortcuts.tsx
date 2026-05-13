@@ -18,6 +18,8 @@
 import * as React from "react";
 import { useNavigate } from "@tanstack/react-router";
 
+import { useUiStore } from "@renderer/stores/ui";
+
 interface KeyboardShortcutsProps {
   slugs: string[];
   selectedSlug: string | null;
@@ -34,6 +36,7 @@ export function KeyboardShortcuts({
   onCloseDetail,
 }: KeyboardShortcutsProps) {
   const navigate = useNavigate();
+  const togglePalette = useUiStore((s) => s.togglePalette);
   const chord = React.useRef<{ key: string; ts: number } | null>(null);
 
   React.useEffect(() => {
@@ -49,6 +52,19 @@ export function KeyboardShortcuts({
     }
 
     function onKey(e: KeyboardEvent) {
+      // Cmd/Ctrl+K — open the in-app command palette. Bound here as a
+      // RENDERER-level fallback for the case where the native menu
+      // accelerator hasn't claimed it yet (e.g. before
+      // `app:registerActions` resolves on first boot). This is
+      // intentionally redundant with the action
+      // `app.open-command-palette` — both paths flip the same Zustand
+      // flag, so opening twice is a no-op.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        togglePalette();
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (isEditable(e.target)) {
         // allow Escape to bubble to SearchBar (it has its own handler)
@@ -108,7 +124,15 @@ export function KeyboardShortcuts({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [slugs, selectedSlug, onSelectSlug, onOpenSelected, onCloseDetail, navigate]);
+  }, [
+    slugs,
+    selectedSlug,
+    onSelectSlug,
+    onOpenSelected,
+    onCloseDetail,
+    navigate,
+    togglePalette,
+  ]);
 
   return null;
 }

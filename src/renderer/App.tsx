@@ -21,6 +21,9 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useScanEventBus } from "@renderer/hooks/use-scan";
 import { router } from "@renderer/router";
 
+// Phase 2 action lifecycle hooks + <CommandPalette /> live in
+// `routes/__root.tsx` so they sit INSIDE RouterProvider's tree —
+// `useNavigate`/`useLocation` null-crash from a sibling subtree.
 export function App() {
   return (
     <ErrorBoundary>

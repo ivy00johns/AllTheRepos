@@ -354,3 +354,238 @@ export interface SetGroupMembersResult {
   groupId: number;
   memberCount: number;
 }
+
+// ===========================================================================
+// Phase 2 additions — actions registry, native shell, deep links
+// ===========================================================================
+//
+// Phase 2 adds the "feels like a real Mac app" surface: tray popover, global
+// hotkey + spotlight window, native menu built from a renderer-owned actions
+// registry, native notifications, `alltherepos://` URL scheme, and a dock
+// badge channel. See `contracts/ipc.v1.md` (Phase 2 section), plus the
+// companion contracts `contracts/actions.v1.md` and `contracts/protocol.v1.md`.
+//
+// Schemas live in ./schemas.ts; channel constants in ./ipc.ts.
+
+// ---------------------------------------------------------------------------
+// Actions registry — shared between native menu, in-app palette, spotlight
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an action is applicable. The same `id` MUST NOT appear with two
+ * different scopes; scope is a single tag per action.
+ *
+ * - `global`        — always available (menu + every palette context).
+ * - `catalog`       — available on the catalog (repo list) view.
+ * - `repo-detail`   — available on the repo detail view.
+ * - `settings`      — available on the settings view.
+ * - `spotlight`     — only available inside the global spotlight window
+ *                     (e.g. "switch to action-search mode" via `>`).
+ *
+ * Future scopes (claude, deps, etc.) will be added in later phases — DO
+ * NOT widen this union without bumping the actions contract version.
+ */
+export type ActionScope =
+  | "global"
+  | "catalog"
+  | "repo-detail"
+  | "settings"
+  | "spotlight";
+
+/**
+ * A renderer-owned action descriptor. The `handler` is intentionally
+ * NOT part of the contract — the renderer keeps a `Map<id, () => void>`
+ * keyed by `id` and runs the handler when either:
+ *   (a) the in-app cmdk palette dispatches it, OR
+ *   (b) a `menu:on:command` event arrives from main carrying the `id`.
+ *
+ * `shortcut` uses Electron's Accelerator string format
+ * (`CmdOrCtrl+K`, `CmdOrCtrl+Shift+Space`, `Alt+/`, etc.) — see
+ * https://www.electronjs.org/docs/latest/api/accelerator. The renderer
+ * MAY accept human-friendly aliases (`Mod+K`) but MUST translate them to
+ * Accelerator strings before sending to main.
+ */
+export interface Action {
+  /**
+   * Unique, kebab-case, dot-namespaced identifier — e.g.
+   * `catalog.refresh`, `app.open-settings`. MUST match
+   * `^[a-z][a-z0-9.-]*$` (see `ActionIdSchema`).
+   */
+  id: string;
+  /** Human-readable label, used in the menu and palette UIs. */
+  label: string;
+  /** Where this action applies. */
+  scope: ActionScope;
+  /** Optional Electron Accelerator string (e.g. `CmdOrCtrl+K`). */
+  shortcut?: string;
+  /** Optional lucide icon name. Palette UI only — menu ignores. */
+  icon?: string;
+  /** Optional one-line description shown in the palette. */
+  hint?: string;
+  /**
+   * Optional grouping used for cmdk groups in the palette and submenu
+   * placement in the native menu. Examples: `Catalog`, `App`, `Repo`.
+   */
+  group?: string;
+  /**
+   * When true the action is only registered/exposed in development
+   * builds (e.g. `app.toggle-devtools`). Defaults to false.
+   */
+  devOnly?: boolean;
+}
+
+/**
+ * Native notification action button. Mirrors Electron's
+ * `NotificationAction` shape (`{ type: 'button', text: string }`).
+ *
+ * macOS displays at most 1 action button on a banner-style notification
+ * unless the user has enabled "Alerts" — implementers SHOULD design for
+ * 0–1 actions and treat 2+ as best-effort.
+ */
+export interface NotificationAction {
+  /** Always `"button"` on macOS today. Kept for forward-compat. */
+  type: "button";
+  /** Button label. Keep short — ~12 chars renders cleanly. */
+  text: string;
+}
+
+// ---------------------------------------------------------------------------
+// app:* request/response payloads
+// ---------------------------------------------------------------------------
+
+/** Input for `app:setDockBadge` — `count: null` clears the badge. */
+export interface SetDockBadgeInput {
+  /**
+   * Badge count. `null` ⇒ clear the badge entirely. `0` is treated the
+   * same as `null` by the handler (the macOS dock has no "0 badge"
+   * state, so we elide it).
+   */
+  count: number | null;
+}
+
+/** Response for `app:setDockBadge`. */
+export interface SetDockBadgeResult {
+  /** The effective string the dock badge was set to (empty ⇒ cleared). */
+  badge: string;
+}
+
+/**
+ * Input for `app:notify` — show a native macOS notification.
+ *
+ * Renderer-initiated notifications use this channel; main-initiated
+ * notifications (e.g. on scan complete) call the underlying
+ * `Notification` API directly without going through IPC.
+ */
+export interface NotifyInput {
+  title: string;
+  body: string;
+  /** Silent (no sound). Defaults to false. */
+  silent?: boolean;
+  /** Optional action buttons. macOS shows ≤1 reliably on banners. */
+  actions?: NotificationAction[];
+}
+
+/** Response for `app:notify`. */
+export interface NotifyResult {
+  /** Whether the notification was queued for display by the OS. */
+  shown: boolean;
+}
+
+/** Input for `app:showSpotlight`. Empty. */
+export interface ShowSpotlightInput {
+  // intentionally empty — Zod schema is `z.object({}).strict()`.
+}
+
+/** Response for `app:showSpotlight`. */
+export interface ShowSpotlightResult {
+  /** Whether the spotlight window is now visible. */
+  visible: true;
+}
+
+/** Input for `app:hideSpotlight`. Empty. */
+export interface HideSpotlightInput {
+  // intentionally empty — Zod schema is `z.object({}).strict()`.
+}
+
+/** Response for `app:hideSpotlight`. */
+export interface HideSpotlightResult {
+  /** Whether the spotlight window is now hidden. */
+  visible: false;
+}
+
+/**
+ * Input for `app:registerActions`. Renderer pushes its full action
+ * registry. Re-callable — each call replaces the previously-registered
+ * registry wholesale (main rebuilds the native menu and re-binds
+ * accelerators on every call).
+ */
+export interface RegisterActionsInput {
+  /**
+   * The full set of actions the renderer knows about. Order matters
+   * for menu / submenu rendering when `group` is shared (stable sort).
+   */
+  actions: Action[];
+}
+
+/** Response for `app:registerActions`. */
+export interface RegisterActionsResult {
+  /** Number of actions accepted (post-validation). */
+  accepted: number;
+  /**
+   * Number of action `id`s that collided with another entry and were
+   * skipped. Always 0 on a well-formed registry; surfaced so the
+   * renderer can log a warning in dev.
+   */
+  skipped: number;
+}
+
+// ---------------------------------------------------------------------------
+// Push-event payloads (main → renderer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload for the `menu:on:command` event. Fired when the user
+ * activates a native menu item or hits its accelerator.
+ */
+export interface MenuCommandPayload {
+  /** The `Action.id` registered for the activated menu item. */
+  commandId: string;
+}
+
+/**
+ * Payload for the `protocol:on:deep-link` event. Fired when the OS
+ * opens an `alltherepos://` URL. See `contracts/protocol.v1.md` for
+ * the grammar; this payload is the parsed form.
+ *
+ * Examples:
+ *   `alltherepos://repo/my-slug`
+ *     → { path: 'repo/my-slug',   params: { slug: 'my-slug' } }
+ *   `alltherepos://settings`
+ *     → { path: 'settings',       params: {} }
+ *   `alltherepos://action/catalog.refresh?foo=bar`
+ *     → { path: 'action/catalog.refresh',
+ *         params: { actionId: 'catalog.refresh', foo: 'bar' } }
+ */
+export interface DeepLinkPayload {
+  /**
+   * The path portion of the URL with any leading `alltherepos://`
+   * stripped (no trailing slash). E.g. `repo/my-slug`, `settings`,
+   * `action/catalog.refresh`.
+   */
+  path: string;
+  /**
+   * Parsed params. Includes both query-string entries AND the named
+   * path captures defined in `contracts/protocol.v1.md` (e.g. `slug`
+   * for `repo/<slug>`, `actionId` for `action/<id>`).
+   */
+  params: Record<string, string>;
+}
+
+/**
+ * Payload for the `tray:on:open-repo` event. Fired when the user
+ * clicks a recent-repo row in the tray popover.
+ */
+export interface TrayOpenRepoPayload {
+  /** Slug of the repo to open. Renderer routes to the detail page. */
+  slug: string;
+}

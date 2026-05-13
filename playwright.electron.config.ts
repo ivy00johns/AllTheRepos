@@ -18,8 +18,13 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  // Phase 0: electron-launch.spec.ts; Phase 1: catalog-flow.spec.ts.
-  testMatch: /(electron-launch|catalog-flow)\.spec\.ts$/,
+  // Phase 0: electron-launch.spec.ts; Phase 1: catalog-flow.spec.ts;
+  // Phase 2: palette-flow.spec.ts (in-app Cmd+K command palette).
+  testMatch: /(electron-launch|catalog-flow|palette-flow)\.spec\.ts$/,
+  // Rebuild native modules for Electron's ABI + rebuild the bundle
+  // BEFORE any spec runs. Without this, switching between
+  // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
+  globalSetup: "./tests/e2e/_global-setup.ts",
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

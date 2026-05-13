@@ -105,7 +105,6 @@ describe("handleSettingsUpdate", () => {
   it("rejects when the service returns a malformed Settings blob", async () => {
     vi.mocked(updateSettings).mockReturnValue({
       ...defaultSettings,
-      // @ts-expect-error - intentionally bad
       schemaVersion: -1,
     });
     await expect(

@@ -21,6 +21,11 @@
 import { Outlet, createRootRoute, useLocation } from "@tanstack/react-router";
 import { Suspense } from "react";
 
+import { useActionRegistration } from "@renderer/actions/use-action-registration";
+import { useDeepLinkBus } from "@renderer/actions/use-deep-link-bus";
+import { useMenuCommandBus } from "@renderer/actions/use-menu-command-bus";
+import { useTrayOpenRepoBus } from "@renderer/actions/use-tray-open-repo-bus";
+import { CommandPalette } from "@renderer/components/command-palette/command-palette";
 import { ScanStatusBar } from "@renderer/components/layout/scan-status-bar";
 import { TopBar } from "@renderer/components/layout/top-bar";
 
@@ -29,6 +34,14 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
+  // Phase 2 lifecycle hooks live INSIDE the router context (any
+  // TanStack Router hook — useNavigate, useLocation — null-crashes
+  // outside RouterProvider's tree).
+  useActionRegistration();
+  useMenuCommandBus();
+  useDeepLinkBus();
+  useTrayOpenRepoBus();
+
   const location = useLocation();
   // Routes that don't want the three-column shell (settings, debug,
   // repo detail page) get a single-column layout. The index route keeps
@@ -42,17 +55,22 @@ function RootLayout() {
       <ScanStatusBar />
       <main className="flex-1 overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
-          {isFullShell ? <Outlet /> : <SimpleShell><Outlet /></SimpleShell>}
+          {isFullShell ? (
+            <Outlet />
+          ) : (
+            <SimpleShell>
+              <Outlet />
+            </SimpleShell>
+          )}
         </Suspense>
       </main>
+      <CommandPalette />
     </div>
   );
 }
 
 function SimpleShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">{children}</div>
-  );
+  return <div className="mx-auto w-full max-w-5xl px-6 py-8">{children}</div>;
 }
 
 function RouteFallback() {

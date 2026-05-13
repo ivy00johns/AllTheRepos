@@ -10,12 +10,26 @@
  *     churning every call site.
  *
  * The structural shape below mirrors `src/preload/index.d.ts`'s
- * `AtrApi` (currently Phase 0 `system` namespace). Phase 1 extends the
- * renderer-side view of the bridge to cover catalog/scan/git/settings/
- * groups even before the preload exports them — backend agents will
- * physically wire the missing methods in their own files. Until then
- * the hooks built on top of this module receive `undefined` at runtime
- * and short-circuit (see `getAtr()` null check below).
+ * `AtrApi`. Phase 0 covered `system`. Phase 1 added catalog/scan/git/
+ * settings/groups. Phase 2 adds:
+ *   - `app.*` — dock badge, native notify, spotlight show/hide,
+ *               `registerActions`, optional `toggleDevtools`,
+ *               and the `onMenuCommand` push-event subscription.
+ *   - `menu.onCommand(cb)` — push-event subscription for the
+ *               `menu:on:command` channel.
+ *   - `protocol.onDeepLink(cb)` — push-event subscription for the
+ *               `protocol:on:deep-link` channel.
+ *   - `tray.onOpenRepo(cb)` — push-event subscription for the
+ *               `tray:on:open-repo` channel.
+ *
+ * The Phase 2 namespaces are also exposed indirectly via
+ * `app.onMenuCommand` / `app.onDeepLink` / `app.onOpenRepo`
+ * (alias-shim) so renderer hooks can subscribe through a single
+ * `app` namespace surface; see plan §5.3 / §5.8.
+ *
+ * Until the preload physically wires the missing methods the hooks
+ * built on top of this module receive `undefined` at runtime and
+ * short-circuit (see `getAtr()` null check below).
  */
 
 import type {
@@ -23,6 +37,7 @@ import type {
   CancelScanResult,
   CreateGroupInput,
   CreateGroupResult,
+  DeepLinkPayload,
   DeleteGroupInput,
   DeleteGroupResult,
   GetRepoInput,
@@ -32,13 +47,19 @@ import type {
   GitBranchesResult,
   GitStatus,
   GitStatusInput,
+  HideSpotlightResult,
   ListGroupsResult,
   ListReposInput,
   ListReposResult,
+  MenuCommandPayload,
+  NotifyInput,
+  NotifyResult,
   OpenInEditorInput,
   OpenInEditorResult,
   PingInput,
   PingResponse,
+  RegisterActionsInput,
+  RegisterActionsResult,
   RenameGroupInput,
   RenameGroupResult,
   RescanRepoInput,
@@ -48,21 +69,25 @@ import type {
   ScanStatusResult,
   SearchReposInput,
   SearchReposResult,
+  SetDockBadgeInput,
+  SetDockBadgeResult,
   SetGroupMembersInput,
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
   StartScanInput,
   StartScanResult,
+  TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
 } from "@shared/types";
 
 /**
- * Phase 0 + Phase 1 IPC surface as exposed on `window.atr` by the
- * preload script. Keep in sync with `src/preload/index.d.ts`.
+ * Phase 0 + Phase 1 + Phase 2 IPC surface as exposed on `window.atr`
+ * by the preload script. Keep in sync with `src/preload/index.d.ts`.
  */
 export interface AtrBridge {
   system: {
@@ -101,6 +126,60 @@ export interface AtrBridge {
     rename(input: RenameGroupInput): Promise<RenameGroupResult>;
     delete(input: DeleteGroupInput): Promise<DeleteGroupResult>;
     setMembers(input: SetGroupMembersInput): Promise<SetGroupMembersResult>;
+  };
+  /**
+   * Phase 2 — native shell + actions registry + push-event
+   * subscriptions. The preload exposes these per
+   * `contracts/ipc.v1.md` (Phase 2 section).
+   *
+   * `toggleDevtools` is an OPTIONAL convenience helper not in the
+   * frozen contract — the `app.toggle-devtools` action calls it if
+   * present and no-ops otherwise.
+   */
+  app: {
+    setDockBadge(input: SetDockBadgeInput): Promise<SetDockBadgeResult>;
+    notify(input: NotifyInput): Promise<NotifyResult>;
+    showSpotlight(): Promise<ShowSpotlightResult>;
+    hideSpotlight(): Promise<HideSpotlightResult>;
+    registerActions(
+      input: RegisterActionsInput,
+    ): Promise<RegisterActionsResult>;
+    /** Optional dev-only helper invoked by the `app.toggle-devtools` action. */
+    toggleDevtools?: () => Promise<void> | void;
+    /**
+     * Convenience alias for `menu.onCommand` — some hooks subscribe
+     * through the `app` namespace because the action registry feels
+     * conceptually closer to app-level state than to the menu namespace.
+     * Preload MAY implement this as a thin proxy over `menu.onCommand`.
+     */
+    onMenuCommand?(cb: (payload: MenuCommandPayload) => void): () => void;
+    /** Convenience alias for `protocol.onDeepLink`. */
+    onDeepLink?(cb: (payload: DeepLinkPayload) => void): () => void;
+    /** Convenience alias for `tray.onOpenRepo` (preload may name it `onTrayOpenRepo`). */
+    onOpenRepo?(cb: (payload: TrayOpenRepoPayload) => void): () => void;
+    /** Alternate name used by backend-system's preload extension. */
+    onTrayOpenRepo?(cb: (payload: TrayOpenRepoPayload) => void): () => void;
+  };
+  menu: {
+    /**
+     * Subscribe to native-menu activation events. Returns an
+     * unsubscribe lambda the caller MUST run from cleanup.
+     */
+    onCommand(cb: (payload: MenuCommandPayload) => void): () => void;
+  };
+  protocol: {
+    /**
+     * Subscribe to `alltherepos://` deep-link openings. Returns an
+     * unsubscribe lambda the caller MUST run from cleanup.
+     */
+    onDeepLink(cb: (payload: DeepLinkPayload) => void): () => void;
+  };
+  tray: {
+    /**
+     * Subscribe to tray-popover "open repo" clicks. Returns an
+     * unsubscribe lambda the caller MUST run from cleanup.
+     */
+    onOpenRepo(cb: (payload: TrayOpenRepoPayload) => void): () => void;
   };
 }
 

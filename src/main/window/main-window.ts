@@ -22,6 +22,25 @@ const DEFAULT_HEIGHT = 800;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
 
+// Module-scoped reference so other main-process modules (e.g. the menu /
+// global-shortcut wiring in `system/`) can broadcast IPC to the main
+// window when no window currently holds focus. Set by `createMainWindow`
+// and cleared on `closed`.
+let mainWindowRef: BrowserWindow | null = null;
+
+/**
+ * Returns the current main BrowserWindow, or `null` if it has been
+ * closed or hasn't been created yet. Used by `backend-system` so it can
+ * route `menu:on:command` IPC to the main window when there is no
+ * focused window to broadcast to.
+ */
+export function getMainWindow(): BrowserWindow | null {
+  if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+    return mainWindowRef;
+  }
+  return null;
+}
+
 /**
  * Create + show the main window. Caller is responsible for keeping the
  * returned reference alive (e.g. as a module-scoped variable in
@@ -102,6 +121,15 @@ export function createMainWindow(): BrowserWindow {
   );
   window.webContents.on("render-process-gone", (_e, details) => {
     console.error(`[renderer] render-process-gone:`, details);
+  });
+
+  // Track the latest main window so `getMainWindow()` can hand it back
+  // to other main-process modules without an import cycle.
+  mainWindowRef = window;
+  window.on("closed", () => {
+    if (mainWindowRef === window) {
+      mainWindowRef = null;
+    }
   });
 
   return window;

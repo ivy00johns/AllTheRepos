@@ -50,6 +50,25 @@ import {
   RenameGroupInputSchema,
   DeleteGroupInputSchema,
   SetGroupMembersInputSchema,
+  // ---- Phase 2 additions
+  ActionIdSchema,
+  ActionScopeSchema,
+  AcceleratorSchema,
+  ActionSchema,
+  NotificationActionSchema,
+  SetDockBadgeInputSchema,
+  SetDockBadgeResultSchema,
+  NotifyInputSchema,
+  NotifyResultSchema,
+  ShowSpotlightInputSchema,
+  ShowSpotlightResultSchema,
+  HideSpotlightInputSchema,
+  HideSpotlightResultSchema,
+  RegisterActionsInputSchema,
+  RegisterActionsResultSchema,
+  MenuCommandPayloadSchema,
+  DeepLinkPayloadSchema,
+  TrayOpenRepoPayloadSchema,
 } from "../../../src/shared/schemas";
 
 // ---------------------------------------------------------------------------
@@ -1065,5 +1084,503 @@ describe("SetGroupMembersInputSchema", () => {
     expect(() =>
       SetGroupMembersInputSchema.parse({ groupId: 1, slugs: [""] }),
     ).toThrow();
+  });
+});
+
+// ===========================================================================
+// PHASE 2 SCHEMAS — app:* IPC, action registry, push-event payloads.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// ActionIdSchema
+// ---------------------------------------------------------------------------
+
+describe("ActionIdSchema", () => {
+  it("accepts kebab-case + dot ids", () => {
+    expect(ActionIdSchema.parse("app.open-settings")).toBe("app.open-settings");
+    expect(ActionIdSchema.parse("catalog.refresh")).toBe("catalog.refresh");
+    expect(ActionIdSchema.parse("repo.copy-path")).toBe("repo.copy-path");
+  });
+
+  it("accepts a single-segment id", () => {
+    expect(ActionIdSchema.parse("refresh")).toBe("refresh");
+  });
+
+  it("rejects an empty string", () => {
+    expect(() => ActionIdSchema.parse("")).toThrow();
+  });
+
+  it("rejects uppercase letters", () => {
+    expect(() => ActionIdSchema.parse("App.OpenSettings")).toThrow();
+  });
+
+  it("rejects underscores (not in grammar)", () => {
+    expect(() => ActionIdSchema.parse("app.open_settings")).toThrow();
+  });
+
+  it("rejects an id starting with a digit", () => {
+    expect(() => ActionIdSchema.parse("1bad")).toThrow();
+  });
+
+  it("rejects an id starting with a dot", () => {
+    expect(() => ActionIdSchema.parse(".foo")).toThrow();
+  });
+
+  it("rejects an id with whitespace", () => {
+    expect(() => ActionIdSchema.parse("app open")).toThrow();
+  });
+
+  it("rejects an id longer than 64 chars", () => {
+    expect(() => ActionIdSchema.parse("a." + "b".repeat(64))).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ActionScopeSchema
+// ---------------------------------------------------------------------------
+
+describe("ActionScopeSchema", () => {
+  it("accepts every documented scope", () => {
+    for (const s of [
+      "global",
+      "catalog",
+      "repo-detail",
+      "settings",
+      "spotlight",
+    ] as const) {
+      expect(ActionScopeSchema.parse(s)).toBe(s);
+    }
+  });
+
+  it("rejects an unknown scope", () => {
+    expect(() => ActionScopeSchema.parse("topbar")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AcceleratorSchema
+// ---------------------------------------------------------------------------
+
+describe("AcceleratorSchema", () => {
+  it("accepts printable-ASCII strings", () => {
+    expect(AcceleratorSchema.parse("CmdOrCtrl+K")).toBe("CmdOrCtrl+K");
+    expect(AcceleratorSchema.parse("Alt+Shift+P")).toBe("Alt+Shift+P");
+    expect(AcceleratorSchema.parse("/")).toBe("/");
+  });
+
+  it("rejects an empty string", () => {
+    expect(() => AcceleratorSchema.parse("")).toThrow();
+  });
+
+  it("rejects a non-ASCII shortcut", () => {
+    expect(() => AcceleratorSchema.parse("Cmd+✓")).toThrow();
+  });
+
+  it("rejects an over-long shortcut", () => {
+    expect(() => AcceleratorSchema.parse("a".repeat(65))).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ActionSchema
+// ---------------------------------------------------------------------------
+
+describe("ActionSchema", () => {
+  const base = {
+    id: "app.open-settings",
+    label: "Open Settings",
+    scope: "global" as const,
+  };
+
+  it("accepts the minimal required fields", () => {
+    expect(ActionSchema.parse(base)).toEqual(base);
+  });
+
+  it("accepts the full optional set", () => {
+    const full = {
+      ...base,
+      shortcut: "CmdOrCtrl+,",
+      icon: "settings",
+      hint: "Open application preferences",
+      group: "App",
+      devOnly: false,
+    };
+    expect(ActionSchema.parse(full)).toEqual(full);
+  });
+
+  it("rejects a malformed id", () => {
+    expect(() => ActionSchema.parse({ ...base, id: "Bad.ID" })).toThrow();
+  });
+
+  it("rejects an empty label", () => {
+    expect(() => ActionSchema.parse({ ...base, label: "" })).toThrow();
+  });
+
+  it("rejects an over-long label (>120 chars)", () => {
+    expect(() =>
+      ActionSchema.parse({ ...base, label: "x".repeat(121) }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown scope", () => {
+    expect(() =>
+      // @ts-expect-error - intentionally bad
+      ActionSchema.parse({ ...base, scope: "wat" }),
+    ).toThrow();
+  });
+
+  it("rejects a non-ASCII shortcut", () => {
+    expect(() => ActionSchema.parse({ ...base, shortcut: "Cmd+✓" })).toThrow();
+  });
+
+  it("rejects an over-long hint", () => {
+    expect(() =>
+      ActionSchema.parse({ ...base, hint: "x".repeat(201) }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NotificationActionSchema
+// ---------------------------------------------------------------------------
+
+describe("NotificationActionSchema", () => {
+  it("accepts a button-type action", () => {
+    expect(
+      NotificationActionSchema.parse({ type: "button", text: "Open" }),
+    ).toEqual({ type: "button", text: "Open" });
+  });
+
+  it("rejects a non-button type", () => {
+    expect(() =>
+      // @ts-expect-error - intentionally bad
+      NotificationActionSchema.parse({ type: "link", text: "Open" }),
+    ).toThrow();
+  });
+
+  it("rejects empty text", () => {
+    expect(() =>
+      NotificationActionSchema.parse({ type: "button", text: "" }),
+    ).toThrow();
+  });
+
+  it("rejects text over 64 chars", () => {
+    expect(() =>
+      NotificationActionSchema.parse({ type: "button", text: "x".repeat(65) }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SetDockBadgeInputSchema / Result
+// ---------------------------------------------------------------------------
+
+describe("SetDockBadgeInputSchema", () => {
+  it("accepts a non-negative integer count", () => {
+    expect(SetDockBadgeInputSchema.parse({ count: 3 })).toEqual({ count: 3 });
+  });
+
+  it("accepts zero", () => {
+    expect(SetDockBadgeInputSchema.parse({ count: 0 })).toEqual({ count: 0 });
+  });
+
+  it("accepts null (clear)", () => {
+    expect(SetDockBadgeInputSchema.parse({ count: null })).toEqual({
+      count: null,
+    });
+  });
+
+  it("rejects a missing count", () => {
+    expect(() => SetDockBadgeInputSchema.parse({})).toThrow();
+  });
+
+  it("rejects a non-integer count", () => {
+    expect(() => SetDockBadgeInputSchema.parse({ count: 1.5 })).toThrow();
+  });
+
+  it("rejects a negative count", () => {
+    expect(() => SetDockBadgeInputSchema.parse({ count: -1 })).toThrow();
+  });
+
+  it("rejects a count above 9999", () => {
+    expect(() => SetDockBadgeInputSchema.parse({ count: 10000 })).toThrow();
+  });
+});
+
+describe("SetDockBadgeResultSchema", () => {
+  it("accepts a string badge", () => {
+    expect(SetDockBadgeResultSchema.parse({ badge: "3" })).toEqual({
+      badge: "3",
+    });
+  });
+
+  it("accepts an empty string badge (cleared)", () => {
+    expect(SetDockBadgeResultSchema.parse({ badge: "" })).toEqual({
+      badge: "",
+    });
+  });
+
+  it("rejects a non-string badge", () => {
+    expect(() => SetDockBadgeResultSchema.parse({ badge: 3 })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NotifyInputSchema / Result
+// ---------------------------------------------------------------------------
+
+describe("NotifyInputSchema", () => {
+  it("accepts title + body", () => {
+    expect(NotifyInputSchema.parse({ title: "T", body: "B" })).toEqual({
+      title: "T",
+      body: "B",
+    });
+  });
+
+  it("accepts silent + actions", () => {
+    expect(
+      NotifyInputSchema.parse({
+        title: "T",
+        body: "B",
+        silent: true,
+        actions: [{ type: "button", text: "Open" }],
+      }),
+    ).toEqual({
+      title: "T",
+      body: "B",
+      silent: true,
+      actions: [{ type: "button", text: "Open" }],
+    });
+  });
+
+  it("rejects an empty title", () => {
+    expect(() => NotifyInputSchema.parse({ title: "", body: "B" })).toThrow();
+  });
+
+  it("rejects an over-long title (>120 chars)", () => {
+    expect(() =>
+      NotifyInputSchema.parse({ title: "x".repeat(121), body: "B" }),
+    ).toThrow();
+  });
+
+  it("rejects an over-long body (>500 chars)", () => {
+    expect(() =>
+      NotifyInputSchema.parse({ title: "T", body: "x".repeat(501) }),
+    ).toThrow();
+  });
+
+  it("rejects more than 3 actions", () => {
+    expect(() =>
+      NotifyInputSchema.parse({
+        title: "T",
+        body: "B",
+        actions: Array.from({ length: 4 }, (_, i) => ({
+          type: "button" as const,
+          text: `B${i}`,
+        })),
+      }),
+    ).toThrow();
+  });
+});
+
+describe("NotifyResultSchema", () => {
+  it("accepts shown=true", () => {
+    expect(NotifyResultSchema.parse({ shown: true })).toEqual({ shown: true });
+  });
+
+  it("accepts shown=false", () => {
+    expect(NotifyResultSchema.parse({ shown: false })).toEqual({
+      shown: false,
+    });
+  });
+
+  it("rejects a missing shown", () => {
+    expect(() => NotifyResultSchema.parse({})).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ShowSpotlight / HideSpotlight schemas
+// ---------------------------------------------------------------------------
+
+describe("ShowSpotlightInputSchema / HideSpotlightInputSchema", () => {
+  it("accept empty objects (strict)", () => {
+    expect(ShowSpotlightInputSchema.parse({})).toEqual({});
+    expect(HideSpotlightInputSchema.parse({})).toEqual({});
+  });
+
+  it("reject extra keys (strict)", () => {
+    expect(() => ShowSpotlightInputSchema.parse({ x: 1 })).toThrow();
+    expect(() => HideSpotlightInputSchema.parse({ x: 1 })).toThrow();
+  });
+});
+
+describe("ShowSpotlightResultSchema / HideSpotlightResultSchema", () => {
+  it("Show result is { visible: true }", () => {
+    expect(ShowSpotlightResultSchema.parse({ visible: true })).toEqual({
+      visible: true,
+    });
+  });
+
+  it("Hide result is { visible: false }", () => {
+    expect(HideSpotlightResultSchema.parse({ visible: false })).toEqual({
+      visible: false,
+    });
+  });
+
+  it("Show rejects visible=false", () => {
+    expect(() => ShowSpotlightResultSchema.parse({ visible: false })).toThrow();
+  });
+
+  it("Hide rejects visible=true", () => {
+    expect(() => HideSpotlightResultSchema.parse({ visible: true })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RegisterActionsInputSchema / Result
+// ---------------------------------------------------------------------------
+
+describe("RegisterActionsInputSchema", () => {
+  const sampleAction = {
+    id: "app.open-settings",
+    label: "Open Settings",
+    scope: "global" as const,
+  };
+
+  it("accepts an empty actions array", () => {
+    expect(RegisterActionsInputSchema.parse({ actions: [] })).toEqual({
+      actions: [],
+    });
+  });
+
+  it("accepts a single action", () => {
+    expect(
+      RegisterActionsInputSchema.parse({ actions: [sampleAction] }),
+    ).toEqual({ actions: [sampleAction] });
+  });
+
+  it("rejects an action with a malformed id", () => {
+    expect(() =>
+      RegisterActionsInputSchema.parse({
+        actions: [{ ...sampleAction, id: "Bad.ID" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects more than 200 actions", () => {
+    const tooMany = Array.from({ length: 201 }, (_, i) => ({
+      ...sampleAction,
+      id: `app.action-${i}`,
+    }));
+    expect(() =>
+      RegisterActionsInputSchema.parse({ actions: tooMany }),
+    ).toThrow();
+  });
+
+  it("rejects a missing actions key", () => {
+    expect(() => RegisterActionsInputSchema.parse({})).toThrow();
+  });
+});
+
+describe("RegisterActionsResultSchema", () => {
+  it("accepts non-negative accepted + skipped", () => {
+    expect(
+      RegisterActionsResultSchema.parse({ accepted: 8, skipped: 0 }),
+    ).toEqual({ accepted: 8, skipped: 0 });
+  });
+
+  it("rejects negative numbers", () => {
+    expect(() =>
+      RegisterActionsResultSchema.parse({ accepted: -1, skipped: 0 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MenuCommandPayloadSchema
+// ---------------------------------------------------------------------------
+
+describe("MenuCommandPayloadSchema", () => {
+  it("accepts a valid commandId", () => {
+    expect(
+      MenuCommandPayloadSchema.parse({ commandId: "app.open-settings" }),
+    ).toEqual({ commandId: "app.open-settings" });
+  });
+
+  it("rejects a malformed commandId", () => {
+    expect(() =>
+      MenuCommandPayloadSchema.parse({ commandId: "Bad.ID" }),
+    ).toThrow();
+  });
+
+  it("rejects a missing commandId", () => {
+    expect(() => MenuCommandPayloadSchema.parse({})).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DeepLinkPayloadSchema
+// ---------------------------------------------------------------------------
+
+describe("DeepLinkPayloadSchema", () => {
+  it("accepts a path without leading slash + empty params", () => {
+    expect(
+      DeepLinkPayloadSchema.parse({ path: "settings", params: {} }),
+    ).toEqual({ path: "settings", params: {} });
+  });
+
+  it("accepts a multi-segment path", () => {
+    expect(
+      DeepLinkPayloadSchema.parse({
+        path: "repo/foo",
+        params: { slug: "foo" },
+      }),
+    ).toEqual({ path: "repo/foo", params: { slug: "foo" } });
+  });
+
+  it("rejects a path starting with '/'", () => {
+    expect(() =>
+      DeepLinkPayloadSchema.parse({ path: "/repo/foo", params: {} }),
+    ).toThrow();
+  });
+
+  it("rejects an empty path", () => {
+    expect(() =>
+      DeepLinkPayloadSchema.parse({ path: "", params: {} }),
+    ).toThrow();
+  });
+
+  it("rejects an over-long path (>2048)", () => {
+    expect(() =>
+      DeepLinkPayloadSchema.parse({ path: "x".repeat(2049), params: {} }),
+    ).toThrow();
+  });
+
+  it("rejects non-string param values", () => {
+    expect(() =>
+      // @ts-expect-error - intentionally bad
+      DeepLinkPayloadSchema.parse({ path: "settings", params: { a: 1 } }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TrayOpenRepoPayloadSchema
+// ---------------------------------------------------------------------------
+
+describe("TrayOpenRepoPayloadSchema", () => {
+  it("accepts a slug", () => {
+    expect(TrayOpenRepoPayloadSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => TrayOpenRepoPayloadSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects a missing slug", () => {
+    expect(() => TrayOpenRepoPayloadSchema.parse({})).toThrow();
   });
 });

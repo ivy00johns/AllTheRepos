@@ -393,6 +393,165 @@ export const SetGroupMembersResultSchema = z.object({
   memberCount: z.number().int().nonnegative(),
 });
 
+// ===========================================================================
+// Phase 2 IPC schemas — app:* + push-event payloads
+// ===========================================================================
+//
+// Each Phase 2 channel listed in `contracts/ipc.v1.md` has a matching
+// input/output schema below; each push-event channel has a payload schema.
+// Handlers MUST `.parse()` inputs; event publishers SHOULD `.parse()`
+// payloads in dev mode before `webContents.send(...)`.
+//
+// See `contracts/actions.v1.md` for the Action grammar and the baseline
+// Phase 2 action list, and `contracts/protocol.v1.md` for the
+// `alltherepos://` URL grammar.
+
+// ---------------------------------------------------------------------------
+// Actions registry — used by `app:registerActions` and validated by the
+// renderer before shipping its registry over the bridge.
+// ---------------------------------------------------------------------------
+
+/**
+ * Action id grammar — kebab-case, dot-namespaced.
+ * Examples: `catalog.refresh`, `app.open-settings`, `repo.copy-path`.
+ */
+export const ActionIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9.-]*$/, "action id must be kebab-case + dots");
+
+/** Scope enum — see `ActionScope` in ./types.ts. */
+export const ActionScopeSchema = z.enum([
+  "global",
+  "catalog",
+  "repo-detail",
+  "settings",
+  "spotlight",
+]);
+
+/**
+ * Loose Electron Accelerator sanity check. We do NOT try to validate
+ * every Electron-permitted modifier here — main rejects unbindable
+ * shortcuts at registration time. We only enforce a printable-ASCII
+ * shape so a malformed string from a renderer bug fails fast at the
+ * IPC boundary.
+ */
+export const AcceleratorSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[\x20-\x7E]+$/, "shortcut must be printable ASCII");
+
+export const ActionSchema = z.object({
+  id: ActionIdSchema,
+  label: z.string().min(1).max(120),
+  scope: ActionScopeSchema,
+  shortcut: AcceleratorSchema.optional(),
+  icon: z.string().min(1).max(64).optional(),
+  hint: z.string().min(1).max(200).optional(),
+  group: z.string().min(1).max(64).optional(),
+  devOnly: z.boolean().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Notification primitives
+// ---------------------------------------------------------------------------
+
+export const NotificationActionSchema = z.object({
+  type: z.literal("button"),
+  text: z.string().min(1).max(64),
+});
+
+// ---------------------------------------------------------------------------
+// app:setDockBadge
+// ---------------------------------------------------------------------------
+
+export const SetDockBadgeInputSchema = z.object({
+  /**
+   * Dock badge count. `null` ⇒ clear. Capped at 9999 so a runaway
+   * caller cannot render a wall of numerals into the dock.
+   */
+  count: z.number().int().nonnegative().max(9999).nullable(),
+});
+
+export const SetDockBadgeResultSchema = z.object({
+  badge: z.string(),
+});
+
+// ---------------------------------------------------------------------------
+// app:notify
+// ---------------------------------------------------------------------------
+
+export const NotifyInputSchema = z.object({
+  title: z.string().min(1).max(120),
+  body: z.string().min(1).max(500),
+  silent: z.boolean().optional(),
+  /** macOS reliably shows ≤1 action button on banners; cap defensively. */
+  actions: z.array(NotificationActionSchema).max(3).optional(),
+});
+
+export const NotifyResultSchema = z.object({
+  shown: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
+// app:showSpotlight / app:hideSpotlight
+// ---------------------------------------------------------------------------
+
+export const ShowSpotlightInputSchema = z.object({}).strict();
+export const ShowSpotlightResultSchema = z.object({
+  visible: z.literal(true),
+});
+
+export const HideSpotlightInputSchema = z.object({}).strict();
+export const HideSpotlightResultSchema = z.object({
+  visible: z.literal(false),
+});
+
+// ---------------------------------------------------------------------------
+// app:registerActions
+// ---------------------------------------------------------------------------
+
+export const RegisterActionsInputSchema = z.object({
+  /** Capped at 200 to bound menu / accelerator binding work on main. */
+  actions: z.array(ActionSchema).max(200),
+});
+
+export const RegisterActionsResultSchema = z.object({
+  accepted: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+});
+
+// ---------------------------------------------------------------------------
+// Push-event payloads (main → renderer)
+// ---------------------------------------------------------------------------
+
+/** Payload for `menu:on:command`. */
+export const MenuCommandPayloadSchema = z.object({
+  commandId: ActionIdSchema,
+});
+
+/**
+ * Payload for `protocol:on:deep-link`. `path` is the URL portion AFTER
+ * `alltherepos://` with no leading or trailing slash. `params` include
+ * both query-string entries AND named path captures (see
+ * `contracts/protocol.v1.md`).
+ */
+export const DeepLinkPayloadSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .max(2048)
+    .regex(/^[^/].*$/, "path must not start with '/'"),
+  params: z.record(z.string(), z.string()),
+});
+
+/** Payload for `tray:on:open-repo`. */
+export const TrayOpenRepoPayloadSchema = z.object({
+  slug: SlugSchema,
+});
+
 // ---------------------------------------------------------------------------
 // Convenience inferred types (prefer the hand-written types in ./types.ts
 // where they exist; these exist for handler-internal use).
@@ -409,3 +568,9 @@ export type SearchHitZ = z.infer<typeof SearchHitSchema>;
 export type RepoDetailZ = z.infer<typeof RepoDetailSchema>;
 export type GitStatusZ = z.infer<typeof GitStatusSchema>;
 export type GitBranchZ = z.infer<typeof GitBranchSchema>;
+export type ActionZ = z.infer<typeof ActionSchema>;
+export type ActionScopeZ = z.infer<typeof ActionScopeSchema>;
+export type NotificationActionZ = z.infer<typeof NotificationActionSchema>;
+export type MenuCommandPayloadZ = z.infer<typeof MenuCommandPayloadSchema>;
+export type DeepLinkPayloadZ = z.infer<typeof DeepLinkPayloadSchema>;
+export type TrayOpenRepoPayloadZ = z.infer<typeof TrayOpenRepoPayloadSchema>;

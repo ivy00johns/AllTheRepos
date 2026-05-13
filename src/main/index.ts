@@ -1,17 +1,25 @@
 /**
  * Electron main-process entry point.
  *
- * Phase 1 responsibilities (extends Phase 0):
+ * Phase 2 responsibilities (extends Phase 0 + 1):
  *   1. Acquire the single-instance lock.
- *   2. On `app.whenReady`:
- *      a. Run the legacy-data migration (one-time copy from
+ *   2. On `app.whenReady`, in order:
+ *      a. Install the strict CSP (must precede any document load).
+ *      b. Register the `alltherepos://` protocol scheme and its
+ *         `open-url` / `second-instance` handlers.
+ *      c. Run the legacy-data migration (one-time copy from
  *         `~/.alltherepos/` into `app.getPath('userData')/`).
- *      b. Run Drizzle migrations to bring `alltherepos.db` up to date.
- *      c. Boot the scanner service (resume an unfinished job in future
+ *      d. Run Drizzle migrations to bring `alltherepos.db` up to date.
+ *      e. Boot the scanner service (resume an unfinished job in future
  *         phases — Phase 1: no-op).
- *      d. Install the strict CSP, register every IPC handler, subscribe
- *         to scan-progress events, and create the main window.
- *   3. Honor macOS-specific lifecycle (`activate` recreates the window;
+ *      f. Register every IPC handler.
+ *      g. Subscribe to scan-progress events (fan-out to renderers +
+ *         fire the native "Scan complete" notification on `done`).
+ *      h. Create the main window.
+ *      i. Create the tray (lazy — depends on main window existing).
+ *      j. Register the global Cmd+Shift+Space hotkey.
+ *   3. On `before-quit`: unregister every global shortcut.
+ *   4. Honor macOS-specific lifecycle (`activate` recreates the window;
  *      we only quit on `window-all-closed` outside darwin).
  *
  * The scan-progress subscription lives here (not in the scan handler
@@ -29,6 +37,13 @@ import { migrateFromLegacy } from "./db/migration";
 import { registerIpcHandlers } from "./ipc/register";
 import { installContentSecurityPolicy } from "./security/csp";
 import { scanService } from "./services/scan";
+import {
+  registerGlobalHotkeys,
+  unregisterGlobalHotkeys,
+} from "./system/hotkey";
+import { notifyScanComplete } from "./system/notification";
+import { registerProtocolHandler } from "./system/protocol";
+import { createTray } from "./system/tray";
 import { createMainWindow } from "./window/main-window";
 
 // Module-scoped reference prevents the BrowserWindow from being GC'd.
@@ -64,49 +79,77 @@ if (!gotSingleInstanceLock) {
     }
   });
 
-  app.whenReady().then(async () => {
-    // 1. Migrate legacy `~/.alltherepos/` data into `userData/` (idempotent,
-    //    gated by the MIGRATED sentinel file — see contracts/data-layer.v1.md).
-    migrateFromLegacy(app.getPath("userData"));
+  app
+    .whenReady()
+    .then(async () => {
+      // 1. CSP — must be in place before any document load.
+      installContentSecurityPolicy();
 
-    // 2. Bring the SQLite schema up to date BEFORE any service touches it.
-    //    `runMigrations()` is synchronous — it triggers the lazy `getDb()`
-    //    initializer which runs Drizzle migrations + FTS setup + seed.
-    runMigrations();
+      // 2. Register `alltherepos://` protocol. Must precede the window
+      //    creation so a cold launch with a deep-link URL has a chance
+      //    to dispatch into the renderer when it mounts.
+      registerProtocolHandler();
 
-    // 3. Scanner boot — Phase 1 is a no-op; later phases may resume a
-    //    half-finished job here.
-    await scanService.boot();
+      // 3. Migrate legacy `~/.alltherepos/` data into `userData/` (idempotent,
+      //    gated by the MIGRATED sentinel file — see contracts/data-layer.v1.md).
+      migrateFromLegacy(app.getPath("userData"));
 
-    // 4. CSP — must be in place before any document load.
-    installContentSecurityPolicy();
+      // 4. Bring the SQLite schema up to date BEFORE any service touches it.
+      //    `runMigrations()` is synchronous — it triggers the lazy `getDb()`
+      //    initializer which runs Drizzle migrations + FTS setup + seed.
+      runMigrations();
 
-    // 5. IPC handlers — must exist before the renderer can call them.
-    registerIpcHandlers();
+      // 5. Scanner boot — Phase 1 is a no-op; later phases may resume a
+      //    half-finished job here.
+      await scanService.boot();
 
-    // 6. Subscribe to the scanner's progress events and fan them out to
-    //    every renderer window via `webContents.send`. This is the canonical
-    //    app-lifetime subscription — `src/main/ipc/scan.ts` does NOT install
-    //    its own listener, so events fire exactly once per scan tick.
-    scanService.events.on("progress", broadcastScanEvent);
+      // 6. IPC handlers — must exist before the renderer can call them.
+      registerIpcHandlers();
 
-    // 7. Window last.
-    mainWindow = createMainWindow();
-    mainWindow.on("closed", () => {
-      mainWindow = null;
+      // 7. Subscribe to the scanner's progress events. Two consumers:
+      //    (a) Fan to every renderer window via `webContents.send`.
+      //    (b) Fire the "Scan complete" native notification on `done`.
+      //    This is the canonical app-lifetime subscription — `src/main/ipc/scan.ts`
+      //    does NOT install its own listener, so events fire exactly once per tick.
+      scanService.events.on("progress", broadcastScanEvent);
+      scanService.events.on("progress", (event: ScanEvent) => {
+        if (event.kind === "done") {
+          notifyScanComplete(event.totalRepos, event.durationMs);
+        }
+      });
+
+      // 8. Main window.
+      mainWindow = createMainWindow();
+      mainWindow.on("closed", () => {
+        mainWindow = null;
+      });
+
+      // 9. Tray — lazy: only after the main window exists so the popover
+      //    bridge has a target to position against.
+      createTray();
+
+      // 10. Global hotkey — registered AFTER `app.whenReady()` per the
+      //     Electron docs. `before-quit` unregisters.
+      registerGlobalHotkeys();
+
+      // macOS: recreate the window when the dock icon is clicked and there
+      // are no other windows open.
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          mainWindow = createMainWindow();
+          mainWindow.on("closed", () => {
+            mainWindow = null;
+          });
+        }
+      });
+    })
+    .catch((err) => {
+      // Boot errors otherwise vanish into UnhandledPromiseRejectionWarning
+      // — surface them loudly and exit so the user sees the failure
+      // instead of staring at a hung process with no window.
+      console.error("[main] app.whenReady boot failed:", err);
+      app.exit(1);
     });
-
-    // macOS: recreate the window when the dock icon is clicked and there
-    // are no other windows open.
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createMainWindow();
-        mainWindow.on("closed", () => {
-          mainWindow = null;
-        });
-      }
-    });
-  });
 
   // Quit on non-darwin platforms when the last window closes; on macOS
   // the app convention is to stay alive in the menu bar.
@@ -114,5 +157,11 @@ if (!gotSingleInstanceLock) {
     if (process.platform !== "darwin") {
       app.quit();
     }
+  });
+
+  // Ensure global accelerators don't outlive the app. `unregisterAll`
+  // is idempotent; calling it here is the canonical Electron pattern.
+  app.on("before-quit", () => {
+    unregisterGlobalHotkeys();
   });
 }

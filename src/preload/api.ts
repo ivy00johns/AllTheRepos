@@ -7,11 +7,17 @@
  *     (no inline string literals), and
  *   - return a Promise typed against the shared `@shared/types` shape.
  *
- * Phase 0 exposed `system.ping`. Phase 1 adds the five namespaces
- * required by the renderer: catalog, scan, git, settings, groups.
+ * Phase 0 exposed `system.ping`. Phase 1 added the five renderer
+ * namespaces: catalog, scan, git, settings, groups. Phase 2 adds:
+ *   - `app` namespace: setDockBadge, notify, showSpotlight,
+ *     hideSpotlight, registerActions.
+ *   - Three push-event subscribers: `app.onMenuCommand`,
+ *     `app.onDeepLink`, `app.onTrayOpenRepo`. Each follows the same
+ *     `scan.onProgress` wrapper pattern (raw `ipcRenderer` is hidden;
+ *     subscriber returns an unsubscribe lambda).
  *
- * The `scan.onProgress` method is the only non-`invoke` channel — it
- * subscribes to a push-style event stream from main. The preload wraps
+ * The `*.onX` methods are the only non-`invoke` channels — they
+ * subscribe to push-style event streams from main. The preload wraps
  * both `on` and `off` so the renderer never sees `ipcRenderer` and
  * returns an unsubscribe lambda the renderer should call from
  * useEffect cleanup.
@@ -25,6 +31,7 @@ import type {
   CancelScanResult,
   CreateGroupInput,
   CreateGroupResult,
+  DeepLinkPayload,
   DeleteGroupInput,
   DeleteGroupResult,
   GetRepoInput,
@@ -34,13 +41,19 @@ import type {
   GitBranchesResult,
   GitStatus,
   GitStatusInput,
+  HideSpotlightResult,
   ListGroupsResult,
   ListReposInput,
   ListReposResult,
+  MenuCommandPayload,
+  NotifyInput,
+  NotifyResult,
   OpenInEditorInput,
   OpenInEditorResult,
   PingInput,
   PingResponse,
+  RegisterActionsInput,
+  RegisterActionsResult,
   RenameGroupInput,
   RenameGroupResult,
   RescanRepoInput,
@@ -50,14 +63,18 @@ import type {
   ScanStatusResult,
   SearchReposInput,
   SearchReposResult,
+  SetDockBadgeInput,
+  SetDockBadgeResult,
   SetGroupMembersInput,
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
   StartScanInput,
   StartScanResult,
+  TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
 } from "@shared/types";
@@ -79,13 +96,25 @@ export const api = {
     get: (input: GetRepoInput): Promise<GetRepoResult> =>
       ipcRenderer.invoke(IPC.CATALOG.GET, input) as Promise<GetRepoResult>,
     search: (input: SearchReposInput): Promise<SearchReposResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.SEARCH, input) as Promise<SearchReposResult>,
+      ipcRenderer.invoke(
+        IPC.CATALOG.SEARCH,
+        input,
+      ) as Promise<SearchReposResult>,
     rescan: (input: RescanRepoInput): Promise<RescanRepoResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.RESCAN, input) as Promise<RescanRepoResult>,
+      ipcRenderer.invoke(
+        IPC.CATALOG.RESCAN,
+        input,
+      ) as Promise<RescanRepoResult>,
     setTags: (input: SetRepoTagsInput): Promise<SetRepoTagsResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.SET_TAGS, input) as Promise<SetRepoTagsResult>,
+      ipcRenderer.invoke(
+        IPC.CATALOG.SET_TAGS,
+        input,
+      ) as Promise<SetRepoTagsResult>,
     smartFilter: (input: SmartFilterInput): Promise<SmartFilterResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.SMART_FILTER, input) as Promise<SmartFilterResult>,
+      ipcRenderer.invoke(
+        IPC.CATALOG.SMART_FILTER,
+        input,
+      ) as Promise<SmartFilterResult>,
   },
 
   scan: {
@@ -120,27 +149,141 @@ export const api = {
     branches: (input: GitBranchesInput): Promise<GitBranchesResult> =>
       ipcRenderer.invoke(IPC.GIT.BRANCHES, input) as Promise<GitBranchesResult>,
     openInEditor: (input: OpenInEditorInput): Promise<OpenInEditorResult> =>
-      ipcRenderer.invoke(IPC.GIT.OPEN_IN_EDITOR, input) as Promise<OpenInEditorResult>,
+      ipcRenderer.invoke(
+        IPC.GIT.OPEN_IN_EDITOR,
+        input,
+      ) as Promise<OpenInEditorResult>,
   },
 
   settings: {
     get: (): Promise<GetSettingsResult> =>
       ipcRenderer.invoke(IPC.SETTINGS.GET, {}) as Promise<GetSettingsResult>,
     update: (input: UpdateSettingsInput): Promise<UpdateSettingsResult> =>
-      ipcRenderer.invoke(IPC.SETTINGS.UPDATE, input) as Promise<UpdateSettingsResult>,
+      ipcRenderer.invoke(
+        IPC.SETTINGS.UPDATE,
+        input,
+      ) as Promise<UpdateSettingsResult>,
   },
 
   groups: {
     list: (): Promise<ListGroupsResult> =>
       ipcRenderer.invoke(IPC.GROUPS.LIST, {}) as Promise<ListGroupsResult>,
     create: (input: CreateGroupInput): Promise<CreateGroupResult> =>
-      ipcRenderer.invoke(IPC.GROUPS.CREATE, input) as Promise<CreateGroupResult>,
+      ipcRenderer.invoke(
+        IPC.GROUPS.CREATE,
+        input,
+      ) as Promise<CreateGroupResult>,
     rename: (input: RenameGroupInput): Promise<RenameGroupResult> =>
-      ipcRenderer.invoke(IPC.GROUPS.RENAME, input) as Promise<RenameGroupResult>,
+      ipcRenderer.invoke(
+        IPC.GROUPS.RENAME,
+        input,
+      ) as Promise<RenameGroupResult>,
     delete: (input: DeleteGroupInput): Promise<DeleteGroupResult> =>
-      ipcRenderer.invoke(IPC.GROUPS.DELETE, input) as Promise<DeleteGroupResult>,
+      ipcRenderer.invoke(
+        IPC.GROUPS.DELETE,
+        input,
+      ) as Promise<DeleteGroupResult>,
     setMembers: (input: SetGroupMembersInput): Promise<SetGroupMembersResult> =>
-      ipcRenderer.invoke(IPC.GROUPS.SET_MEMBERS, input) as Promise<SetGroupMembersResult>,
+      ipcRenderer.invoke(
+        IPC.GROUPS.SET_MEMBERS,
+        input,
+      ) as Promise<SetGroupMembersResult>,
+  },
+
+  /**
+   * Phase 2 `app:*` namespace — native shell affordances.
+   *
+   * `setDockBadge` / `notify` / `showSpotlight` / `hideSpotlight` /
+   * `registerActions` are standard invoke channels. The `on*`
+   * methods are push-event subscribers; each follows the
+   * `scan.onProgress` pattern — returns an unsubscribe lambda the
+   * renderer MUST call from cleanup to avoid listener leaks on hot
+   * reload.
+   */
+  app: {
+    setDockBadge: (input: SetDockBadgeInput): Promise<SetDockBadgeResult> =>
+      ipcRenderer.invoke(
+        IPC.APP.SET_DOCK_BADGE,
+        input,
+      ) as Promise<SetDockBadgeResult>,
+    notify: (input: NotifyInput): Promise<NotifyResult> =>
+      ipcRenderer.invoke(IPC.APP.NOTIFY, input) as Promise<NotifyResult>,
+    showSpotlight: (): Promise<ShowSpotlightResult> =>
+      ipcRenderer.invoke(
+        IPC.APP.SHOW_SPOTLIGHT,
+        {},
+      ) as Promise<ShowSpotlightResult>,
+    hideSpotlight: (): Promise<HideSpotlightResult> =>
+      ipcRenderer.invoke(
+        IPC.APP.HIDE_SPOTLIGHT,
+        {},
+      ) as Promise<HideSpotlightResult>,
+    registerActions: (
+      input: RegisterActionsInput,
+    ): Promise<RegisterActionsResult> =>
+      ipcRenderer.invoke(
+        IPC.APP.REGISTER_ACTIONS,
+        input,
+      ) as Promise<RegisterActionsResult>,
+
+    /**
+     * Subscribe to native-menu command events. Fires when the user
+     * activates a native menu item OR presses its accelerator. The
+     * `commandId` payload is the `Action.id` registered via
+     * `registerActions`.
+     */
+    onMenuCommand: (
+      callback: (payload: MenuCommandPayload) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: MenuCommandPayload,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.MENU.ON_COMMAND, handler);
+      return () => {
+        ipcRenderer.off(IPC.MENU.ON_COMMAND, handler);
+      };
+    },
+
+    /**
+     * Subscribe to deep-link events. Fires when the OS opens an
+     * `alltherepos://...` URL. Payload contracts:
+     *   - `path` — URL portion after `alltherepos://` (no leading `/`).
+     *   - `params` — merged path captures + query string.
+     * See `contracts/protocol.v1.md`.
+     */
+    onDeepLink: (
+      callback: (payload: DeepLinkPayload) => void,
+    ): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: DeepLinkPayload) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.PROTOCOL.ON_DEEP_LINK, handler);
+      return () => {
+        ipcRenderer.off(IPC.PROTOCOL.ON_DEEP_LINK, handler);
+      };
+    },
+
+    /**
+     * Subscribe to tray "open repo" events. Fires when the user
+     * clicks a recent-repo row in the tray popover.
+     */
+    onTrayOpenRepo: (
+      callback: (payload: TrayOpenRepoPayload) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: TrayOpenRepoPayload,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.TRAY.ON_OPEN_REPO, handler);
+      return () => {
+        ipcRenderer.off(IPC.TRAY.ON_OPEN_REPO, handler);
+      };
+    },
   },
 } as const;
 
