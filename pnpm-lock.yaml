@@ -105,6 +105,9 @@ importers:
       '@electron/notarize':
         specifier: ^3.1.1
         version: 3.1.1
+      '@electron/rebuild':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@playwright/test':
         specifier: ^1.48.2
         version: 1.59.1
@@ -9670,7 +9673,7 @@ snapshots:
       proc-log: 6.1.0
       semver: 7.7.4
       tar: 7.5.15
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.16
       undici: 6.25.0
       which: 6.0.1
 

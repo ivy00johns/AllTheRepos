@@ -58,9 +58,13 @@ console.log(`Rebuilding native modules against Electron ${electronVersion}`);
 // requiring a global install. If `@electron/rebuild` isn't installed yet
 // (Phase 0 ships it transitively via electron-builder), fall back to
 // `electron-builder install-app-deps`, which is the supported alternative.
+// @electron/rebuild's package.json uses an `exports` map that blocks
+// sub-path access, so we can't `require.resolve('@electron/rebuild/package.json')`.
+// Resolve the main entry instead. The CLI bin `electron-rebuild` is only
+// in node_modules/.bin/ if the package is a DIRECT dependency.
 const useRebuild = (() => {
   try {
-    require.resolve("@electron/rebuild/package.json");
+    require.resolve("@electron/rebuild");
     return true;
   } catch {
     return false;
