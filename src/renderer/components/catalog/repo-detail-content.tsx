@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import {
   ArrowUpRight,
@@ -13,6 +15,37 @@ import {
   Tag,
   X,
 } from "lucide-react";
+
+// Allow common HTML embedded in READMEs (centered headers, badges, etc.)
+// while keeping rehype-sanitize's safe-by-default allowlist.
+const README_SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [...(defaultSchema.attributes?.["*"] ?? []), "className", "style"],
+    a: [
+      ...(defaultSchema.attributes?.a ?? []),
+      "href",
+      "target",
+      "rel",
+      "title",
+    ],
+    img: [
+      ...(defaultSchema.attributes?.img ?? []),
+      "src",
+      "alt",
+      "title",
+      "width",
+      "height",
+      "align",
+    ],
+    p: [...(defaultSchema.attributes?.p ?? []), "align"],
+    div: [...(defaultSchema.attributes?.div ?? []), "align"],
+    h1: [...(defaultSchema.attributes?.h1 ?? []), "align"],
+    h2: [...(defaultSchema.attributes?.h2 ?? []), "align"],
+    h3: [...(defaultSchema.attributes?.h3 ?? []), "align"],
+  },
+};
 
 import type { RepoDetail } from "@shared/types";
 
@@ -67,7 +100,9 @@ export function RepoDetailContent({
     <div
       className={cn(
         "flex h-full flex-col overflow-hidden bg-card text-card-foreground",
-        variant === "panel" ? "border-l border-border" : "rounded-lg border border-border",
+        variant === "panel"
+          ? "border-l border-border"
+          : "rounded-lg border border-border",
       )}
     >
       <header className="flex items-start gap-3 border-b border-border p-4">
@@ -76,7 +111,9 @@ export function RepoDetailContent({
             <span
               aria-hidden
               className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: colorForLanguage(repo.primaryLanguage) }}
+              style={{
+                backgroundColor: colorForLanguage(repo.primaryLanguage),
+              }}
             />
             <h2 className="truncate font-mono text-lg font-semibold">
               {repo.name}
@@ -154,7 +191,9 @@ export function RepoDetailContent({
                   <span
                     aria-hidden
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: l.color || colorForLanguage(l.name) }}
+                    style={{
+                      backgroundColor: l.color || colorForLanguage(l.name),
+                    }}
                   />
                   {l.name}
                 </span>
@@ -247,7 +286,13 @@ export function RepoDetailContent({
             </p>
             {repo.readmeContent ? (
               <div className="prose prose-invert prose-sm max-w-none font-sans prose-headings:font-mono prose-code:font-mono prose-code:text-accent prose-a:text-accent">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[
+                    rehypeRaw,
+                    [rehypeSanitize, README_SANITIZE_SCHEMA],
+                  ]}
+                >
                   {repo.readmeContent}
                 </ReactMarkdown>
               </div>
@@ -292,10 +337,7 @@ function Meta({ icon, label, value, mono }: MetaProps) {
         <span>{label}</span>
       </div>
       <div
-        className={cn(
-          "truncate text-foreground",
-          mono && "font-mono text-xs",
-        )}
+        className={cn("truncate text-foreground", mono && "font-mono text-xs")}
       >
         {value}
       </div>
