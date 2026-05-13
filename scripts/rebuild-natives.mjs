@@ -21,35 +21,35 @@
  *   pnpm exec node scripts/rebuild-natives.mjs
  */
 
-import { spawnSync } from 'node:child_process'
-import { createRequire } from 'node:module'
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url)
+const require = createRequire(import.meta.url);
 
 function getElectronVersion() {
   try {
     // electron package exports its version string from its main entry.
-    return require('electron/package.json').version
+    return require("electron/package.json").version;
   } catch {
-    return null
+    return null;
   }
 }
 
 function run(cmd, args) {
-  console.log(`> ${cmd} ${args.join(' ')}`)
-  const result = spawnSync(cmd, args, { stdio: 'inherit' })
+  console.log(`> ${cmd} ${args.join(" ")}`);
+  const result = spawnSync(cmd, args, { stdio: "inherit" });
   if (result.status !== 0) {
-    process.exit(result.status ?? 1)
+    process.exit(result.status ?? 1);
   }
 }
 
-const electronVersion = getElectronVersion()
+const electronVersion = getElectronVersion();
 if (!electronVersion) {
-  console.error('electron is not installed. Run `pnpm install` first.')
-  process.exit(1)
+  console.error("electron is not installed. Run `pnpm install` first.");
+  process.exit(1);
 }
 
-console.log(`Rebuilding native modules against Electron ${electronVersion}`)
+console.log(`Rebuilding native modules against Electron ${electronVersion}`);
 
 // Canonical invocation per the plan (§7 "Packaging the native modules"):
 //   electron-rebuild -f -w better-sqlite3
@@ -60,18 +60,28 @@ console.log(`Rebuilding native modules against Electron ${electronVersion}`)
 // `electron-builder install-app-deps`, which is the supported alternative.
 const useRebuild = (() => {
   try {
-    require.resolve('@electron/rebuild/package.json')
-    return true
+    require.resolve("@electron/rebuild/package.json");
+    return true;
   } catch {
-    return false
+    return false;
   }
-})()
+})();
 
 if (useRebuild) {
-  run('pnpm', ['exec', 'electron-rebuild', '-f', '-w', 'better-sqlite3'])
+  run("pnpm", [
+    "exec",
+    "electron-rebuild",
+    "-f",
+    "-w",
+    "better-sqlite3",
+    "-w",
+    "find-git-repositories",
+  ]);
 } else {
-  console.log('@electron/rebuild not found — falling back to electron-builder install-app-deps')
-  run('pnpm', ['exec', 'electron-builder', 'install-app-deps'])
+  console.log(
+    "@electron/rebuild not found — falling back to electron-builder install-app-deps",
+  );
+  run("pnpm", ["exec", "electron-builder", "install-app-deps"]);
 }
 
-console.log('Native modules rebuilt successfully.')
+console.log("Native modules rebuilt successfully.");

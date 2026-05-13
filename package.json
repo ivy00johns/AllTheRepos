@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "electron:rebuild": "electron-builder install-app-deps",
+    "electron:rebuild": "node scripts/rebuild-natives.mjs",
     "electron:dev": "pnpm electron:rebuild && electron-vite dev",
     "electron:build": "electron-vite build",
     "electron:preview": "electron-vite preview",
