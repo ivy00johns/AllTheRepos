@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Defense-in-depth CSP. Authoritative CSP is set by the main process
+      via `session.defaultSession.webRequest.onHeadersReceived` (see
+      NEW-PLAN.md §3.4). This <meta> exists so a renderer loaded outside
+      the Electron shell (e.g. a stray browser tab during QE) still gets
+      a baseline policy.
+
+      Notes:
+      - `connect-src` keeps localhost:11434 (Ollama) + api.openai.com for
+        Phase 2 work; harmless in Phase 0.
+      - `script-src 'self' 'unsafe-eval'` is required for Vite HMR in dev;
+        the main-process CSP tightens this in production builds.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://avatars.githubusercontent.com; connect-src 'self' ws: http://localhost:11434 https://api.openai.com;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AllTheRepos Desktop</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

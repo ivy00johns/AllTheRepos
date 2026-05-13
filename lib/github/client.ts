@@ -221,7 +221,7 @@ export async function fetchUserRepositories(
       }
 
       const repoEdges = result.data.user.repositories.edges;
-      repositories.push(...repoEdges.map((edge) => edge.node));
+      repositories.push(...repoEdges.map((edge: { node: any }) => edge.node));
 
       const { hasNextPage, endCursor } = result.data.user.repositories.pageInfo;
       if (!hasNextPage || repositories.length >= limit) {

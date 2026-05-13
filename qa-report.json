@@ -1,53 +1,91 @@
 {
   "schema_version": "1.0",
-  "status": "pass",
+  "status": "phase-0-complete",
+  "phase": "electron-migration / Phase 0",
+  "generated_at": "2026-05-13T19:10:00.000Z",
   "scores": {
     "contract_conformance": {
       "score": 5,
-      "notes": "contracts/types.ts byte-identical to lib/types.ts (verified). All API routes return the documented ApiOk<T> envelope. Server actions match contracts/api.md signatures exactly. Domain rule #5 (preserve user tags on rescan) initially failed integration; root-caused to mapRawRepoRow oversight in raw-SELECT sites and fixed."
+      "notes": "Every Phase 0 contract has live tests AND end-to-end proof on the wire. src/shared/schemas.ts exposes PingInputSchema / PingResponseSchema / ScanEventSchema, src/shared/ipc.ts exposes IPC.SYSTEM.PING and PRELOAD_BRIDGE_KEY 'atr', and src/shared/types.ts re-exports v1 entity types unchanged. 35 schema unit tests pass (tests/unit/shared/schemas.spec.ts). The backend agent shipped the pure handler `handlePing(raw): Promise<PingResponse>` as required, so the 9/9 conformance tests in tests/unit/main/ipc/system.spec.ts now PASS (previously 7 passing + 2 skipped). The Playwright Electron E2E (tests/e2e/electron-launch.spec.ts) launched the packaged app, observed the main window, asserted 'pong' was rendered into the renderer, and asserted a numeric mainProcessPid round-tripped — that's the smoking gun that the IPC contract works through preload + contextBridge + main, not just at the schema layer."
     },
     "test_coverage": {
       "score": 4,
-      "notes": "29 tests across 8 files: 24 pass, 5 skipped (live-API conformance, gated on E2E_BASE_URL). Coverage of all backend modules (db schema/queries, scanner, heuristic tagger, hybrid search, server actions, contract parity). Playwright E2E specs ready (catalog/search/keyboard) but not executed in this session — orchestrator prefers manual user-driven UI validation."
+      "notes": "Phase 0 specific: 44 tests passing (35 schema + 9 IPC conformance), 0 skipped, 0 failed. Suite-wide: 66 passing + 5 skipped + 2 env-bound failures (tests/git/scanner.test.ts — see issues[]). Playwright Electron E2E PASSES (1 passed in 4.2s) end-to-end. The native-rebuild dance is solved — `electron-builder install-app-deps` moved out of `postinstall` into a dedicated `electron:rebuild` script chained into electron:dev / electron:pack / electron:dist, so `pnpm test` now runs cleanly against host-Node-built natives. Not a 5 because the two scanner tests are still red against the current host (1Password SSH/GPG signing breaks simple-git temp-repo commits) — pre-existing flake outside Phase 0 scope, documented in issues[]."
     },
     "security": {
       "score": 4,
-      "notes": "Zod validation on all server-action and route inputs. ApiError envelopes never leak stack traces. SQL is fully parameterized via better-sqlite3 prepare() and Drizzle. No secrets logged. openInEditor uses execFile (not exec) to avoid shell injection. No raw-HTML injection sinks. Local-only app, no auth surface."
+      "notes": "All Phase 0 IPC payloads run through Zod at the contract boundary; the live handlePing exercised in unit tests asserts the parse-then-respond invariant, and the contract document (contracts/ipc.v1.md) requirement to validate event.senderFrame.url is encoded in test expectations. By inspection of the now-authored src/main/index.ts and src/preload/index.ts: contextIsolation: true, sandbox: true, nodeIntegration: false, strict CSP applied, sender-frame allowlist + URL check enforced before any handler executes. ELECTRON_DISABLE_SECURITY_WARNINGS is set only by the Playwright test runner, never in production. Not a 5 because we have not yet added an automated test that the production build refuses to load a non-allowlisted file:// URL — recommended for Phase 1."
     },
     "code_quality": {
       "score": 4,
-      "notes": "Strict TS, zero ts-ignore. Single source of truth for types. Clean separation: lib/db | lib/git | lib/embed | lib/search | lib/tag. Components driven by CSS variables; no hardcoded colors. Keyboard shortcuts respect editable-element guard and prefers-reduced-motion. Two minor leftover bits flagged in issues."
+      "notes": "Strict-TS clean across new code (tsc --noEmit passes). The carried-over implicit-any at lib/github/client.ts:224 was fixed by the infra fix agent. No `expect(true).toBe(true)` placeholders — every test has real assertions. Vitest config supports legacy + Phase 0 globs without losing legacy paths. Playwright Electron config is isolated from the Next.js playwright config so neither suite stomps the other. Wrapper script scripts/run-electron-e2e.mjs has clean error messages and a --skip-build escape hatch. Not a 5 because no `pnpm lint` pass was attempted in this gate run — strict TS is honored but ESLint surface is uninspected."
     }
   },
   "test_results": {
-    "unit": { "passed": 24, "failed": 0, "skipped": 5 },
-    "e2e": { "passed": 0, "failed": 0, "skipped": 4 }
+    "unit": {
+      "phase_0": { "passed": 44, "failed": 0, "skipped": 0 },
+      "legacy_mvp": { "passed": 22, "failed": 2, "skipped": 5 },
+      "combined": { "passed": 66, "failed": 2, "skipped": 5 }
+    },
+    "e2e": {
+      "electron": { "passed": 1, "failed": 0, "skipped": 0 },
+      "next_js": { "passed": 0, "failed": 0, "skipped": 4 }
+    }
   },
   "blockers": [],
   "issues": [
     {
-      "severity": "MEDIUM",
-      "description": "Hybrid search returned empty for 'next' against a freshly-scanned repo whose only signal was a heuristic tag. Likely FTS5 query quoting + Ollama unavailable causing the fallback path to under-match. Recommend wrapping the user query for FTS5 with snippet-friendly tokenization. Unit tests for hybrid search pass with mocked embedding."
+      "severity": "LOW",
+      "owner": "mvp-legacy-maintenance",
+      "description": "tests/git/scanner.test.ts — both tests fail today due to host environmental git config: 1Password's SSH/GPG agent fails to sign commits in temp repos created by simple-git. The scanner code is unchanged and the MVP gate (24/24) was green when the host wasn't using 1Password commit signing. Out of Phase 0 scope and accepted. Fix is to make the legacy tests resilient — e.g. set `commit.gpgsign=false` in the temp repo's local config, or pass `--no-gpg-sign` to `git commit` inside the test fixture."
     },
     {
       "severity": "LOW",
-      "description": "Two frontend interactions wired-but-not-fully-functional (per frontend agent's own report): Tag editing in DetailPanel manages local state but does not yet call setRepoTags on Enter/remove; New-Group dialog accepts a name but does not yet call createGroup. Both are one-call fixes pending a router.refresh() pattern."
+      "owner": "qe-agent",
+      "description": "tests/unit/main/ipc/system.spec.ts uses a dynamic import via string literal so the suite remains importable when the target module does not exist. Now that src/main/ipc/system.ts is committed and stable, this can be refactored to a static `import { handlePing } from '@main/ipc/system'` for better IDE support and to drop the @vite-ignore comment. Phase 1 cleanup."
     },
     {
       "severity": "LOW",
-      "description": "Backend exposes RepoRow (Drizzle row) from app/actions/repos.ts. Not consumed by frontend; should be moved to lib/db/queries.ts public surface in a follow-up to keep server-action exports purely serializable."
+      "owner": "infra-agent",
+      "description": "electron.vite.config.ts uses externalizeDepsPlugin() for the main bundle, which means better-sqlite3 / @lancedb / find-git-repositories will be required from node_modules at runtime. Confirm electron-builder's asarUnpack rules (already in electron-builder.yml) cover all three before Phase 5 packaging. Not blocking for Phase 0."
     },
     {
       "severity": "LOW",
-      "description": "Manual-group membership filtering on the catalog grid: Repo type does not carry groupIds, so selecting a manual group in the sidebar currently shows all repos. Smart groups work (filtered client-side via smartFilter). Recommend adding groupIds: number[] to Repo (contract v1.1) or a listReposByGroup query."
-    },
-    {
-      "severity": "LOW",
-      "description": "Hand-authored drizzle/0000_initial.sql (backend agent could not run drizzle-kit in sandbox). Future pnpm db:generate runs may produce 0001_*.sql duplicates. Either keep the hand-written migration as the canonical baseline (recommended) or have the operator run db:generate once and replace it."
+      "owner": "qe-agent",
+      "description": "Phase 1 should add an automated test that the production Electron build refuses to load a non-allowlisted file:// URL, locking in the sender-frame allowlist as a regression-tested behavior rather than only an inspectable property."
     }
   ],
+  "files_owned_by_qe": [
+    "vitest.config.ts (updated)",
+    "playwright.electron.config.ts (new)",
+    "tests/unit/shared/schemas.spec.ts (new — 35 tests)",
+    "tests/unit/main/ipc/system.spec.ts (new — 9 tests, all passing)",
+    "tests/e2e/electron-launch.spec.ts (new — 1 E2E, passing)",
+    "scripts/run-electron-e2e.mjs (new — build + playwright wrapper)",
+    "qa-report.json (this file)"
+  ],
+  "previous_gate": {
+    "phase": "MVP (Next.js repo-management hub)",
+    "branch_at_time": "build/repo-hub-mvp",
+    "status": "pass",
+    "scores": {
+      "contract_conformance": { "score": 5 },
+      "test_coverage": { "score": 4 },
+      "security": { "score": 4 },
+      "code_quality": { "score": 4 }
+    },
+    "test_results": {
+      "unit": { "passed": 24, "failed": 0, "skipped": 5 },
+      "e2e": { "passed": 0, "failed": 0, "skipped": 4 }
+    },
+    "gate_decision": {
+      "proceed": true,
+      "reason": "Build, typecheck, and unit-test gates all green. Contract diff clean. End-to-end smoke confirmed: POST /api/scan streams NDJSON correctly, GET /api/repos returns canonical Repo shape with tags/languages/dirty/branch metadata, heuristic tagger detects rust/toml from Cargo.toml. The four LOW-severity issues are post-MVP polish, not blockers. The MEDIUM issue (FTS quoting) is a known refinement and does not violate the contract — falls back gracefully to empty results. MVP is shippable on branch build/repo-hub-mvp."
+    },
+    "note": "Preserved here because the Phase 0 report overwrites the MVP qa-report.json on disk. Do not lose this — the MVP backend is still on main and is still the production target until Phase 1 ships."
+  },
   "gate_decision": {
     "proceed": true,
-    "reason": "Build, typecheck, and unit-test gates all green. Contract diff clean. End-to-end smoke confirmed: POST /api/scan streams NDJSON correctly, GET /api/repos returns canonical Repo shape with tags/languages/dirty/branch metadata, heuristic tagger detects rust/toml from Cargo.toml. The four LOW-severity issues are post-MVP polish, not blockers. The MEDIUM issue (FTS quoting) is a known refinement and does not violate the contract — falls back gracefully to empty results. MVP is shippable on branch build/repo-hub-mvp."
+    "reason": "Phase 0 is complete and shippable. Headline evidence: the Playwright Electron E2E PASSES (1 passed in 4.2s) — the launched app rendered 'pong' and surfaced a numeric mainProcessPid, proving the IPC contract works end-to-end through preload + contextBridge + main, not just at the schema layer. Phase 0 unit coverage is 44/44 green with 0 skips (35 schema + 9 IPC conformance), `pnpm electron:build` produces all expected artefacts (out/main/index.js 8.74 KB, out/preload/index.cjs 0.75 KB, out/renderer/index.html + assets), and both prior HIGH blockers (missing handlePing export, native-rebuild postinstall conflict) are resolved. The 2 scanner test failures are explicitly out of scope and accepted: they are host-environment flakes from 1Password's SSH/GPG agent breaking simple-git's temp-repo commits, the scanner code itself is unchanged from when the MVP gate scored 24/24, and the fix is legacy-test resilience (not a Phase 0 deliverable)."
   }
 }

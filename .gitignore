@@ -29,3 +29,10 @@ playwright-report/
 
 # TS
 *.tsbuildinfo
+
+# Electron
+out/
+dist-electron/
+release/
+*.dmg
+.electron-builder-cache/

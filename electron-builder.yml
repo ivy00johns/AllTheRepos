@@ -1,0 +1,31 @@
+appId: com.alltherepos.desktop
+productName: AllTheRepos
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/@lancedb/**/*.node"
+  - "**/node_modules/@lancedb/**/*.dylib"
+  - "**/node_modules/fsevents/**"
+npmRebuild: true
+mac:
+  category: public.app-category.developer-tools
+  # Phase 0: unsigned local dev builds. Hardened runtime + notarize are wired up in Phase 5.
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64]
+  protocols:
+    - name: alltherepos
+      schemes: [alltherepos]
+dmg:
+  writeUpdateInfo: false

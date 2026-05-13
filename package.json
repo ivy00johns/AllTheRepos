@@ -12,7 +12,13 @@
     "db:migrate": "tsx lib/db/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "electron:rebuild": "electron-builder install-app-deps",
+    "electron:dev": "pnpm electron:rebuild && electron-vite dev",
+    "electron:build": "electron-vite build",
+    "electron:preview": "electron-vite preview",
+    "electron:pack": "pnpm electron:rebuild && electron-vite build && electron-builder --mac --dir",
+    "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.27.2",
@@ -30,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "electron-updater": "^6.8.3",
     "find-git-repositories": "^0.2.2",
     "git-url-parse": "^16.0.0",
     "lucide-react": "^0.544.0",
@@ -43,13 +50,18 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@playwright/test": "^1.48.2",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
     "drizzle-kit": "^0.31.10",
+    "electron": "^36.9.5",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^16.2.4",
     "jsdom": "^25.0.1",
@@ -57,6 +69,7 @@
     "tailwindcss": "^4.2.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
+    "vite": "^7.3.3",
     "vitest": "^2.1.8"
   },
   "packageManager": "pnpm@9.15.0"
