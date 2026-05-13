@@ -151,10 +151,15 @@ export function CatalogShell({
     }
   }, [q, debouncedQ]);
 
+  // Reflect debounced query to URL for shareable links.
+  // Use a ref for updateParams to break the dependency cycle:
+  // updateParams depends on searchParams, which changes on every
+  // router.replace, which would re-fire this effect infinitely.
+  const updateParamsRef = React.useRef(updateParams);
+  updateParamsRef.current = updateParams;
   React.useEffect(() => {
-    // Reflect debounced query to URL for shareable links.
-    updateParams({ q: debouncedQ || null });
-  }, [debouncedQ, updateParams]);
+    updateParamsRef.current({ q: debouncedQ || null });
+  }, [debouncedQ]);
 
   const selectRepo = React.useCallback(
     (slug: string | null) => {
