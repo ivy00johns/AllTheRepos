@@ -21,9 +21,14 @@ function buildCspHeader(isDev: boolean): string {
     ? "'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* http://localhost:11434 https://api.openai.com"
     : "'self' http://localhost:11434 https://api.openai.com";
 
+  // Dev needs 'unsafe-inline' for Vite's React Refresh preamble (injected
+  // inline into the HTML response) and 'unsafe-eval' for some Vite
+  // transforms. Production locks back down to script-src 'self'.
+  const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'";
+
   return [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://avatars.githubusercontent.com",
     `connect-src ${connectSrc}`,

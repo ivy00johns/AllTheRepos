@@ -84,10 +84,25 @@ export function createMainWindow(): BrowserWindow {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl && rendererUrl.length > 0) {
     void window.loadURL(rendererUrl);
+    // Dev: open DevTools so renderer errors are visible immediately.
+    window.webContents.openDevTools({ mode: "right" });
   } else {
     // Production: load the bundled HTML. Path is relative to out/main/index.js.
     void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  // Surface load failures so a blank window isn't a silent mystery.
+  window.webContents.on(
+    "did-fail-load",
+    (_e, errorCode, errorDescription, validatedURL) => {
+      console.error(
+        `[renderer] did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`,
+      );
+    },
+  );
+  window.webContents.on("render-process-gone", (_e, details) => {
+    console.error(`[renderer] render-process-gone:`, details);
+  });
 
   return window;
 }
