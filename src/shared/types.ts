@@ -632,3 +632,53 @@ export interface OpenSlugInput {
   slug: string;
 }
 export type LauncherResult = LauncherResultZ;
+
+// ===========================================================================
+// Phase 3b additions — Claude Code integration
+// ===========================================================================
+
+import type {
+  ClaudeAgentZ,
+  ClaudeGlobalUsageInputZ,
+  ClaudeGlobalUsageResultZ,
+  ClaudeIndexResultZ,
+  ClaudeLaunchInputZ,
+  ClaudeMcpServerZ,
+  ClaudeOpenClaudeMdInputZ,
+  ClaudeProjectZ,
+  ClaudeProjectsResultZ,
+  ClaudeRepoStateInputZ,
+  ClaudeRepoStateZ,
+  ClaudeSessionTranscriptInputZ,
+  ClaudeSessionTranscriptResultZ,
+  ClaudeSessionZ,
+  ClaudeSkillZ,
+  ClaudeUpdateEventZ,
+  TokenUsageZ,
+  TranscriptEventZ,
+} from "./schemas";
+
+export type TokenUsage = TokenUsageZ;
+export type ClaudeSession = ClaudeSessionZ;
+export type ClaudeProject = ClaudeProjectZ;
+export type ClaudeSkill = ClaudeSkillZ;
+export type ClaudeAgent = ClaudeAgentZ;
+export type ClaudeMcpServer = ClaudeMcpServerZ;
+export type ClaudeRepoState = ClaudeRepoStateZ;
+export type ClaudeUpdateEvent = ClaudeUpdateEventZ;
+export type TranscriptEvent = TranscriptEventZ;
+
+export type ClaudeIndexInput = Record<string, never>;
+export type ClaudeIndexResult = ClaudeIndexResultZ;
+export type ClaudeProjectsInput = Record<string, never>;
+export type ClaudeProjectsResult = ClaudeProjectsResultZ;
+export type ClaudeRepoStateInput = ClaudeRepoStateInputZ;
+export type ClaudeRepoStateResult = ClaudeRepoState;
+export type ClaudeSessionTranscriptInput = ClaudeSessionTranscriptInputZ;
+export type ClaudeSessionTranscriptResult = ClaudeSessionTranscriptResultZ;
+export type ClaudeGlobalUsageInput = ClaudeGlobalUsageInputZ;
+export type ClaudeGlobalUsageResult = ClaudeGlobalUsageResultZ;
+export type ClaudeLaunchInput = ClaudeLaunchInputZ;
+export type ClaudeLaunchResult = LauncherResultZ;
+export type ClaudeOpenClaudeMdInput = ClaudeOpenClaudeMdInputZ;
+export type ClaudeOpenClaudeMdResult = LauncherResultZ;

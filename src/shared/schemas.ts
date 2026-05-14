@@ -719,3 +719,243 @@ export type OpenInEditorPhase3InputZ = z.infer<
   typeof OpenInEditorPhase3InputSchema
 >;
 export type OpenInTerminalInputZ = z.infer<typeof OpenInTerminalInputSchema>;
+
+// ===========================================================================
+// Phase 3b — Claude Code integration
+// ===========================================================================
+
+/**
+ * Token-usage block as emitted by Claude Code on each assistant turn.
+ * Keys match the wire format in `<session>.jsonl` (`usage.input_tokens`
+ * etc.) but exposed in camelCase. `cacheCreationInputTokens` and
+ * `cacheReadInputTokens` may be absent on older sessions — default 0.
+ */
+export const TokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheCreationInputTokens: z.number().int().nonnegative(),
+  cacheReadInputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type TokenUsageZ = z.infer<typeof TokenUsageSchema>;
+
+/**
+ * One Claude session — derived from a single `<sessionId>.jsonl` file.
+ * Only the file header / footer is parsed eagerly; the transcript body
+ * is loaded on demand via `claude:sessionTranscript`.
+ */
+export const ClaudeSessionSchema = z.object({
+  id: z.string().min(1),
+  projectHash: z.string().min(1),
+  startedAt: z.string().nullable(),
+  lastActivityAt: z.string().nullable(),
+  /** Total number of newline-delimited JSON events in the file. */
+  messageCount: z.number().int().nonnegative(),
+  /** Sum across every assistant message that emitted a `usage` block. */
+  tokenUsage: TokenUsageSchema,
+  /** Absolute path to the `.jsonl` file. */
+  filePath: z.string().min(1),
+  /** File size in bytes — useful for the renderer's "open at offset" UX. */
+  sizeBytes: z.number().int().nonnegative(),
+});
+export type ClaudeSessionZ = z.infer<typeof ClaudeSessionSchema>;
+
+/**
+ * One Claude project — derived from `~/.claude.json`'s project map.
+ * `repoSlug` is bound when ClaudeService can match `repoPath` to a
+ * catalog repo (same realpath trick as ProcessService); null otherwise.
+ */
+export const ClaudeProjectSchema = z.object({
+  hash: z.string().min(1),
+  repoPath: z.string().min(1),
+  repoSlug: z.string().nullable(),
+  sessionCount: z.number().int().nonnegative(),
+  lastActivityAt: z.string().nullable(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type ClaudeProjectZ = z.infer<typeof ClaudeProjectSchema>;
+
+/**
+ * Per-repo skill — `.claude/skills/<name>/SKILL.md`. Frontmatter is
+ * extracted via gray-matter; `name` and `description` are pulled from
+ * frontmatter when present, falling back to the directory name +
+ * empty string.
+ */
+export const ClaudeSkillSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  /** Absolute path to the SKILL.md file. */
+  path: z.string().min(1),
+  /** Whole frontmatter blob — opaque to main; renderer renders selected keys. */
+  frontmatter: z.record(z.string(), z.unknown()),
+});
+export type ClaudeSkillZ = z.infer<typeof ClaudeSkillSchema>;
+
+/** Per-repo agent — `.claude/agents/<slug>.md`. Same shape as skill. */
+export const ClaudeAgentSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  path: z.string().min(1),
+  frontmatter: z.record(z.string(), z.unknown()),
+});
+export type ClaudeAgentZ = z.infer<typeof ClaudeAgentSchema>;
+
+/**
+ * MCP server entry from `.mcp.json` (per-repo) or
+ * `~/.claude/settings.json` `mcpServers` (global). `status` is
+ * informational — "running" maps to ProcessService matching a PID
+ * to the server's command, "configured" means the file says so but
+ * we have no live-process evidence.
+ */
+export const ClaudeMcpServerSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(["stdio", "sse", "http", "unknown"]),
+  command: z.string().nullable(),
+  args: z.array(z.string()).nullable(),
+  configuredIn: z.enum(["project", "global"]),
+  status: z.enum(["configured", "running", "unavailable"]),
+});
+export type ClaudeMcpServerZ = z.infer<typeof ClaudeMcpServerSchema>;
+
+/**
+ * Full Claude state for a repo. `hasClaude=false` when no
+ * `.claude/` directory exists AND `~/.claude.json` has no entry
+ * for the repo path (renderer renders an empty-state CTA).
+ */
+export const ClaudeRepoStateSchema = z.object({
+  hasClaude: z.boolean(),
+  claudeMdPath: z.string().nullable(),
+  claudeMdContent: z.string().nullable(),
+  settingsPath: z.string().nullable(),
+  /** ms since epoch — used to invalidate the cache in the renderer. */
+  generatedAt: z.number().int().nonnegative(),
+  skills: z.array(ClaudeSkillSchema),
+  agents: z.array(ClaudeAgentSchema),
+  mcpServers: z.array(ClaudeMcpServerSchema),
+  sessions: z.array(ClaudeSessionSchema),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type ClaudeRepoStateZ = z.infer<typeof ClaudeRepoStateSchema>;
+
+// Inputs / outputs ----------------------------------------------------------
+
+export const ClaudeIndexInputSchema = z.object({}).strict();
+export const ClaudeIndexResultSchema = z.object({
+  projectCount: z.number().int().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+});
+
+export const ClaudeProjectsInputSchema = z.object({}).strict();
+export const ClaudeProjectsResultSchema = z.object({
+  projects: z.array(ClaudeProjectSchema),
+});
+
+export const ClaudeRepoStateInputSchema = z
+  .object({ slug: z.string().min(1) })
+  .strict();
+export const ClaudeRepoStateResultSchema = ClaudeRepoStateSchema;
+
+export const ClaudeSessionTranscriptInputSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    /** Byte offset cursor for pagination. 0 = start. */
+    cursor: z.number().int().nonnegative().default(0),
+    /** Max bytes to read in this chunk. Server caps at 256 KB. */
+    maxBytes: z.number().int().min(1024).max(262_144).optional(),
+  })
+  .strict();
+export const TranscriptEventSchema = z
+  .object({
+    type: z.string(),
+    timestamp: z.string().optional(),
+    uuid: z.string().optional(),
+  })
+  .passthrough();
+export const ClaudeSessionTranscriptResultSchema = z.object({
+  events: z.array(TranscriptEventSchema),
+  nextCursor: z.number().int().nonnegative().nullable(),
+  hasMore: z.boolean(),
+});
+
+export const ClaudeGlobalUsageInputSchema = z
+  .object({
+    /** Inclusive ISO-8601 date (YYYY-MM-DD). Omit for "all time". */
+    from: z.string().optional(),
+    to: z.string().optional(),
+  })
+  .strict();
+export const ClaudeGlobalUsageResultSchema = z.object({
+  totalTokens: z.number().int().nonnegative(),
+  byProject: z.array(
+    z.object({
+      hash: z.string().min(1),
+      repoPath: z.string().min(1),
+      repoSlug: z.string().nullable(),
+      totalTokens: z.number().int().nonnegative(),
+    }),
+  ),
+  byDay: z.array(
+    z.object({
+      date: z.string(),
+      totalTokens: z.number().int().nonnegative(),
+    }),
+  ),
+  byWeek: z.array(
+    z.object({
+      weekStart: z.string(),
+      totalTokens: z.number().int().nonnegative(),
+    }),
+  ),
+  byMonth: z.array(
+    z.object({
+      monthStart: z.string(),
+      totalTokens: z.number().int().nonnegative(),
+    }),
+  ),
+});
+
+export const ClaudeLaunchInputSchema = z
+  .object({
+    slug: z.string().min(1),
+    /** Resume a specific session via `claude --resume <sessionId>`. */
+    resumeSessionId: z.string().optional(),
+    /** Trusted starter prompt injected as a one-shot CLI arg. */
+    starterPrompt: z.string().optional(),
+  })
+  .strict();
+export const ClaudeLaunchResultSchema = LauncherResultSchema;
+
+export const ClaudeOpenClaudeMdInputSchema = z
+  .object({ slug: z.string().min(1) })
+  .strict();
+export const ClaudeOpenClaudeMdResultSchema = LauncherResultSchema;
+
+/** Push event payload — `{ projectHash }` of the project whose state changed. */
+export const ClaudeUpdateEventSchema = z.object({
+  projectHash: z.string().min(1),
+  reason: z.enum(["session-added", "session-updated", "session-removed"]),
+});
+
+export type ClaudeIndexResultZ = z.infer<typeof ClaudeIndexResultSchema>;
+export type ClaudeProjectsResultZ = z.infer<typeof ClaudeProjectsResultSchema>;
+export type ClaudeRepoStateInputZ = z.infer<typeof ClaudeRepoStateInputSchema>;
+export type ClaudeSessionTranscriptInputZ = z.infer<
+  typeof ClaudeSessionTranscriptInputSchema
+>;
+export type ClaudeSessionTranscriptResultZ = z.infer<
+  typeof ClaudeSessionTranscriptResultSchema
+>;
+export type ClaudeGlobalUsageInputZ = z.infer<
+  typeof ClaudeGlobalUsageInputSchema
+>;
+export type ClaudeGlobalUsageResultZ = z.infer<
+  typeof ClaudeGlobalUsageResultSchema
+>;
+export type ClaudeLaunchInputZ = z.infer<typeof ClaudeLaunchInputSchema>;
+export type ClaudeOpenClaudeMdInputZ = z.infer<
+  typeof ClaudeOpenClaudeMdInputSchema
+>;
+export type ClaudeUpdateEventZ = z.infer<typeof ClaudeUpdateEventSchema>;
+export type TranscriptEventZ = z.infer<typeof TranscriptEventSchema>;

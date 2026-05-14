@@ -32,6 +32,19 @@ import type {
   CreateGroupInput,
   CreateGroupResult,
   DeepLinkPayload,
+  ClaudeGlobalUsageInput,
+  ClaudeGlobalUsageResult,
+  ClaudeIndexResult,
+  ClaudeLaunchInput,
+  ClaudeLaunchResult,
+  ClaudeOpenClaudeMdInput,
+  ClaudeOpenClaudeMdResult,
+  ClaudeProjectsResult,
+  ClaudeRepoStateInput,
+  ClaudeRepoStateResult,
+  ClaudeSessionTranscriptInput,
+  ClaudeSessionTranscriptResult,
+  ClaudeUpdateEvent,
   DeleteGroupInput,
   DeleteGroupResult,
   DetectLauncherResult,
@@ -368,6 +381,71 @@ export const api = {
         IPC.LAUNCHER.COPY_PATH,
         input,
       ) as Promise<LauncherResult>,
+  },
+
+  /**
+   * Phase 3b `claude:*` namespace — Claude Code integration. Reads
+   * `~/.claude.json` + per-project JSONL transcripts + per-repo
+   * `.claude/` directories. Mutations (open CLAUDE.md, launch Claude
+   * Code) delegate to LauncherService.
+   *
+   * `onUpdate` is the chokidar-driven push event; payload is the
+   * project hash whose state changed. Renderer invalidates the
+   * matching queries on receipt.
+   */
+  claude: {
+    index: (): Promise<ClaudeIndexResult> =>
+      ipcRenderer.invoke(IPC.CLAUDE.INDEX, {}) as Promise<ClaudeIndexResult>,
+    projects: (): Promise<ClaudeProjectsResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.PROJECTS,
+        {},
+      ) as Promise<ClaudeProjectsResult>,
+    repoState: (input: ClaudeRepoStateInput): Promise<ClaudeRepoStateResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.REPO_STATE,
+        input,
+      ) as Promise<ClaudeRepoStateResult>,
+    sessionTranscript: (
+      input: ClaudeSessionTranscriptInput,
+    ): Promise<ClaudeSessionTranscriptResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.SESSION_TRANSCRIPT,
+        input,
+      ) as Promise<ClaudeSessionTranscriptResult>,
+    globalUsage: (
+      input: ClaudeGlobalUsageInput,
+    ): Promise<ClaudeGlobalUsageResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.GLOBAL_USAGE,
+        input,
+      ) as Promise<ClaudeGlobalUsageResult>,
+    launch: (input: ClaudeLaunchInput): Promise<ClaudeLaunchResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.LAUNCH,
+        input,
+      ) as Promise<ClaudeLaunchResult>,
+    openClaudeMd: (
+      input: ClaudeOpenClaudeMdInput,
+    ): Promise<ClaudeOpenClaudeMdResult> =>
+      ipcRenderer.invoke(
+        IPC.CLAUDE.OPEN_CLAUDE_MD,
+        input,
+      ) as Promise<ClaudeOpenClaudeMdResult>,
+    onUpdate: (
+      callback: (payload: ClaudeUpdateEvent) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: ClaudeUpdateEvent,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.CLAUDE.ON_UPDATE, handler);
+      return () => {
+        ipcRenderer.off(IPC.CLAUDE.ON_UPDATE, handler);
+      };
+    },
   },
 } as const;
 

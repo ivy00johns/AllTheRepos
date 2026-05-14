@@ -206,6 +206,56 @@ export const IPC = {
     /** Copy the absolute repo path to the clipboard. */
     COPY_PATH: "launcher:copyPath",
   },
+
+  /**
+   * Claude namespace — Phase 3b. Reads `~/.claude.json` + walks
+   * `~/.claude/projects/<hash>/*.jsonl`, plus per-repo `.claude/`
+   * directories (skills, agents, settings, .mcp.json). All read-only
+   * from main's perspective — the renderer mutates Claude state by
+   * dispatching to LauncherService (open CLAUDE.md in editor, spawn
+   * Claude Code in terminal). Live updates come via a chokidar watcher
+   * on `~/.claude/projects/` that emits `claude:on:update` whenever a
+   * session's token total or last-activity changes.
+   */
+  CLAUDE: {
+    /** Force a re-index of `~/.claude/` + all known repos' `.claude/`. */
+    INDEX: "claude:index",
+    /**
+     * List every Claude-known project: hash, repo path (from
+     * `~/.claude.json`'s project entry), session count, last-activity
+     * timestamp, rolled-up token total.
+     */
+    PROJECTS: "claude:projects",
+    /**
+     * Full Claude state for one repo by slug: CLAUDE.md content,
+     * skills, agents, MCP servers, sessions metadata.
+     */
+    REPO_STATE: "claude:repoState",
+    /**
+     * Lazy-load a chunk of one session's transcript. Pagination via
+     * `cursor` (byte offset into the JSONL file).
+     */
+    SESSION_TRANSCRIPT: "claude:sessionTranscript",
+    /**
+     * Rolled-up token usage across all projects: by-project totals,
+     * by-day series (for heatmap), by-week / by-month sums.
+     */
+    GLOBAL_USAGE: "claude:globalUsage",
+    /**
+     * Launch Claude Code in the user's terminal at the repo path.
+     * Optional `--resume <sessionId>` and starter prompt.
+     */
+    LAUNCH: "claude:launch",
+    /** Open this repo's CLAUDE.md in the user's default editor. */
+    OPEN_CLAUDE_MD: "claude:openClaudeMd",
+    /**
+     * Push event — emitted when the chokidar watcher fires.
+     * Payload is the project hash whose state changed. Renderer
+     * invalidates the matching `claude:projects` and
+     * `claude:repoState` queries.
+     */
+    ON_UPDATE: "claude:on:update",
+  },
 } as const;
 
 /**
@@ -227,20 +277,26 @@ export type IpcChannel =
       (typeof IPC.PROCESS)[keyof typeof IPC.PROCESS],
       typeof IPC.PROCESS.ON_UPDATE
     >
-  | (typeof IPC.LAUNCHER)[keyof typeof IPC.LAUNCHER];
+  | (typeof IPC.LAUNCHER)[keyof typeof IPC.LAUNCHER]
+  | Exclude<
+      (typeof IPC.CLAUDE)[keyof typeof IPC.CLAUDE],
+      typeof IPC.CLAUDE.ON_UPDATE
+    >;
 
 /**
  * Push-style event channels (main → renderer).
  * Phase 1: `scan:on:progress`.
  * Phase 2: `menu:on:command`, `protocol:on:deep-link`, `tray:on:open-repo`.
  * Phase 3a: `process:on:update`.
+ * Phase 3b: `claude:on:update`.
  */
 export type IpcEventChannel =
   | typeof IPC.SCAN.ON_PROGRESS
   | typeof IPC.MENU.ON_COMMAND
   | typeof IPC.PROTOCOL.ON_DEEP_LINK
   | typeof IPC.TRAY.ON_OPEN_REPO
-  | typeof IPC.PROCESS.ON_UPDATE;
+  | typeof IPC.PROCESS.ON_UPDATE
+  | typeof IPC.CLAUDE.ON_UPDATE;
 
 /** The renderer surface exposed on `window.atr`. */
 export const PRELOAD_BRIDGE_KEY = "atr" as const;

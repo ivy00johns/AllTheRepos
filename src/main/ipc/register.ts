@@ -7,6 +7,8 @@
  * Phase 3a adds `process:*` (lsof-based listening-port detection +
  * per-repo binding + graceful kill) and `launcher:*` (open in editor /
  * terminal / Finder / remote / copy path).
+ * Phase 3b adds `claude:*` (read-only Claude Code state — projects,
+ * sessions, skills, agents, MCP servers, rolled-up token usage).
  * Each domain module owns its own `register*Handlers()` function; this
  * module is just the orchestrator.
  *
@@ -16,6 +18,7 @@
 
 import { registerAppHandlers } from "./app";
 import { registerCatalogHandlers } from "./catalog";
+import { registerClaudeHandlers } from "./claude";
 import { registerGitHandlers } from "./git";
 import { registerGroupsHandlers } from "./groups";
 import { registerLauncherHandlers } from "./launcher";
@@ -41,4 +44,5 @@ export function registerIpcHandlers(): void {
   registerAppHandlers();
   registerProcessHandlers();
   registerLauncherHandlers();
+  registerClaudeHandlers();
 }

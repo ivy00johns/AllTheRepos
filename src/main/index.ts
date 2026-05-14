@@ -36,6 +36,7 @@ import { runMigrations } from "./db/migrate";
 import { migrateFromLegacy } from "./db/migration";
 import { registerIpcHandlers } from "./ipc/register";
 import { installContentSecurityPolicy } from "./security/csp";
+import { claudeService } from "./services/claude";
 import { launcherService } from "./services/launcher";
 import { processService } from "./services/process";
 import { scanService } from "./services/scan";
@@ -77,6 +78,20 @@ function broadcastProcessUpdate(
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
     win.webContents.send(IPC.PROCESS.ON_UPDATE, payload);
+  }
+}
+
+/**
+ * Phase 3b — fan a ClaudeUpdateEvent (project-hash + reason) to every
+ * active BrowserWindow. Fires when the chokidar watcher detects a
+ * session JSONL file added/changed/removed.
+ */
+function broadcastClaudeUpdate(
+  payload: import("@shared/types").ClaudeUpdateEvent,
+): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send(IPC.CLAUDE.ON_UPDATE, payload);
   }
 }
 
@@ -128,6 +143,12 @@ if (!gotSingleInstanceLock) {
       await processService.boot();
       await launcherService.boot();
 
+      // 5b. Phase 3b — ClaudeService boot. Reads `~/.claude.json`, walks
+      //     `~/.claude/projects/<hash>/` to index sessions, and starts a
+      //     chokidar watcher that emits `claude:on:update` when any
+      //     project's session file changes. Idempotent.
+      await claudeService.boot();
+
       // 6. IPC handlers — must exist before the renderer can call them.
       registerIpcHandlers();
 
@@ -147,6 +168,11 @@ if (!gotSingleInstanceLock) {
       // `update` events fire only when the (pid, port, repoSlug) triple
       // set changes, so wire cost is minimal.
       processService.events.on("update", broadcastProcessUpdate);
+
+      // Phase 3b — fan ClaudeService chokidar updates to every renderer.
+      // Renderer invalidates the matching `claude:projects` /
+      // `claude:repoState` / `claude:globalUsage` queries.
+      claudeService.events.on("update", broadcastClaudeUpdate);
 
       // 8. Main window.
       mainWindow = createMainWindow();
