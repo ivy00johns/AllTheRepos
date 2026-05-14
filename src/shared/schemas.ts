@@ -574,3 +574,148 @@ export type NotificationActionZ = z.infer<typeof NotificationActionSchema>;
 export type MenuCommandPayloadZ = z.infer<typeof MenuCommandPayloadSchema>;
 export type DeepLinkPayloadZ = z.infer<typeof DeepLinkPayloadSchema>;
 export type TrayOpenRepoPayloadZ = z.infer<typeof TrayOpenRepoPayloadSchema>;
+
+// ===========================================================================
+// Phase 3a — process detection + launcher
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Process namespace
+// ---------------------------------------------------------------------------
+
+/**
+ * One listening process surfaced by the lsof poller. `repoSlug` is set
+ * when ProcessService matched the cwd (or any ancestor cwd, walking
+ * `ppid`) against a catalog repo; null otherwise.
+ */
+export const ProcessInfoSchema = z.object({
+  pid: z.number().int().positive(),
+  ppid: z.number().int().nonnegative(),
+  command: z.string().min(1),
+  commandLine: z.string().min(1),
+  port: z.number().int().min(0).max(65535),
+  protocol: z.enum(["tcp"]).or(z.string().min(1)),
+  cwd: z.string().nullable(),
+  repoSlug: z.string().nullable(),
+  firstSeenAt: z.number().int().nonnegative(),
+  observedAt: z.number().int().nonnegative(),
+});
+export type ProcessInfoZ = z.infer<typeof ProcessInfoSchema>;
+
+export const ListProcessesInputSchema = z.object({}).strict();
+export const ListProcessesResultSchema = z.object({
+  processes: z.array(ProcessInfoSchema),
+  snapshotAt: z.number().int().nonnegative(),
+});
+
+export const ListProcessesForRepoInputSchema = z
+  .object({ slug: z.string().min(1) })
+  .strict();
+export const ListProcessesForRepoResultSchema = ListProcessesResultSchema;
+
+export const KillProcessInputSchema = z
+  .object({
+    pid: z.number().int().positive(),
+    escalateMs: z.number().int().min(100).max(60_000).optional(),
+  })
+  .strict();
+export const KillProcessResultSchema = z.object({
+  pid: z.number().int().positive(),
+  finalSignal: z.enum(["SIGINT", "SIGTERM", "SIGKILL", "noop"]),
+  stopped: z.boolean(),
+  durationMs: z.number().int().nonnegative(),
+});
+
+export const ProcessUpdateEventSchema = ListProcessesResultSchema;
+
+export type ListProcessesResultZ = z.infer<typeof ListProcessesResultSchema>;
+export type KillProcessInputZ = z.infer<typeof KillProcessInputSchema>;
+export type KillProcessResultZ = z.infer<typeof KillProcessResultSchema>;
+export type ProcessUpdateEventZ = z.infer<typeof ProcessUpdateEventSchema>;
+
+// ---------------------------------------------------------------------------
+// Launcher namespace
+// ---------------------------------------------------------------------------
+
+export const EditorIdSchema = z.enum([
+  "vscode",
+  "cursor",
+  "zed",
+  "windsurf",
+  "sublime",
+  "xcode",
+  "idea",
+  "webstorm",
+  "pycharm",
+  "rider",
+  "goland",
+  "clion",
+  "rubymine",
+]);
+export type EditorIdZ = z.infer<typeof EditorIdSchema>;
+
+export const TerminalIdSchema = z.enum([
+  "terminal",
+  "iterm2",
+  "warp",
+  "ghostty",
+  "alacritty",
+  "kitty",
+  "hyper",
+]);
+export type TerminalIdZ = z.infer<typeof TerminalIdSchema>;
+
+export const DetectedEditorSchema = z.object({
+  id: EditorIdSchema,
+  name: z.string().min(1),
+  available: z.boolean(),
+  scheme: z.string().nullable(),
+  appPath: z.string().nullable(),
+  cliPath: z.string().nullable(),
+});
+export type DetectedEditorZ = z.infer<typeof DetectedEditorSchema>;
+
+export const DetectedTerminalSchema = z.object({
+  id: TerminalIdSchema,
+  name: z.string().min(1),
+  available: z.boolean(),
+  appPath: z.string().nullable(),
+});
+export type DetectedTerminalZ = z.infer<typeof DetectedTerminalSchema>;
+
+export const DetectLauncherInputSchema = z.object({}).strict();
+export const DetectLauncherResultSchema = z.object({
+  editors: z.array(DetectedEditorSchema),
+  terminals: z.array(DetectedTerminalSchema),
+  defaults: z.object({
+    editor: EditorIdSchema.nullable(),
+    terminal: TerminalIdSchema.nullable(),
+  }),
+});
+export type DetectLauncherResultZ = z.infer<typeof DetectLauncherResultSchema>;
+
+export const OpenInEditorPhase3InputSchema = z
+  .object({
+    slug: z.string().min(1),
+    editorId: EditorIdSchema.optional(),
+  })
+  .strict();
+export const OpenInTerminalInputSchema = z
+  .object({
+    slug: z.string().min(1),
+    terminalId: TerminalIdSchema.optional(),
+    command: z.string().optional(),
+  })
+  .strict();
+export const OpenSlugInputSchema = z
+  .object({ slug: z.string().min(1) })
+  .strict();
+export const LauncherResultSchema = z.object({
+  ok: z.boolean(),
+  reason: z.string().nullable().optional(),
+});
+export type LauncherResultZ = z.infer<typeof LauncherResultSchema>;
+export type OpenInEditorPhase3InputZ = z.infer<
+  typeof OpenInEditorPhase3InputSchema
+>;
+export type OpenInTerminalInputZ = z.infer<typeof OpenInTerminalInputSchema>;

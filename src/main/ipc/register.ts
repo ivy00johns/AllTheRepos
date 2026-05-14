@@ -4,6 +4,9 @@
  * Phase 0 wired `system:*` only. Phase 1 adds the catalog / scan / git /
  * settings / groups namespaces. Phase 2 adds `app:*` (dock badge,
  * native notifications, spotlight orchestration, action registry).
+ * Phase 3a adds `process:*` (lsof-based listening-port detection +
+ * per-repo binding + graceful kill) and `launcher:*` (open in editor /
+ * terminal / Finder / remote / copy path).
  * Each domain module owns its own `register*Handlers()` function; this
  * module is just the orchestrator.
  *
@@ -15,6 +18,8 @@ import { registerAppHandlers } from "./app";
 import { registerCatalogHandlers } from "./catalog";
 import { registerGitHandlers } from "./git";
 import { registerGroupsHandlers } from "./groups";
+import { registerLauncherHandlers } from "./launcher";
+import { registerProcessHandlers } from "./process";
 import { registerScanHandlers } from "./scan";
 import { registerSettingsHandlers } from "./settings";
 import { registerSystemHandlers } from "./system";
@@ -34,4 +39,6 @@ export function registerIpcHandlers(): void {
   registerSettingsHandlers();
   registerGroupsHandlers();
   registerAppHandlers();
+  registerProcessHandlers();
+  registerLauncherHandlers();
 }

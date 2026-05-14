@@ -589,3 +589,46 @@ export interface TrayOpenRepoPayload {
   /** Slug of the repo to open. Renderer routes to the detail page. */
   slug: string;
 }
+
+// ===========================================================================
+// Phase 3a additions — process detection + launcher
+// ===========================================================================
+//
+// All Phase 3a IPC channels have Zod schemas in ./schemas.ts. Public types
+// here are derived from those schemas.
+
+import type {
+  DetectLauncherResultZ,
+  EditorIdZ,
+  KillProcessInputZ,
+  KillProcessResultZ,
+  LauncherResultZ,
+  ListProcessesResultZ,
+  OpenInEditorPhase3InputZ,
+  OpenInTerminalInputZ,
+  ProcessInfoZ,
+  ProcessUpdateEventZ,
+  TerminalIdZ,
+} from "./schemas";
+
+export type ProcessInfo = ProcessInfoZ;
+export type ListProcessesInput = Record<string, never>;
+export type ListProcessesResult = ListProcessesResultZ;
+export interface ListProcessesForRepoInput {
+  slug: string;
+}
+export type ListProcessesForRepoResult = ListProcessesResultZ;
+export type KillProcessInput = KillProcessInputZ;
+export type KillProcessResult = KillProcessResultZ;
+export type ProcessUpdateEvent = ProcessUpdateEventZ;
+
+export type EditorId = EditorIdZ;
+export type TerminalId = TerminalIdZ;
+export type DetectLauncherInput = Record<string, never>;
+export type DetectLauncherResult = DetectLauncherResultZ;
+export type OpenInEditorPhase3Input = OpenInEditorPhase3InputZ;
+export type OpenInTerminalInput = OpenInTerminalInputZ;
+export interface OpenSlugInput {
+  slug: string;
+}
+export type LauncherResult = LauncherResultZ;

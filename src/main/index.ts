@@ -36,6 +36,8 @@ import { runMigrations } from "./db/migrate";
 import { migrateFromLegacy } from "./db/migration";
 import { registerIpcHandlers } from "./ipc/register";
 import { installContentSecurityPolicy } from "./security/csp";
+import { launcherService } from "./services/launcher";
+import { processService } from "./services/process";
 import { scanService } from "./services/scan";
 import {
   registerGlobalHotkeys,
@@ -61,6 +63,20 @@ function broadcastScanEvent(event: ScanEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
     win.webContents.send(IPC.SCAN.ON_PROGRESS, event);
+  }
+}
+
+/**
+ * Phase 3a — fan a ProcessUpdateEvent (full snapshot) to every active
+ * BrowserWindow. Defensive against destroyed windows, same pattern as
+ * `broadcastScanEvent`.
+ */
+function broadcastProcessUpdate(
+  payload: import("@shared/types").ProcessUpdateEvent,
+): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send(IPC.PROCESS.ON_UPDATE, payload);
   }
 }
 
@@ -103,6 +119,15 @@ if (!gotSingleInstanceLock) {
       //    half-finished job here.
       await scanService.boot();
 
+      // 5a. Phase 3a — ProcessService + LauncherService boot. ProcessService
+      //     builds its catalog cwd→repo trie from the SQLite repos table
+      //     (so runMigrations + the catalog must already be online) and
+      //     starts paused — `start()` triggers on the first subscriber.
+      //     LauncherService runs editor/terminal detection on /Applications
+      //     + PATH probe and caches for the app lifetime.
+      await processService.boot();
+      await launcherService.boot();
+
       // 6. IPC handlers — must exist before the renderer can call them.
       registerIpcHandlers();
 
@@ -117,6 +142,11 @@ if (!gotSingleInstanceLock) {
           notifyScanComplete(event.totalRepos, event.durationMs);
         }
       });
+
+      // Phase 3a — fan ProcessService snapshot updates to every renderer.
+      // `update` events fire only when the (pid, port, repoSlug) triple
+      // set changes, so wire cost is minimal.
+      processService.events.on("update", broadcastProcessUpdate);
 
       // 8. Main window.
       mainWindow = createMainWindow();

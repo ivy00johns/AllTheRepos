@@ -148,6 +148,64 @@ export const IPC = {
   TRAY: {
     ON_OPEN_REPO: "tray:on:open-repo",
   },
+
+  /**
+   * Process namespace — Phase 3a. Per-repo listening-port + dev-server
+   * detection driven by an `lsof` poller in the main process. Repo
+   * binding is computed by walking each process's cwd and its parent
+   * chain (via `ppid`) until the path matches a known repo root in
+   * the catalog trie. Poll cadence is 2-3s when the app is focused,
+   * 15s when blurred, paused when no consumer is mounted.
+   */
+  PROCESS: {
+    /** Snapshot of every dev-server-like listening process. */
+    LIST: "process:list",
+    /** Subset of LIST scoped to one repo by slug. */
+    LIST_FOR_REPO: "process:listForRepo",
+    /**
+     * Graceful kill: SIGINT → SIGTERM (after `escalateMs`, default
+     * 3000ms) → SIGKILL (after another `escalateMs`, default 8000ms
+     * total). Resolves when PID no longer listening or timeout.
+     */
+    KILL: "process:kill",
+    /**
+     * Push event from `ProcessService` when its snapshot changes.
+     * Payload is the full new snapshot (small — one entry per
+     * listening PID; diffing is the renderer's job).
+     */
+    ON_UPDATE: "process:on:update",
+  },
+
+  /**
+   * Launcher namespace — Phase 3a. "Open in X" affordances. Detects
+   * installed editors and terminals via `/Applications` scans + PATH
+   * lookups at boot (cached). All openExternal calls go through the
+   * existing `openExternalAllowlisted` gate.
+   */
+  LAUNCHER: {
+    /** Detected editors + terminals + current defaults. Session-cached. */
+    DETECT: "launcher:detect",
+    /**
+     * Open repo in editor by slug. `editorId` falls back to user
+     * default. Builds a URL scheme (`vscode://`, `cursor://`,
+     * `zed://`, `idea://`, etc.) and dispatches.
+     */
+    OPEN_IN_EDITOR: "launcher:openInEditor",
+    /**
+     * Open repo in a terminal (cwd=repo). Optional `command` is run
+     * in the new shell (used later by Claude integration).
+     */
+    OPEN_IN_TERMINAL: "launcher:openInTerminal",
+    /** Reveal repo in Finder. */
+    OPEN_IN_FINDER: "launcher:openInFinder",
+    /**
+     * Resolve `git remote get-url origin`, normalize SSH→HTTPS, and
+     * open in the default browser via the allowlist.
+     */
+    OPEN_REMOTE: "launcher:openRemote",
+    /** Copy the absolute repo path to the clipboard. */
+    COPY_PATH: "launcher:copyPath",
+  },
 } as const;
 
 /**
@@ -164,18 +222,25 @@ export type IpcChannel =
   | (typeof IPC.GIT)[keyof typeof IPC.GIT]
   | (typeof IPC.SETTINGS)[keyof typeof IPC.SETTINGS]
   | (typeof IPC.GROUPS)[keyof typeof IPC.GROUPS]
-  | (typeof IPC.APP)[keyof typeof IPC.APP];
+  | (typeof IPC.APP)[keyof typeof IPC.APP]
+  | Exclude<
+      (typeof IPC.PROCESS)[keyof typeof IPC.PROCESS],
+      typeof IPC.PROCESS.ON_UPDATE
+    >
+  | (typeof IPC.LAUNCHER)[keyof typeof IPC.LAUNCHER];
 
 /**
  * Push-style event channels (main → renderer).
  * Phase 1: `scan:on:progress`.
  * Phase 2: `menu:on:command`, `protocol:on:deep-link`, `tray:on:open-repo`.
+ * Phase 3a: `process:on:update`.
  */
 export type IpcEventChannel =
   | typeof IPC.SCAN.ON_PROGRESS
   | typeof IPC.MENU.ON_COMMAND
   | typeof IPC.PROTOCOL.ON_DEEP_LINK
-  | typeof IPC.TRAY.ON_OPEN_REPO;
+  | typeof IPC.TRAY.ON_OPEN_REPO
+  | typeof IPC.PROCESS.ON_UPDATE;
 
 /** The renderer surface exposed on `window.atr`. */
 export const PRELOAD_BRIDGE_KEY = "atr" as const;

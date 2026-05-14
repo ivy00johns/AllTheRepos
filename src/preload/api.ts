@@ -34,6 +34,7 @@ import type {
   DeepLinkPayload,
   DeleteGroupInput,
   DeleteGroupResult,
+  DetectLauncherResult,
   GetRepoInput,
   GetRepoResult,
   GetSettingsResult,
@@ -42,16 +43,26 @@ import type {
   GitStatus,
   GitStatusInput,
   HideSpotlightResult,
+  KillProcessInput,
+  KillProcessResult,
+  LauncherResult,
   ListGroupsResult,
+  ListProcessesForRepoInput,
+  ListProcessesForRepoResult,
+  ListProcessesResult,
   ListReposInput,
   ListReposResult,
   MenuCommandPayload,
   NotifyInput,
   NotifyResult,
   OpenInEditorInput,
+  OpenInEditorPhase3Input,
   OpenInEditorResult,
+  OpenInTerminalInput,
+  OpenSlugInput,
   PingInput,
   PingResponse,
+  ProcessUpdateEvent,
   RegisterActionsInput,
   RegisterActionsResult,
   RenameGroupInput,
@@ -284,6 +295,79 @@ export const api = {
         ipcRenderer.off(IPC.TRAY.ON_OPEN_REPO, handler);
       };
     },
+  },
+
+  /**
+   * Phase 3a `process:*` namespace — listening-port + dev-server
+   * detection backed by lsof in the main process. `onUpdate` mirrors
+   * the `scan.onProgress` subscriber pattern: returns an unsubscribe
+   * lambda the renderer MUST call from cleanup. The poller in main
+   * tracks subscriber count and pauses when zero are listening.
+   */
+  process: {
+    list: (): Promise<ListProcessesResult> =>
+      ipcRenderer.invoke(IPC.PROCESS.LIST, {}) as Promise<ListProcessesResult>,
+    listForRepo: (
+      input: ListProcessesForRepoInput,
+    ): Promise<ListProcessesForRepoResult> =>
+      ipcRenderer.invoke(
+        IPC.PROCESS.LIST_FOR_REPO,
+        input,
+      ) as Promise<ListProcessesForRepoResult>,
+    kill: (input: KillProcessInput): Promise<KillProcessResult> =>
+      ipcRenderer.invoke(IPC.PROCESS.KILL, input) as Promise<KillProcessResult>,
+    onUpdate: (
+      callback: (payload: ProcessUpdateEvent) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: ProcessUpdateEvent,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.PROCESS.ON_UPDATE, handler);
+      return () => {
+        ipcRenderer.off(IPC.PROCESS.ON_UPDATE, handler);
+      };
+    },
+  },
+
+  /**
+   * Phase 3a `launcher:*` namespace — installed editor/terminal
+   * detection + "open in X" dispatch. `detect` is session-cached in
+   * main; restart to re-detect.
+   */
+  launcher: {
+    detect: (): Promise<DetectLauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.DETECT,
+        {},
+      ) as Promise<DetectLauncherResult>,
+    openInEditor: (input: OpenInEditorPhase3Input): Promise<LauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.OPEN_IN_EDITOR,
+        input,
+      ) as Promise<LauncherResult>,
+    openInTerminal: (input: OpenInTerminalInput): Promise<LauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.OPEN_IN_TERMINAL,
+        input,
+      ) as Promise<LauncherResult>,
+    openInFinder: (input: OpenSlugInput): Promise<LauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.OPEN_IN_FINDER,
+        input,
+      ) as Promise<LauncherResult>,
+    openRemote: (input: OpenSlugInput): Promise<LauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.OPEN_REMOTE,
+        input,
+      ) as Promise<LauncherResult>,
+    copyPath: (input: OpenSlugInput): Promise<LauncherResult> =>
+      ipcRenderer.invoke(
+        IPC.LAUNCHER.COPY_PATH,
+        input,
+      ) as Promise<LauncherResult>,
   },
 } as const;
 
