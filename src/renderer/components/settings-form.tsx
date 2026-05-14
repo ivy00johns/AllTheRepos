@@ -10,6 +10,7 @@ import {
 
 import type { Settings } from "@shared/types";
 
+import { LauncherDefaults } from "@renderer/components/launcher/launcher-defaults";
 import { cn } from "@renderer/lib/cn";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -159,8 +160,8 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         <div>
           <h2 className="font-mono text-base font-semibold">Scan paths</h2>
           <p className="text-xs text-muted-foreground">
-            Directories recursively searched for <code className="font-mono">.git</code>{" "}
-            folders.
+            Directories recursively searched for{" "}
+            <code className="font-mono">.git</code> folders.
           </p>
         </div>
         <ul className="flex flex-col gap-1.5">
@@ -200,7 +201,11 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             aria-label="New scan path"
             className="font-mono text-xs"
           />
-          <Button variant="outline" onClick={handleAddPath} disabled={!newPath.trim()}>
+          <Button
+            variant="outline"
+            onClick={handleAddPath}
+            disabled={!newPath.trim()}
+          >
             <FolderPlus className="h-4 w-4" aria-hidden />
             Add path
           </Button>
@@ -290,6 +295,23 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         </fieldset>
       </section>
 
+      <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
+        <div>
+          <h2 className="font-mono text-base font-semibold">
+            Default editor &amp; terminal (Phase 3a)
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Picks the app launched by the editor / terminal icons on each repo
+            card. Detection runs once per app launch; restart to re-scan
+            installed apps. Changes persist immediately.
+          </p>
+        </div>
+        <LauncherDefaults
+          settings={settings}
+          onUpdated={(next) => setSettings(next)}
+        />
+      </section>
+
       <div className="flex items-center gap-3">
         <Button onClick={handleSave} disabled={saving}>
           <Save className="h-4 w-4" aria-hidden />
@@ -310,7 +332,8 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           <div>
             <h2 className="font-mono text-base font-semibold">Scan now</h2>
             <p className="text-xs text-muted-foreground">
-              Walk all configured paths, enrich metadata, and update the catalog.
+              Walk all configured paths, enrich metadata, and update the
+              catalog.
             </p>
           </div>
           <Button
@@ -352,7 +375,9 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
                     className="mt-1 h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent"
                   />
                 )}
-                <span className="min-w-0 break-all">{scanStats.lastMessage}</span>
+                <span className="min-w-0 break-all">
+                  {scanStats.lastMessage}
+                </span>
               </p>
             ) : null}
           </div>

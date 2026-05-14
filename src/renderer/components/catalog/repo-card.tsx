@@ -3,8 +3,11 @@ import { Circle } from "lucide-react";
 
 import type { Repo } from "@shared/types";
 
-import { cn } from "@renderer/lib/cn";
+import { LauncherButtons } from "@renderer/components/launcher/launcher-buttons";
+import { PortChipsForRepo } from "@renderer/components/process/port-chip";
 import { Badge } from "@renderer/components/ui/badge";
+import { useProcessesForRepo } from "@renderer/hooks/use-processes";
+import { cn } from "@renderer/lib/cn";
 
 import { LanguageBar } from "./language-bar";
 import { colorForLanguage } from "./language-colors";
@@ -50,6 +53,12 @@ export function RepoCard({
   const tagsVisible = repo.tags.slice(0, 3);
   const tagsOverflow = repo.tags.length - tagsVisible.length;
 
+  // Phase 3a — surface listening processes bound to this repo + a
+  // launcher icon row. `useProcessesForRepo` is a derived selector
+  // over the global snapshot so every card stays in sync with the
+  // `/processes` view without extra IPC chatter.
+  const { processes } = useProcessesForRepo(repo.slug);
+
   return (
     <article
       role="button"
@@ -77,6 +86,7 @@ export function RepoCard({
           <h3 className="truncate font-mono text-sm font-semibold text-foreground">
             {repo.name}
           </h3>
+          <PortChipsForRepo processes={processes} className="ml-1" />
         </div>
         {repo.isDirty ? (
           <Badge variant="warning" className="shrink-0 gap-1 font-mono">
@@ -100,17 +110,24 @@ export function RepoCard({
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        {tagsVisible.map((t) => (
-          <Badge key={t.value} variant="tag">
-            {t.value}
-          </Badge>
-        ))}
-        {tagsOverflow > 0 ? (
-          <Badge variant="secondary" className="font-mono">
-            +{tagsOverflow}
-          </Badge>
-        ) : null}
+      <div className="flex items-end justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {tagsVisible.map((t) => (
+            <Badge key={t.value} variant="tag">
+              {t.value}
+            </Badge>
+          ))}
+          {tagsOverflow > 0 ? (
+            <Badge variant="secondary" className="font-mono">
+              +{tagsOverflow}
+            </Badge>
+          ) : null}
+        </div>
+        <LauncherButtons
+          slug={repo.slug}
+          inline
+          className="shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
+        />
       </div>
     </article>
   );

@@ -69,6 +69,24 @@ import {
   MenuCommandPayloadSchema,
   DeepLinkPayloadSchema,
   TrayOpenRepoPayloadSchema,
+  // ---- Phase 3a additions
+  ProcessInfoSchema,
+  ListProcessesInputSchema,
+  ListProcessesResultSchema,
+  ListProcessesForRepoInputSchema,
+  KillProcessInputSchema,
+  KillProcessResultSchema,
+  ProcessUpdateEventSchema,
+  EditorIdSchema,
+  TerminalIdSchema,
+  DetectedEditorSchema,
+  DetectedTerminalSchema,
+  DetectLauncherInputSchema,
+  DetectLauncherResultSchema,
+  OpenInEditorPhase3InputSchema,
+  OpenInTerminalInputSchema,
+  OpenSlugInputSchema,
+  LauncherResultSchema,
 } from "../../../src/shared/schemas";
 
 // ---------------------------------------------------------------------------
@@ -1582,5 +1600,468 @@ describe("TrayOpenRepoPayloadSchema", () => {
 
   it("rejects a missing slug", () => {
     expect(() => TrayOpenRepoPayloadSchema.parse({})).toThrow();
+  });
+});
+
+// ===========================================================================
+// Phase 3a — process + launcher schemas
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// ProcessInfoSchema
+// ---------------------------------------------------------------------------
+
+describe("ProcessInfoSchema", () => {
+  const validRow = {
+    pid: 1234,
+    ppid: 1,
+    command: "node",
+    commandLine: "node server.js",
+    port: 3000,
+    protocol: "tcp" as const,
+    cwd: "/Users/me/Projects/foo",
+    repoSlug: "foo",
+    firstSeenAt: 1_700_000_000_000,
+    observedAt: 1_700_000_001_000,
+  };
+
+  it("accepts a valid row", () => {
+    expect(ProcessInfoSchema.parse(validRow)).toEqual(validRow);
+  });
+
+  it("accepts null cwd and null repoSlug", () => {
+    expect(
+      ProcessInfoSchema.parse({ ...validRow, cwd: null, repoSlug: null }),
+    ).toEqual({ ...validRow, cwd: null, repoSlug: null });
+  });
+
+  it("rejects pid=0 (positive integer required)", () => {
+    expect(() => ProcessInfoSchema.parse({ ...validRow, pid: 0 })).toThrow();
+  });
+
+  it("rejects negative pid", () => {
+    expect(() => ProcessInfoSchema.parse({ ...validRow, pid: -1 })).toThrow();
+  });
+
+  it("rejects port=99999 (above 65535 cap)", () => {
+    expect(() =>
+      ProcessInfoSchema.parse({ ...validRow, port: 99999 }),
+    ).toThrow();
+  });
+
+  it("rejects negative port", () => {
+    expect(() => ProcessInfoSchema.parse({ ...validRow, port: -1 })).toThrow();
+  });
+
+  it("rejects negative firstSeenAt", () => {
+    expect(() =>
+      ProcessInfoSchema.parse({ ...validRow, firstSeenAt: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects an empty command", () => {
+    expect(() =>
+      ProcessInfoSchema.parse({ ...validRow, command: "" }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ListProcessesInputSchema / ListProcessesResultSchema /
+// ListProcessesForRepoInputSchema
+// ---------------------------------------------------------------------------
+
+describe("ListProcessesInputSchema", () => {
+  it("accepts an empty object", () => {
+    expect(ListProcessesInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() => ListProcessesInputSchema.parse({ wat: 1 })).toThrow();
+  });
+});
+
+describe("ListProcessesResultSchema", () => {
+  it("accepts an empty processes array", () => {
+    expect(
+      ListProcessesResultSchema.parse({ processes: [], snapshotAt: 0 }),
+    ).toEqual({ processes: [], snapshotAt: 0 });
+  });
+
+  it("rejects a non-array processes field", () => {
+    expect(() =>
+      ListProcessesResultSchema.parse({ processes: "nope", snapshotAt: 1 }),
+    ).toThrow();
+  });
+});
+
+describe("ListProcessesForRepoInputSchema", () => {
+  it("accepts a valid slug", () => {
+    expect(ListProcessesForRepoInputSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => ListProcessesForRepoInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      ListProcessesForRepoInputSchema.parse({ slug: "foo", extra: 1 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KillProcessInputSchema / KillProcessResultSchema
+// ---------------------------------------------------------------------------
+
+describe("KillProcessInputSchema", () => {
+  it("accepts { pid: 123 }", () => {
+    expect(KillProcessInputSchema.parse({ pid: 123 })).toEqual({ pid: 123 });
+  });
+
+  it("accepts { pid: 123, escalateMs: 5000 }", () => {
+    expect(
+      KillProcessInputSchema.parse({ pid: 123, escalateMs: 5000 }),
+    ).toEqual({ pid: 123, escalateMs: 5000 });
+  });
+
+  it("rejects { pid: -1 } (positive integer required)", () => {
+    expect(() => KillProcessInputSchema.parse({ pid: -1 })).toThrow();
+  });
+
+  it("rejects { pid: 0 }", () => {
+    expect(() => KillProcessInputSchema.parse({ pid: 0 })).toThrow();
+  });
+
+  it("rejects { escalateMs: 50 } below 100 minimum", () => {
+    expect(() =>
+      KillProcessInputSchema.parse({ pid: 123, escalateMs: 50 }),
+    ).toThrow();
+  });
+
+  it("rejects escalateMs > 60_000", () => {
+    expect(() =>
+      KillProcessInputSchema.parse({ pid: 123, escalateMs: 60_001 }),
+    ).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() => KillProcessInputSchema.parse({ pid: 123, wat: 1 })).toThrow();
+  });
+});
+
+describe("KillProcessResultSchema", () => {
+  it("accepts a valid stopped result", () => {
+    const r = {
+      pid: 1,
+      finalSignal: "SIGINT" as const,
+      stopped: true,
+      durationMs: 0,
+    };
+    expect(KillProcessResultSchema.parse(r)).toEqual(r);
+  });
+
+  it("accepts finalSignal=noop for already-dead PIDs", () => {
+    const r = {
+      pid: 1,
+      finalSignal: "noop" as const,
+      stopped: true,
+      durationMs: 0,
+    };
+    expect(KillProcessResultSchema.parse(r)).toEqual(r);
+  });
+
+  it("rejects an unknown finalSignal", () => {
+    expect(() =>
+      KillProcessResultSchema.parse({
+        pid: 1,
+        finalSignal: "SIGUSR1",
+        stopped: true,
+        durationMs: 0,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ProcessUpdateEventSchema", () => {
+  it("matches the ListProcessesResultSchema shape", () => {
+    expect(
+      ProcessUpdateEventSchema.parse({ processes: [], snapshotAt: 1 }),
+    ).toEqual({ processes: [], snapshotAt: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EditorIdSchema / TerminalIdSchema
+// ---------------------------------------------------------------------------
+
+describe("EditorIdSchema", () => {
+  const editorIds = [
+    "vscode",
+    "cursor",
+    "zed",
+    "windsurf",
+    "sublime",
+    "xcode",
+    "idea",
+    "webstorm",
+    "pycharm",
+    "rider",
+    "goland",
+    "clion",
+    "rubymine",
+  ] as const;
+
+  it("accepts every enum value", () => {
+    for (const id of editorIds) {
+      expect(EditorIdSchema.parse(id)).toBe(id);
+    }
+  });
+
+  it("rejects an unknown id ('notarealthing')", () => {
+    expect(() => EditorIdSchema.parse("notarealthing")).toThrow();
+  });
+
+  it("rejects an empty string", () => {
+    expect(() => EditorIdSchema.parse("")).toThrow();
+  });
+});
+
+describe("TerminalIdSchema", () => {
+  const terminalIds = [
+    "terminal",
+    "iterm2",
+    "warp",
+    "ghostty",
+    "alacritty",
+    "kitty",
+    "hyper",
+  ] as const;
+
+  it("accepts every enum value", () => {
+    for (const id of terminalIds) {
+      expect(TerminalIdSchema.parse(id)).toBe(id);
+    }
+  });
+
+  it("rejects an unknown id ('notarealthing')", () => {
+    expect(() => TerminalIdSchema.parse("notarealthing")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DetectedEditorSchema / DetectedTerminalSchema / DetectLauncherResultSchema
+// ---------------------------------------------------------------------------
+
+describe("DetectedEditorSchema", () => {
+  it("accepts a fully populated entry", () => {
+    const v = {
+      id: "vscode" as const,
+      name: "Visual Studio Code",
+      available: true,
+      scheme: "vscode",
+      appPath: "/Applications/Visual Studio Code.app",
+      cliPath: "/usr/local/bin/code",
+    };
+    expect(DetectedEditorSchema.parse(v)).toEqual(v);
+  });
+
+  it("accepts null scheme / appPath / cliPath", () => {
+    const v = {
+      id: "xcode" as const,
+      name: "Xcode",
+      available: true,
+      scheme: null,
+      appPath: null,
+      cliPath: null,
+    };
+    expect(DetectedEditorSchema.parse(v)).toEqual(v);
+  });
+
+  it("rejects an unknown id", () => {
+    expect(() =>
+      DetectedEditorSchema.parse({
+        id: "notreal",
+        name: "x",
+        available: false,
+        scheme: null,
+        appPath: null,
+        cliPath: null,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("DetectedTerminalSchema", () => {
+  it("accepts a valid entry", () => {
+    const v = {
+      id: "iterm2" as const,
+      name: "iTerm",
+      available: true,
+      appPath: "/Applications/iTerm.app",
+    };
+    expect(DetectedTerminalSchema.parse(v)).toEqual(v);
+  });
+
+  it("rejects an unknown id", () => {
+    expect(() =>
+      DetectedTerminalSchema.parse({
+        id: "wat",
+        name: "wat",
+        available: false,
+        appPath: null,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("DetectLauncherInputSchema", () => {
+  it("accepts an empty object", () => {
+    expect(DetectLauncherInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() => DetectLauncherInputSchema.parse({ wat: 1 })).toThrow();
+  });
+});
+
+describe("DetectLauncherResultSchema", () => {
+  it("validates the canonical empty shape", () => {
+    const v = {
+      editors: [],
+      terminals: [],
+      defaults: { editor: null, terminal: null },
+    };
+    expect(DetectLauncherResultSchema.parse(v)).toEqual(v);
+  });
+
+  it("validates a fully-populated shape", () => {
+    const v = {
+      editors: [
+        {
+          id: "vscode" as const,
+          name: "Visual Studio Code",
+          available: true,
+          scheme: "vscode",
+          appPath: "/Applications/Visual Studio Code.app",
+          cliPath: "/usr/local/bin/code",
+        },
+      ],
+      terminals: [
+        {
+          id: "terminal" as const,
+          name: "Terminal",
+          available: true,
+          appPath: "/System/Applications/Utilities/Terminal.app",
+        },
+      ],
+      defaults: { editor: "vscode" as const, terminal: "terminal" as const },
+    };
+    expect(DetectLauncherResultSchema.parse(v)).toEqual(v);
+  });
+
+  it("rejects a defaults.editor that isn't a valid EditorId", () => {
+    expect(() =>
+      DetectLauncherResultSchema.parse({
+        editors: [],
+        terminals: [],
+        defaults: { editor: "wat", terminal: null },
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenInEditorPhase3InputSchema / OpenInTerminalInputSchema /
+// OpenSlugInputSchema / LauncherResultSchema
+// ---------------------------------------------------------------------------
+
+describe("OpenInEditorPhase3InputSchema", () => {
+  it("accepts { slug }", () => {
+    expect(OpenInEditorPhase3InputSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("accepts { slug, editorId }", () => {
+    expect(
+      OpenInEditorPhase3InputSchema.parse({ slug: "foo", editorId: "vscode" }),
+    ).toEqual({ slug: "foo", editorId: "vscode" });
+  });
+
+  it("rejects an unknown editorId", () => {
+    expect(() =>
+      OpenInEditorPhase3InputSchema.parse({ slug: "foo", editorId: "wat" }),
+    ).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      OpenInEditorPhase3InputSchema.parse({ slug: "foo", wat: 1 }),
+    ).toThrow();
+  });
+});
+
+describe("OpenInTerminalInputSchema", () => {
+  it("accepts { slug, terminalId, command }", () => {
+    expect(
+      OpenInTerminalInputSchema.parse({
+        slug: "foo",
+        terminalId: "iterm2",
+        command: "npm run dev",
+      }),
+    ).toEqual({ slug: "foo", terminalId: "iterm2", command: "npm run dev" });
+  });
+
+  it("rejects an unknown terminalId", () => {
+    expect(() =>
+      OpenInTerminalInputSchema.parse({ slug: "foo", terminalId: "wat" }),
+    ).toThrow();
+  });
+});
+
+describe("OpenSlugInputSchema", () => {
+  it("accepts { slug }", () => {
+    expect(OpenSlugInputSchema.parse({ slug: "foo" })).toEqual({ slug: "foo" });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => OpenSlugInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      OpenSlugInputSchema.parse({ slug: "foo", extra: 1 }),
+    ).toThrow();
+  });
+});
+
+describe("LauncherResultSchema", () => {
+  it("accepts { ok: true }", () => {
+    expect(LauncherResultSchema.parse({ ok: true })).toEqual({ ok: true });
+  });
+
+  it("accepts { ok: false, reason: 'no editor installed' }", () => {
+    expect(
+      LauncherResultSchema.parse({ ok: false, reason: "no editor installed" }),
+    ).toEqual({ ok: false, reason: "no editor installed" });
+  });
+
+  it("accepts { ok: false, reason: null }", () => {
+    expect(LauncherResultSchema.parse({ ok: false, reason: null })).toEqual({
+      ok: false,
+      reason: null,
+    });
+  });
+
+  it("rejects a missing ok field", () => {
+    expect(() => LauncherResultSchema.parse({})).toThrow();
+  });
+
+  it("rejects a non-boolean ok", () => {
+    expect(() => LauncherResultSchema.parse({ ok: "true" })).toThrow();
   });
 });

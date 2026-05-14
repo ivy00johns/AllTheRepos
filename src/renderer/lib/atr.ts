@@ -40,6 +40,7 @@ import type {
   DeepLinkPayload,
   DeleteGroupInput,
   DeleteGroupResult,
+  DetectLauncherResult,
   GetRepoInput,
   GetRepoResult,
   GetSettingsResult,
@@ -48,16 +49,26 @@ import type {
   GitStatus,
   GitStatusInput,
   HideSpotlightResult,
+  KillProcessInput,
+  KillProcessResult,
+  LauncherResult,
   ListGroupsResult,
+  ListProcessesForRepoInput,
+  ListProcessesForRepoResult,
+  ListProcessesResult,
   ListReposInput,
   ListReposResult,
   MenuCommandPayload,
   NotifyInput,
   NotifyResult,
   OpenInEditorInput,
+  OpenInEditorPhase3Input,
   OpenInEditorResult,
+  OpenInTerminalInput,
+  OpenSlugInput,
   PingInput,
   PingResponse,
+  ProcessUpdateEvent,
   RegisterActionsInput,
   RegisterActionsResult,
   RenameGroupInput,
@@ -180,6 +191,33 @@ export interface AtrBridge {
      * unsubscribe lambda the caller MUST run from cleanup.
      */
     onOpenRepo(cb: (payload: TrayOpenRepoPayload) => void): () => void;
+  };
+  /**
+   * Phase 3a `process:*` namespace — listening-port + dev-server
+   * detection backed by lsof in the main process. `onUpdate` mirrors
+   * `scan.onProgress`: returns an unsubscribe lambda the caller MUST
+   * run from cleanup.
+   */
+  process: {
+    list(): Promise<ListProcessesResult>;
+    listForRepo(
+      input: ListProcessesForRepoInput,
+    ): Promise<ListProcessesForRepoResult>;
+    kill(input: KillProcessInput): Promise<KillProcessResult>;
+    onUpdate(cb: (payload: ProcessUpdateEvent) => void): () => void;
+  };
+  /**
+   * Phase 3a `launcher:*` namespace — installed editor/terminal
+   * detection + "open in X" dispatch. `detect()` is session-cached in
+   * main; the renderer treats the result as `staleTime: Infinity`.
+   */
+  launcher: {
+    detect(): Promise<DetectLauncherResult>;
+    openInEditor(input: OpenInEditorPhase3Input): Promise<LauncherResult>;
+    openInTerminal(input: OpenInTerminalInput): Promise<LauncherResult>;
+    openInFinder(input: OpenSlugInput): Promise<LauncherResult>;
+    openRemote(input: OpenSlugInput): Promise<LauncherResult>;
+    copyPath(input: OpenSlugInput): Promise<LauncherResult>;
   };
 }
 

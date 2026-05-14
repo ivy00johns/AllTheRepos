@@ -18,6 +18,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { useProcessEventBus } from "@renderer/hooks/use-processes";
 import { useScanEventBus } from "@renderer/hooks/use-scan";
 import { router } from "@renderer/router";
 
@@ -28,6 +29,7 @@ export function App() {
   return (
     <ErrorBoundary>
       <ScanEventBusMount />
+      <ProcessEventBusMount />
       <RouterProvider router={router} />
     </ErrorBoundary>
   );
@@ -36,6 +38,18 @@ export function App() {
 /** Side-effect-only component: subscribes to scan events for the lifetime of the app. */
 function ScanEventBusMount() {
   useScanEventBus();
+  return null;
+}
+
+/**
+ * Side-effect-only component: subscribes to push-style process
+ * snapshot events for the lifetime of the app. Must live OUTSIDE
+ * RouterProvider so the subscription survives route transitions,
+ * but INSIDE QueryClientProvider so it can call
+ * `queryClient.setQueryData`.
+ */
+function ProcessEventBusMount() {
+  useProcessEventBus();
   return null;
 }
 

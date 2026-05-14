@@ -13,10 +13,16 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { Menu, Settings as SettingsIcon, Terminal } from "lucide-react";
+import {
+  Activity,
+  Menu,
+  Settings as SettingsIcon,
+  Terminal,
+} from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { SearchBar } from "@renderer/components/search/search-bar";
+import { useProcessCount } from "@renderer/hooks/use-processes";
 import { useUiStore } from "@renderer/stores/ui";
 
 export function TopBar() {
@@ -30,6 +36,7 @@ export function TopBar() {
   // a single source of truth.
   const query = useUiStore((s) => s.activeFilter.q);
   const setActiveFilter = useUiStore((s) => s.setActiveFilter);
+  const processCount = useProcessCount();
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
@@ -57,6 +64,24 @@ export function TopBar() {
         <Button asChild variant="ghost" size="sm">
           <Link to="/debug" aria-label="Debug">
             <Terminal className="h-4 w-4" aria-hidden />
+          </Link>
+        </Button>
+        <Button asChild variant="ghost" size="sm" className="relative">
+          <Link to="/processes" aria-label="Running processes">
+            <Activity className="h-4 w-4" aria-hidden />
+            {processCount > 0 ? (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9px] font-semibold leading-none text-accent-foreground"
+              >
+                {processCount}
+              </span>
+            ) : null}
+            <span className="sr-only">
+              {processCount > 0
+                ? `${processCount} running ${processCount === 1 ? "process" : "processes"}`
+                : "No running processes"}
+            </span>
           </Link>
         </Button>
         <Button asChild variant="ghost" size="sm">
