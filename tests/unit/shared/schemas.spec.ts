@@ -87,6 +87,27 @@ import {
   OpenInTerminalInputSchema,
   OpenSlugInputSchema,
   LauncherResultSchema,
+  // ---- Phase 3b additions
+  TokenUsageSchema,
+  ClaudeSessionSchema,
+  ClaudeProjectSchema,
+  ClaudeSkillSchema,
+  ClaudeAgentSchema,
+  ClaudeMcpServerSchema,
+  ClaudeRepoStateSchema,
+  ClaudeIndexInputSchema,
+  ClaudeIndexResultSchema,
+  ClaudeProjectsInputSchema,
+  ClaudeProjectsResultSchema,
+  ClaudeRepoStateInputSchema,
+  ClaudeSessionTranscriptInputSchema,
+  ClaudeSessionTranscriptResultSchema,
+  ClaudeGlobalUsageInputSchema,
+  ClaudeGlobalUsageResultSchema,
+  ClaudeLaunchInputSchema,
+  ClaudeOpenClaudeMdInputSchema,
+  ClaudeUpdateEventSchema,
+  TranscriptEventSchema,
 } from "../../../src/shared/schemas";
 
 // ---------------------------------------------------------------------------
@@ -2063,5 +2084,792 @@ describe("LauncherResultSchema", () => {
 
   it("rejects a non-boolean ok", () => {
     expect(() => LauncherResultSchema.parse({ ok: "true" })).toThrow();
+  });
+});
+
+// ===========================================================================
+// Phase 3b — Claude Code integration
+// ===========================================================================
+
+const tokenUsageOk = {
+  inputTokens: 100,
+  outputTokens: 200,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  totalTokens: 300,
+};
+
+const sessionOk = {
+  id: "sess-1",
+  projectHash: "h1",
+  startedAt: "2026-05-01T10:00:00.000Z",
+  lastActivityAt: "2026-05-01T11:00:00.000Z",
+  messageCount: 4,
+  tokenUsage: tokenUsageOk,
+  filePath: "/Users/me/.claude/projects/h1/sess-1.jsonl",
+  sizeBytes: 1024,
+};
+
+const projectOk = {
+  hash: "h1",
+  repoPath: "/Users/me/Projects/foo",
+  repoSlug: "foo",
+  sessionCount: 3,
+  lastActivityAt: "2026-05-01T11:00:00.000Z",
+  totalTokens: 500,
+};
+
+const skillOk = {
+  name: "my-skill",
+  description: "does a thing",
+  path: "/Users/me/Projects/foo/.claude/skills/my-skill/SKILL.md",
+  frontmatter: { name: "my-skill" },
+};
+
+const agentOk = {
+  name: "my-agent",
+  description: "agent description",
+  path: "/Users/me/Projects/foo/.claude/agents/my-agent.md",
+  frontmatter: { name: "my-agent" },
+};
+
+const mcpOk = {
+  name: "server-a",
+  type: "stdio" as const,
+  command: "node",
+  args: ["server.js"],
+  configuredIn: "project" as const,
+  status: "configured" as const,
+};
+
+const repoStateOk = {
+  hasClaude: true,
+  claudeMdPath: "/Users/me/Projects/foo/CLAUDE.md",
+  claudeMdContent: "# foo",
+  settingsPath: null,
+  generatedAt: 1_700_000_000_000,
+  skills: [skillOk],
+  agents: [agentOk],
+  mcpServers: [mcpOk],
+  sessions: [sessionOk],
+  totalTokens: 500,
+};
+
+// ---------------------------------------------------------------------------
+// TokenUsageSchema
+// ---------------------------------------------------------------------------
+
+describe("TokenUsageSchema (Phase 3b)", () => {
+  it("accepts a complete token usage record", () => {
+    expect(TokenUsageSchema.parse(tokenUsageOk)).toEqual(tokenUsageOk);
+  });
+
+  it("rejects negative inputTokens", () => {
+    expect(() =>
+      TokenUsageSchema.parse({ ...tokenUsageOk, inputTokens: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects non-integer outputTokens", () => {
+    expect(() =>
+      TokenUsageSchema.parse({ ...tokenUsageOk, outputTokens: 12.5 }),
+    ).toThrow();
+  });
+
+  it("rejects a missing totalTokens", () => {
+    const { totalTokens: _, ...rest } = tokenUsageOk;
+    expect(() => TokenUsageSchema.parse(rest)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSessionSchema
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSessionSchema (Phase 3b)", () => {
+  it("accepts a fully-formed session", () => {
+    expect(ClaudeSessionSchema.parse(sessionOk)).toEqual(sessionOk);
+  });
+
+  it("accepts a session with null startedAt and lastActivityAt", () => {
+    expect(
+      ClaudeSessionSchema.parse({
+        ...sessionOk,
+        startedAt: null,
+        lastActivityAt: null,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects an empty id", () => {
+    expect(() => ClaudeSessionSchema.parse({ ...sessionOk, id: "" })).toThrow();
+  });
+
+  it("rejects an empty projectHash", () => {
+    expect(() =>
+      ClaudeSessionSchema.parse({ ...sessionOk, projectHash: "" }),
+    ).toThrow();
+  });
+
+  it("rejects negative messageCount", () => {
+    expect(() =>
+      ClaudeSessionSchema.parse({ ...sessionOk, messageCount: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects negative sizeBytes", () => {
+    expect(() =>
+      ClaudeSessionSchema.parse({ ...sessionOk, sizeBytes: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects a malformed tokenUsage block", () => {
+    expect(() =>
+      ClaudeSessionSchema.parse({
+        ...sessionOk,
+        tokenUsage: { ...tokenUsageOk, inputTokens: -1 },
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeProjectSchema
+// ---------------------------------------------------------------------------
+
+describe("ClaudeProjectSchema (Phase 3b)", () => {
+  it("accepts a fully-formed project", () => {
+    expect(ClaudeProjectSchema.parse(projectOk)).toEqual(projectOk);
+  });
+
+  it("accepts repoSlug=null", () => {
+    expect(
+      ClaudeProjectSchema.parse({ ...projectOk, repoSlug: null }),
+    ).toBeTruthy();
+  });
+
+  it("rejects empty hash", () => {
+    expect(() =>
+      ClaudeProjectSchema.parse({ ...projectOk, hash: "" }),
+    ).toThrow();
+  });
+
+  it("rejects empty repoPath", () => {
+    expect(() =>
+      ClaudeProjectSchema.parse({ ...projectOk, repoPath: "" }),
+    ).toThrow();
+  });
+
+  it("rejects negative totalTokens", () => {
+    expect(() =>
+      ClaudeProjectSchema.parse({ ...projectOk, totalTokens: -1 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSkillSchema / ClaudeAgentSchema
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSkillSchema (Phase 3b)", () => {
+  it("accepts a fully-formed skill", () => {
+    expect(ClaudeSkillSchema.parse(skillOk)).toEqual(skillOk);
+  });
+
+  it("accepts an empty description", () => {
+    expect(
+      ClaudeSkillSchema.parse({ ...skillOk, description: "" }),
+    ).toBeTruthy();
+  });
+
+  it("rejects an empty name", () => {
+    expect(() => ClaudeSkillSchema.parse({ ...skillOk, name: "" })).toThrow();
+  });
+
+  it("rejects an empty path", () => {
+    expect(() => ClaudeSkillSchema.parse({ ...skillOk, path: "" })).toThrow();
+  });
+
+  it("rejects a non-object frontmatter", () => {
+    expect(() =>
+      ClaudeSkillSchema.parse({ ...skillOk, frontmatter: "x" }),
+    ).toThrow();
+  });
+});
+
+describe("ClaudeAgentSchema (Phase 3b)", () => {
+  it("accepts a fully-formed agent", () => {
+    expect(ClaudeAgentSchema.parse(agentOk)).toEqual(agentOk);
+  });
+
+  it("rejects empty name", () => {
+    expect(() => ClaudeAgentSchema.parse({ ...agentOk, name: "" })).toThrow();
+  });
+
+  it("rejects empty path", () => {
+    expect(() => ClaudeAgentSchema.parse({ ...agentOk, path: "" })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeMcpServerSchema
+// ---------------------------------------------------------------------------
+
+describe("ClaudeMcpServerSchema (Phase 3b)", () => {
+  it("accepts a fully-formed stdio entry", () => {
+    expect(ClaudeMcpServerSchema.parse(mcpOk)).toEqual(mcpOk);
+  });
+
+  it("accepts each of the four supported types", () => {
+    for (const type of ["stdio", "sse", "http", "unknown"]) {
+      expect(ClaudeMcpServerSchema.parse({ ...mcpOk, type })).toBeTruthy();
+    }
+  });
+
+  it("rejects an unknown type literal", () => {
+    expect(() =>
+      ClaudeMcpServerSchema.parse({ ...mcpOk, type: "ftp" }),
+    ).toThrow();
+  });
+
+  it("accepts both configuredIn values", () => {
+    expect(
+      ClaudeMcpServerSchema.parse({ ...mcpOk, configuredIn: "project" }),
+    ).toBeTruthy();
+    expect(
+      ClaudeMcpServerSchema.parse({ ...mcpOk, configuredIn: "global" }),
+    ).toBeTruthy();
+  });
+
+  it("rejects an unknown configuredIn value", () => {
+    expect(() =>
+      ClaudeMcpServerSchema.parse({ ...mcpOk, configuredIn: "bogus" }),
+    ).toThrow();
+  });
+
+  it("accepts all three status values", () => {
+    for (const status of ["configured", "running", "unavailable"]) {
+      expect(ClaudeMcpServerSchema.parse({ ...mcpOk, status })).toBeTruthy();
+    }
+  });
+
+  it("rejects an unknown status value", () => {
+    expect(() =>
+      ClaudeMcpServerSchema.parse({ ...mcpOk, status: "happy" }),
+    ).toThrow();
+  });
+
+  it("accepts null command and null args", () => {
+    expect(
+      ClaudeMcpServerSchema.parse({ ...mcpOk, command: null, args: null }),
+    ).toBeTruthy();
+  });
+
+  it("rejects empty server name", () => {
+    expect(() => ClaudeMcpServerSchema.parse({ ...mcpOk, name: "" })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeRepoStateSchema
+// ---------------------------------------------------------------------------
+
+describe("ClaudeRepoStateSchema (Phase 3b)", () => {
+  it("accepts a fully-formed repo state", () => {
+    expect(ClaudeRepoStateSchema.parse(repoStateOk)).toEqual(repoStateOk);
+  });
+
+  it("accepts hasClaude=false with empty arrays", () => {
+    expect(
+      ClaudeRepoStateSchema.parse({
+        ...repoStateOk,
+        hasClaude: false,
+        claudeMdPath: null,
+        claudeMdContent: null,
+        settingsPath: null,
+        skills: [],
+        agents: [],
+        mcpServers: [],
+        sessions: [],
+        totalTokens: 0,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects a non-boolean hasClaude", () => {
+    expect(() =>
+      ClaudeRepoStateSchema.parse({
+        ...repoStateOk,
+        hasClaude: "yes" as unknown as boolean,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects negative generatedAt", () => {
+    expect(() =>
+      ClaudeRepoStateSchema.parse({ ...repoStateOk, generatedAt: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects an item in skills that is not a valid skill", () => {
+    expect(() =>
+      ClaudeRepoStateSchema.parse({
+        ...repoStateOk,
+        skills: [{ ...skillOk, name: "" }],
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Input / output schemas — Index
+// ---------------------------------------------------------------------------
+
+describe("ClaudeIndexInputSchema (Phase 3b)", () => {
+  it("accepts an empty object", () => {
+    expect(ClaudeIndexInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys", () => {
+    expect(() => ClaudeIndexInputSchema.parse({ wat: 1 })).toThrow();
+  });
+});
+
+describe("ClaudeIndexResultSchema (Phase 3b)", () => {
+  it("accepts a complete result", () => {
+    expect(
+      ClaudeIndexResultSchema.parse({
+        projectCount: 1,
+        sessionCount: 2,
+        totalTokens: 3,
+        durationMs: 4,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects negative durationMs", () => {
+    expect(() =>
+      ClaudeIndexResultSchema.parse({
+        projectCount: 1,
+        sessionCount: 2,
+        totalTokens: 3,
+        durationMs: -1,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a missing projectCount", () => {
+    expect(() =>
+      ClaudeIndexResultSchema.parse({
+        sessionCount: 2,
+        totalTokens: 3,
+        durationMs: 4,
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+describe("ClaudeProjectsInputSchema (Phase 3b)", () => {
+  it("accepts an empty object", () => {
+    expect(ClaudeProjectsInputSchema.parse({})).toEqual({});
+  });
+
+  it("rejects extra keys", () => {
+    expect(() => ClaudeProjectsInputSchema.parse({ wat: 1 })).toThrow();
+  });
+});
+
+describe("ClaudeProjectsResultSchema (Phase 3b)", () => {
+  it("accepts an empty list", () => {
+    expect(ClaudeProjectsResultSchema.parse({ projects: [] })).toEqual({
+      projects: [],
+    });
+  });
+
+  it("accepts a populated list", () => {
+    expect(
+      ClaudeProjectsResultSchema.parse({ projects: [projectOk] }),
+    ).toBeTruthy();
+  });
+
+  it("rejects a malformed project entry", () => {
+    expect(() =>
+      ClaudeProjectsResultSchema.parse({
+        projects: [{ ...projectOk, hash: "" }],
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RepoState
+// ---------------------------------------------------------------------------
+
+describe("ClaudeRepoStateInputSchema (Phase 3b)", () => {
+  it("accepts { slug: 'x' }", () => {
+    expect(ClaudeRepoStateInputSchema.parse({ slug: "x" })).toEqual({
+      slug: "x",
+    });
+  });
+
+  it("rejects an empty slug", () => {
+    expect(() => ClaudeRepoStateInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects a missing slug", () => {
+    expect(() => ClaudeRepoStateInputSchema.parse({})).toThrow();
+  });
+
+  it("rejects extra keys", () => {
+    expect(() =>
+      ClaudeRepoStateInputSchema.parse({ slug: "x", wat: 1 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SessionTranscript
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSessionTranscriptInputSchema (Phase 3b)", () => {
+  it("accepts sessionId only, defaults cursor=0", () => {
+    expect(
+      ClaudeSessionTranscriptInputSchema.parse({ sessionId: "s" }),
+    ).toEqual({ sessionId: "s", cursor: 0 });
+  });
+
+  it("accepts a full payload", () => {
+    expect(
+      ClaudeSessionTranscriptInputSchema.parse({
+        sessionId: "s",
+        cursor: 1024,
+        maxBytes: 65_536,
+      }),
+    ).toEqual({ sessionId: "s", cursor: 1024, maxBytes: 65_536 });
+  });
+
+  it("rejects empty sessionId", () => {
+    expect(() =>
+      ClaudeSessionTranscriptInputSchema.parse({ sessionId: "" }),
+    ).toThrow();
+  });
+
+  it("rejects negative cursor", () => {
+    expect(() =>
+      ClaudeSessionTranscriptInputSchema.parse({
+        sessionId: "s",
+        cursor: -1,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects maxBytes < 1024", () => {
+    expect(() =>
+      ClaudeSessionTranscriptInputSchema.parse({
+        sessionId: "s",
+        maxBytes: 1023,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects maxBytes > 262144", () => {
+    expect(() =>
+      ClaudeSessionTranscriptInputSchema.parse({
+        sessionId: "s",
+        maxBytes: 262_145,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects extra keys", () => {
+    expect(() =>
+      ClaudeSessionTranscriptInputSchema.parse({
+        sessionId: "s",
+        wat: 1,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ClaudeSessionTranscriptResultSchema (Phase 3b)", () => {
+  it("accepts events with passthrough fields", () => {
+    expect(
+      ClaudeSessionTranscriptResultSchema.parse({
+        events: [
+          {
+            type: "assistant",
+            timestamp: "2026-05-01T10:00:00.000Z",
+            uuid: "uuid-1",
+            extraField: "is-fine",
+          },
+        ],
+        nextCursor: 100,
+        hasMore: true,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("accepts EOF chunk (nextCursor=null, hasMore=false)", () => {
+    expect(
+      ClaudeSessionTranscriptResultSchema.parse({
+        events: [],
+        nextCursor: null,
+        hasMore: false,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects when events is not an array", () => {
+    expect(() =>
+      ClaudeSessionTranscriptResultSchema.parse({
+        events: "no",
+        nextCursor: null,
+        hasMore: false,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects when nextCursor is a string", () => {
+    expect(() =>
+      ClaudeSessionTranscriptResultSchema.parse({
+        events: [],
+        nextCursor: "100",
+        hasMore: true,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects when hasMore is missing", () => {
+    expect(() =>
+      ClaudeSessionTranscriptResultSchema.parse({
+        events: [],
+        nextCursor: null,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("TranscriptEventSchema (Phase 3b)", () => {
+  it("accepts a minimal event with just type", () => {
+    expect(TranscriptEventSchema.parse({ type: "user" })).toEqual({
+      type: "user",
+    });
+  });
+
+  it("preserves passthrough fields", () => {
+    const parsed = TranscriptEventSchema.parse({
+      type: "assistant",
+      timestamp: "2026-05-01T10:00:00.000Z",
+      uuid: "uuid-1",
+      message: { usage: { input_tokens: 5 } },
+    });
+    expect(parsed.message).toBeTruthy();
+  });
+
+  it("rejects when type is missing", () => {
+    expect(() =>
+      TranscriptEventSchema.parse({ timestamp: "2026-05-01T10:00:00.000Z" }),
+    ).toThrow();
+  });
+
+  it("rejects when type is not a string", () => {
+    expect(() => TranscriptEventSchema.parse({ type: 42 })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GlobalUsage
+// ---------------------------------------------------------------------------
+
+describe("ClaudeGlobalUsageInputSchema (Phase 3b)", () => {
+  it("accepts an empty object", () => {
+    expect(ClaudeGlobalUsageInputSchema.parse({})).toEqual({});
+  });
+
+  it("accepts from/to dates", () => {
+    expect(
+      ClaudeGlobalUsageInputSchema.parse({
+        from: "2026-05-01",
+        to: "2026-05-13",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects extra keys", () => {
+    expect(() =>
+      ClaudeGlobalUsageInputSchema.parse({
+        from: "2026-05-01",
+        wat: 1,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ClaudeGlobalUsageResultSchema (Phase 3b)", () => {
+  it("accepts a fully-formed result", () => {
+    expect(
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: 1000,
+        byProject: [
+          {
+            hash: "h1",
+            repoPath: "/r/one",
+            repoSlug: null,
+            totalTokens: 1000,
+          },
+        ],
+        byDay: [{ date: "2026-05-01", totalTokens: 100 }],
+        byWeek: [{ weekStart: "2026-05-04", totalTokens: 300 }],
+        byMonth: [{ monthStart: "2026-05-01", totalTokens: 1000 }],
+      }),
+    ).toBeTruthy();
+  });
+
+  it("accepts an empty result (all zeros)", () => {
+    expect(
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: 0,
+        byProject: [],
+        byDay: [],
+        byWeek: [],
+        byMonth: [],
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects negative totalTokens", () => {
+    expect(() =>
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: -1,
+        byProject: [],
+        byDay: [],
+        byWeek: [],
+        byMonth: [],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a byProject entry with empty hash", () => {
+    expect(() =>
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: 0,
+        byProject: [
+          { hash: "", repoPath: "/r/one", repoSlug: null, totalTokens: 0 },
+        ],
+        byDay: [],
+        byWeek: [],
+        byMonth: [],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a byDay entry with negative tokens", () => {
+    expect(() =>
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: 0,
+        byProject: [],
+        byDay: [{ date: "2026-05-01", totalTokens: -1 }],
+        byWeek: [],
+        byMonth: [],
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Launch / OpenClaudeMd
+// ---------------------------------------------------------------------------
+
+describe("ClaudeLaunchInputSchema (Phase 3b)", () => {
+  it("accepts slug only", () => {
+    expect(ClaudeLaunchInputSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("accepts slug + resumeSessionId + starterPrompt", () => {
+    expect(
+      ClaudeLaunchInputSchema.parse({
+        slug: "foo",
+        resumeSessionId: "sess-1",
+        starterPrompt: "hi",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("rejects empty slug", () => {
+    expect(() => ClaudeLaunchInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects missing slug", () => {
+    expect(() => ClaudeLaunchInputSchema.parse({})).toThrow();
+  });
+
+  it("rejects extra keys", () => {
+    expect(() =>
+      ClaudeLaunchInputSchema.parse({ slug: "foo", wat: 1 }),
+    ).toThrow();
+  });
+});
+
+describe("ClaudeOpenClaudeMdInputSchema (Phase 3b)", () => {
+  it("accepts { slug }", () => {
+    expect(ClaudeOpenClaudeMdInputSchema.parse({ slug: "foo" })).toEqual({
+      slug: "foo",
+    });
+  });
+
+  it("rejects empty slug", () => {
+    expect(() => ClaudeOpenClaudeMdInputSchema.parse({ slug: "" })).toThrow();
+  });
+
+  it("rejects missing slug", () => {
+    expect(() => ClaudeOpenClaudeMdInputSchema.parse({})).toThrow();
+  });
+
+  it("rejects extra keys", () => {
+    expect(() =>
+      ClaudeOpenClaudeMdInputSchema.parse({ slug: "foo", wat: 1 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UpdateEvent
+// ---------------------------------------------------------------------------
+
+describe("ClaudeUpdateEventSchema (Phase 3b)", () => {
+  it("accepts each of the three reasons", () => {
+    for (const reason of [
+      "session-added",
+      "session-updated",
+      "session-removed",
+    ]) {
+      expect(
+        ClaudeUpdateEventSchema.parse({ projectHash: "h1", reason }),
+      ).toBeTruthy();
+    }
+  });
+
+  it("rejects empty projectHash", () => {
+    expect(() =>
+      ClaudeUpdateEventSchema.parse({
+        projectHash: "",
+        reason: "session-added",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown reason", () => {
+    expect(() =>
+      ClaudeUpdateEventSchema.parse({
+        projectHash: "h1",
+        reason: "session-renamed",
+      }),
+    ).toThrow();
   });
 });

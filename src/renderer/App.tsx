@@ -18,6 +18,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { useClaudeUpdateBus } from "@renderer/hooks/use-claude";
 import { useProcessEventBus } from "@renderer/hooks/use-processes";
 import { useScanEventBus } from "@renderer/hooks/use-scan";
 import { router } from "@renderer/router";
@@ -30,6 +31,7 @@ export function App() {
     <ErrorBoundary>
       <ScanEventBusMount />
       <ProcessEventBusMount />
+      <ClaudeUpdateBusMount />
       <RouterProvider router={router} />
     </ErrorBoundary>
   );
@@ -50,6 +52,17 @@ function ScanEventBusMount() {
  */
 function ProcessEventBusMount() {
   useProcessEventBus();
+  return null;
+}
+
+/**
+ * Side-effect-only component: subscribes to push-style Claude update
+ * events for the lifetime of the app. Mounted as a sibling to the
+ * other bus mounts so the chokidar-driven `claude:on:update` channel
+ * survives route transitions.
+ */
+function ClaudeUpdateBusMount() {
+  useClaudeUpdateBus();
   return null;
 }
 

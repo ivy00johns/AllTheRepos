@@ -15,6 +15,7 @@
 import { Link } from "@tanstack/react-router";
 import {
   Activity,
+  Brain,
   Menu,
   Settings as SettingsIcon,
   Terminal,
@@ -82,6 +83,11 @@ export function TopBar() {
                 ? `${processCount} running ${processCount === 1 ? "process" : "processes"}`
                 : "No running processes"}
             </span>
+          </Link>
+        </Button>
+        <Button asChild variant="ghost" size="sm">
+          <Link to="/claude" aria-label="Claude usage">
+            <Brain className="h-4 w-4" aria-hidden />
           </Link>
         </Button>
         <Button asChild variant="ghost" size="sm">

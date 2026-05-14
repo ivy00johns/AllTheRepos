@@ -20,9 +20,10 @@ export default defineConfig({
   testDir: "./tests/e2e",
   // Phase 0: electron-launch.spec.ts; Phase 1: catalog-flow.spec.ts;
   // Phase 2: palette-flow.spec.ts (in-app Cmd+K command palette);
-  // Phase 3a: process-flow.spec.ts + launcher-flow.spec.ts.
+  // Phase 3a: process-flow.spec.ts + launcher-flow.spec.ts;
+  // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail).
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.

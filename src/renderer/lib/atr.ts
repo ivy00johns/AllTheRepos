@@ -35,6 +35,19 @@
 import type {
   CancelScanInput,
   CancelScanResult,
+  ClaudeGlobalUsageInput,
+  ClaudeGlobalUsageResult,
+  ClaudeIndexResult,
+  ClaudeLaunchInput,
+  ClaudeLaunchResult,
+  ClaudeOpenClaudeMdInput,
+  ClaudeOpenClaudeMdResult,
+  ClaudeProjectsResult,
+  ClaudeRepoStateInput,
+  ClaudeRepoStateResult,
+  ClaudeSessionTranscriptInput,
+  ClaudeSessionTranscriptResult,
+  ClaudeUpdateEvent,
   CreateGroupInput,
   CreateGroupResult,
   DeepLinkPayload,
@@ -218,6 +231,30 @@ export interface AtrBridge {
     openInFinder(input: OpenSlugInput): Promise<LauncherResult>;
     openRemote(input: OpenSlugInput): Promise<LauncherResult>;
     copyPath(input: OpenSlugInput): Promise<LauncherResult>;
+  };
+  /**
+   * Phase 3b `claude:*` namespace — Claude Code integration.
+   * ClaudeService is read-only on the renderer side; `launch` and
+   * `openClaudeMd` delegate to LauncherService in main. `onUpdate` is
+   * the chokidar-driven push event that fires when a session JSONL
+   * file changes; the renderer invalidates the matching queries on
+   * receipt.
+   */
+  claude: {
+    index(): Promise<ClaudeIndexResult>;
+    projects(): Promise<ClaudeProjectsResult>;
+    repoState(input: ClaudeRepoStateInput): Promise<ClaudeRepoStateResult>;
+    sessionTranscript(
+      input: ClaudeSessionTranscriptInput,
+    ): Promise<ClaudeSessionTranscriptResult>;
+    globalUsage(
+      input: ClaudeGlobalUsageInput,
+    ): Promise<ClaudeGlobalUsageResult>;
+    launch(input: ClaudeLaunchInput): Promise<ClaudeLaunchResult>;
+    openClaudeMd(
+      input: ClaudeOpenClaudeMdInput,
+    ): Promise<ClaudeOpenClaudeMdResult>;
+    onUpdate(cb: (payload: ClaudeUpdateEvent) => void): () => void;
   };
 }
 
