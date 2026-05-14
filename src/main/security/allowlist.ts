@@ -15,6 +15,14 @@ import { shell } from "electron";
 /**
  * URL schemes we trust to forward to the OS. Update this list — not the
  * call sites — when adding a new launcher (e.g. a new editor protocol).
+ *
+ * Phase 3a additions (launcher namespace): `windsurf:`, `goland:`,
+ * `clion:`, `rubymine:`, `warp:`. JetBrains family (`idea:`, `webstorm:`,
+ * `pycharm:`, `rider:`, `goland:`, `clion:`, `rubymine:`) all use the
+ * `open?file=` query-string form built in `services/launcher.ts`.
+ * `warp:` is `warp://action/open_path?path=…` for Warp terminal.
+ * `xcode:` remains allowed for forward-compat even though Xcode is
+ * currently dispatched via `open -a Xcode <path>` (no URL scheme).
  */
 export const ALLOWED_EXTERNAL_SCHEMES: ReadonlyArray<string> = [
   "https:",
@@ -22,12 +30,17 @@ export const ALLOWED_EXTERNAL_SCHEMES: ReadonlyArray<string> = [
   "vscode-insiders:",
   "cursor:",
   "zed:",
+  "windsurf:",
   "idea:",
   "webstorm:",
   "pycharm:",
   "rider:",
+  "goland:",
+  "clion:",
+  "rubymine:",
   "xcode:",
   "subl:",
+  "warp:",
   "alltherepos:",
 ];
 
@@ -55,7 +68,7 @@ export function isUrlAllowed(rawUrl: string): boolean {
  * than throwing so it composes cleanly into IPC handlers.
  */
 export async function openExternalAllowlisted(
-  rawUrl: string
+  rawUrl: string,
 ): Promise<OpenExternalResult> {
   if (typeof rawUrl !== "string" || rawUrl.length === 0) {
     return { ok: false, reason: "empty_url" };
