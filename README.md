@@ -1,8 +1,11 @@
 # AllTheRepos
 
-A local-first hub for the dozens-to-thousands of git repositories on a developer's machine. Two stacks live in this repo while we migrate: the legacy **Next.js** web app at `localhost:3939`, and the in-progress **Electron desktop app** (`pnpm electron:dev`) — see [`NEW-PLAN.md`](./NEW-PLAN.md) for the full architecture.
+A local-first hub for the dozens-to-thousands of git repositories on a developer's machine. Two stacks live in this repo while we migrate: the legacy **Next.js** web app at `localhost:3939`, and the **Electron desktop app** (`pnpm electron:dev`) — see [`NEW-PLAN.md`](./NEW-PLAN.md) for the full architecture.
 
-Current state: Phase 0 (scaffold) and Phase 1 (feature parity) of the Electron migration are complete. The desktop app boots, IPC works end-to-end, and the catalog renders against the migrated SQLite + LanceDB from `~/.alltherepos/`.
+> **👉 Start at [`START-HERE.md`](./START-HERE.md)** for current status and the doc map, then
+> [`docs/PLAN.md`](./docs/PLAN.md) (where we are) and [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) (what's next).
+
+Current state (2026-05-31): Phases 0–2 are structurally complete and Phase 3 (deep integrations) is wired, but several Phase 1–3 surfaces are still stubbed — see [`docs/PLAN.md`](./docs/PLAN.md) for the honest, verified phase-by-phase status. The desktop app boots, the type-safe IPC layer works end-to-end, and the catalog renders against the migrated SQLite + LanceDB from `~/.alltherepos/`.
 
 ---
 
@@ -47,16 +50,18 @@ Three TypeScript codebases share `src/shared/` (types + Zod schemas + IPC channe
 - **`src/preload/`** — `contextBridge.exposeInMainWorld('atr', ...)`. The renderer talks to the main process through `window.atr.<namespace>.<method>()` only.
 - **`src/renderer/`** — Vite + React 19 + Tailwind 4 + shadcn + TanStack Router + TanStack Query + Zustand. Pure web app. 16 components ported verbatim from the Next.js side.
 
-21 IPC channels are wired, every one with Zod-validated input AND output and a frame-origin check. See [`contracts/ipc.v1.md`](./contracts/ipc.v1.md) and [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md).
+41 IPC channels across 10 namespaces are wired, every one with Zod-validated input AND output and a frame-origin check (see the caveat at ATR-014). See [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md) (current) and [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md).
 
 ### Routes (TanStack Router, memory history)
 
-| Route          | What it shows                                             |
-| -------------- | --------------------------------------------------------- |
-| `/`            | Three-column catalog (sidebar + repo grid + detail panel) |
-| `/repos/$slug` | Standalone repo detail page                               |
-| `/settings`    | Scan paths + ignore globs + provider config               |
-| `/debug`       | Phase 0 ping/pong card — useful when nothing else works   |
+| Route          | What it shows                                                           |
+| -------------- | ----------------------------------------------------------------------- |
+| `/`            | Three-column catalog (sidebar + repo grid + detail panel)               |
+| `/repos/$slug` | Standalone repo detail page                                             |
+| `/claude`      | Claude Code tab — projects/sessions/usage (empty on real data, ATR-001) |
+| `/processes`   | Running dev-server / port detection view                                |
+| `/settings`    | Scan paths + ignore globs + provider config                             |
+| `/debug`       | Phase 0 ping/pong card — useful when nothing else works                 |
 
 ### Data location
 
@@ -86,7 +91,7 @@ pnpm exec playwright test \
   --config playwright.electron.config.ts   # Playwright against the Electron build
 ```
 
-Current status: **203 unit tests passing** (44 Phase 0 + 135 Phase 1 + 24 legacy MVP), 5 skipped, 0 failed. **2 Playwright Electron E2E tests passing** (catalog flow + debug ping). See [`qa-report.json`](./qa-report.json) for the full gate report.
+Current status (verified 2026-05-31): **746 Electron-side unit tests pass**; the **14 "failures"** you may see are `tests/db|search|git|actions` loading native modules under host-Node while they're built for Electron's ABI (the dual-rebuild dance below) — not regressions. **Zero Electron E2E have actually run** (3 specs blocked on the native-ABI/E2E automation gap, ATR-016/017). `qa-report.json` is a unit-layer gate, not a ship signal — see the caveat in [`docs/PLAN.md`](./docs/PLAN.md).
 
 ---
 
@@ -172,13 +177,17 @@ Resolving this properly (dual prebuilt binaries, ABI auto-targeting) is a Phase 
 
 ## Documentation map
 
-| Doc                                                          | Purpose                                                  |
-| ------------------------------------------------------------ | -------------------------------------------------------- |
-| [`NEW-PLAN.md`](./NEW-PLAN.md)                               | Full Electron migration architecture, all 6 phases       |
-| [`contracts/ipc.v1.md`](./contracts/ipc.v1.md)               | Frozen IPC channel registry (Phase 0 + 1)                |
-| [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md) | SQLite + LanceDB + settings file locations and migration |
-| [`contracts/api.md`](./contracts/api.md)                     | Legacy Next.js Server Action / Route Handler contracts   |
-| [`contracts/schema.md`](./contracts/schema.md)               | Drizzle schema doc                                       |
-| [`contracts/types.ts`](./contracts/types.ts)                 | Shared entity types                                      |
-| [`qa-report.json`](./qa-report.json)                         | Latest QA gate decision + test counts                    |
-| [`docs/initial-plan.md`](./docs/initial-plan.md)             | Earlier planning notes                                   |
+| Doc                                                                                                                | Purpose                                                       |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| [`START-HERE.md`](./START-HERE.md)                                                                                 | **Front door** — status, doc ownership map, how work flows in |
+| [`docs/PLAN.md`](./docs/PLAN.md)                                                                                   | **Strategic** roadmap, honest phase status, closure log       |
+| [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md)                                                               | **Tactical ledger** — every open item, ID'd (`ATR-###`)       |
+| [`docs/FUTURE.md`](./docs/FUTURE.md)                                                                               | **Frontier** — Phase 4/5/6 and parked decisions               |
+| [`NEW-PLAN.md`](./NEW-PLAN.md)                                                                                     | Frozen 850-line Electron architecture & feature design        |
+| [`docs/audits/`](./docs/audits/)                                                                                   | Point-in-time ground-truth audit reports                      |
+| [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md)                                                                   | Current IPC channel contract (Phase 3b; older: v1, v3)        |
+| [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md)                                                       | SQLite + LanceDB + settings file locations and migration      |
+| [`contracts/api.md`](./contracts/api.md), [`schema.md`](./contracts/schema.md), [`types.ts`](./contracts/types.ts) | Legacy Next.js contracts (superseded — ATR-023)               |
+| [`qa-report.json`](./qa-report.json)                                                                               | Phase-3b QA gate — unit layer only (see PLAN caveat)          |
+| [`docs/agents/`](./docs/agents/)                                                                                   | Project agent-config (context, contracts, work tracker)       |
+| `docs/archive/`                                                                                                    | Superseded planning docs (old MVP plan, research)             |
