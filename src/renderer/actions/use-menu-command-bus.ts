@@ -20,7 +20,12 @@ import * as React from "react";
 import { getAtr } from "@renderer/lib/atr";
 import { router } from "@renderer/router";
 import { useUiStore } from "@renderer/stores/ui";
-import { dispatchAction, type ActionContext } from "./registry";
+import {
+  dispatchAction,
+  focusedSlugFromLocation,
+  resolveFocusedRepo,
+  type ActionContext,
+} from "./registry";
 
 export function useMenuCommandBus(): void {
   // Sibling of RouterProvider — `useNavigate` would null-crash here.
@@ -57,7 +62,19 @@ export function useMenuCommandBus(): void {
     // prefer the canonical channel and fall back to the alias so the
     // renderer doesn't break if backend-system named it differently.
     const handler = (payload: { commandId: string }): void => {
-      dispatchAction(payload.commandId, ctxRef.current);
+      // Resolve the focused repo from the router singleton at dispatch
+      // time (the native menu carries only the action id; the renderer
+      // owns the context). With no focused repo the repo.* actions
+      // no-op safely.
+      const loc = router.state.location;
+      const slug = focusedSlugFromLocation({
+        pathname: loc.pathname,
+        search: loc.search as Record<string, unknown> | undefined,
+      });
+      dispatchAction(payload.commandId, {
+        ...ctxRef.current,
+        ...resolveFocusedRepo(slug),
+      });
     };
 
     let unsubscribe: (() => void) | undefined;

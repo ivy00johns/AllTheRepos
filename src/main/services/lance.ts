@@ -87,6 +87,38 @@ export async function deleteEmbedding(repoId: number): Promise<void> {
   }
 }
 
+/**
+ * Read the `content_hash` of the currently-stored embedding for `repoId`, or
+ * `null` if no row exists (or the table/native binding is unavailable).
+ *
+ * Used by the content-hash gate in `embedding.ts > indexRepoEmbedding` so a
+ * rescan only re-embeds when the readme content actually changed. Any failure
+ * (missing table, native binding down) resolves to `null`, which the caller
+ * treats as "not yet embedded" — i.e. it will (re)embed. This is the safe
+ * default: a failed read never silently skips an embed.
+ */
+export async function getEmbeddingContentHash(
+  repoId: number,
+): Promise<string | null> {
+  let tbl: Table;
+  try {
+    tbl = await getTable();
+  } catch {
+    return null;
+  }
+  try {
+    const rows = (await tbl
+      .query()
+      .where(`repo_id = ${repoId}`)
+      .limit(1)
+      .toArray()) as Array<{ content_hash?: string }>;
+    const hash = rows[0]?.content_hash;
+    return typeof hash === "string" ? hash : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface VectorSearchHit {
   slug: string;
   score: number;

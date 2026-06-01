@@ -13,7 +13,10 @@
  */
 
 import Database from "better-sqlite3";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import {
+  drizzle,
+  type BetterSQLite3Database,
+} from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import fs from "node:fs";
 import path from "node:path";
@@ -34,7 +37,20 @@ const DEFAULT_SETTINGS = {
   schemaVersion: 1,
 };
 
-/** FTS5 virtual table + sync triggers. Runs once per boot (IF NOT EXISTS keeps it idempotent). */
+/**
+ * FTS5 virtual table + sync triggers. Runs once per boot.
+ *
+ * ATR-019: the trigger DDL is DROP-then-CREATE (NOT `CREATE ... IF NOT EXISTS`)
+ * because the original INSERT trigger shipped a bug — it wrote `tags_text=''`,
+ * so freshly-scanned repos were not findable by their tag tokens until a later
+ * UPDATE fired. `IF NOT EXISTS` would let an existing user DB keep the buggy
+ * trigger forever. Recreating the triggers every boot is cheap and guarantees
+ * an existing DB self-heals to the fixed definitions. The virtual table itself
+ * is preserved (`IF NOT EXISTS`) so the index is not rebuilt on every launch.
+ *
+ * Both write triggers now use `COALESCE(NEW.tags_json,'')` so the INSERT and
+ * UPDATE paths agree (and never write a SQL NULL into the indexed column).
+ */
 const FTS_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS repos_fts USING fts5(
   slug UNINDEXED,
@@ -45,23 +61,48 @@ CREATE VIRTUAL TABLE IF NOT EXISTS repos_fts USING fts5(
   tokenize = 'porter unicode61'
 );
 
-CREATE TRIGGER IF NOT EXISTS repos_fts_insert AFTER INSERT ON repos BEGIN
+DROP TRIGGER IF EXISTS repos_fts_insert;
+CREATE TRIGGER repos_fts_insert AFTER INSERT ON repos BEGIN
   INSERT INTO repos_fts(slug, name, description, readme_content, tags_text)
-  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), '');
+  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), COALESCE(NEW.tags_json,''));
 END;
 
-CREATE TRIGGER IF NOT EXISTS repos_fts_update AFTER UPDATE ON repos BEGIN
+DROP TRIGGER IF EXISTS repos_fts_update;
+CREATE TRIGGER repos_fts_update AFTER UPDATE ON repos BEGIN
   UPDATE repos_fts SET
     name = NEW.name,
     description = COALESCE(NEW.description,''),
     readme_content = COALESCE(NEW.readme_content,''),
-    tags_text = NEW.tags_json
+    tags_text = COALESCE(NEW.tags_json,'')
   WHERE slug = NEW.slug;
 END;
 
-CREATE TRIGGER IF NOT EXISTS repos_fts_delete AFTER DELETE ON repos BEGIN
+DROP TRIGGER IF EXISTS repos_fts_delete;
+CREATE TRIGGER repos_fts_delete AFTER DELETE ON repos BEGIN
   DELETE FROM repos_fts WHERE slug = OLD.slug;
 END;
+`;
+
+/**
+ * ATR-019 backfill: re-sync `tags_text` for already-indexed rows.
+ *
+ * Recreating the INSERT trigger only fixes repos inserted AFTER this boot. Rows
+ * inserted by the OLD buggy trigger still carry `tags_text=''` until they
+ * happen to be UPDATEd. This one-time, idempotent pass rewrites `tags_text`
+ * from the live `repos.tags_json` for every FTS row whose value has drifted, so
+ * an existing user DB becomes tag-searchable immediately on the next launch
+ * (and is a no-op once everything is in sync).
+ */
+const FTS_TAGS_BACKFILL_SQL = `
+UPDATE repos_fts
+SET tags_text = COALESCE(
+  (SELECT r.tags_json FROM repos r WHERE r.slug = repos_fts.slug),
+  ''
+)
+WHERE tags_text IS NOT COALESCE(
+  (SELECT r.tags_json FROM repos r WHERE r.slug = repos_fts.slug),
+  ''
+);
 `;
 
 /**
@@ -141,6 +182,15 @@ export function getDb(): Db {
     sqlite.exec(FTS_SQL);
   } catch (err) {
     console.error("[backend] fts setup error", err);
+  }
+
+  // ATR-019: one-time idempotent backfill so rows indexed by the OLD buggy
+  // INSERT trigger (tags_text='') become tag-searchable without waiting for an
+  // UPDATE. No-op once tags_text matches tags_json for every row.
+  try {
+    sqlite.exec(FTS_TAGS_BACKFILL_SQL);
+  } catch (err) {
+    console.error("[backend] fts tags backfill error", err);
   }
 
   try {

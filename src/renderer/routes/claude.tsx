@@ -14,6 +14,8 @@ import * as React from "react";
 import { Link, createRoute } from "@tanstack/react-router";
 import { ArrowLeft, Brain, FolderGit2 } from "lucide-react";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
+
 import { ClaudeUsageHeatmap } from "@renderer/components/claude/claude-usage-heatmap";
 import { ClaudeUsageSparkline } from "@renderer/components/claude/claude-usage-sparkline";
 import { Button } from "@renderer/components/ui/button";
@@ -26,6 +28,8 @@ import {
 import {
   useClaudeGlobalUsage,
   useClaudeProjects,
+  useClaudeRepoState,
+  useClaudeTranscript,
 } from "@renderer/hooks/use-claude";
 import { getAtr } from "@renderer/lib/atr";
 import { cn } from "@renderer/lib/cn";
@@ -33,6 +37,8 @@ import type {
   ClaudeGlobalUsageInput,
   ClaudeGlobalUsageResult,
   ClaudeProject,
+  ClaudeSession,
+  TranscriptEvent,
 } from "@shared/types";
 
 import { Route as RootRoute } from "./__root";
@@ -246,18 +252,29 @@ interface ProjectsTableProps {
 }
 
 function ProjectsTable({ usage, projects }: ProjectsTableProps) {
-  // Build a hash → byWeek totals map for sparklines. The
-  // globalUsage payload aggregates across ALL projects, so we can't
-  // get per-project weekly series for free — we render the global
-  // weekly series scaled by each project's share of total tokens
-  // as a coarse approximation. (Phase 4 would expose per-project
-  // weekly buckets directly.)
-  const weeklySeries = React.useMemo(() => {
-    if (!usage) return [];
-    return usage.byWeek.map((w) => w.totalTokens);
+  // ATR-020 — render each project's OWN weekly token series. The
+  // `globalUsage` payload now carries a per-project `byWeek` array
+  // (bucketed with the same ISO-Monday logic as the global series),
+  // so we no longer fake the trend by scaling the global series by a
+  // project's token share. A project with no per-week data renders a
+  // flat/empty sparkline (the sparkline component draws a dashed
+  // baseline for an empty values array — no fabrication).
+  const weeklyByHash = React.useMemo(() => {
+    const map = new Map<string, number[]>();
+    if (!usage) return map;
+    for (const entry of usage.byProject) {
+      if (entry.byWeek) {
+        map.set(
+          entry.hash,
+          entry.byWeek.map((w) => w.totalTokens),
+        );
+      }
+    }
+    return map;
   }, [usage]);
 
-  const totalAcrossAll = usage?.totalTokens ?? 0;
+  // Track which project row is expanded to show its session list.
+  const [expandedHash, setExpandedHash] = React.useState<string | null>(null);
 
   if (projects.length === 0) {
     return (
@@ -280,6 +297,7 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
       <table className="w-full border-collapse text-left text-xs">
         <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           <tr>
+            <th scope="col" className="w-6 px-2 py-2" aria-label="Expand" />
             <th scope="col" className="px-3 py-2 font-medium">
               Project
             </th>
@@ -299,55 +317,322 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
         </thead>
         <tbody>
           {sorted.map((p) => {
-            const share =
-              totalAcrossAll > 0 ? p.totalTokens / totalAcrossAll : 0;
-            const scaled = weeklySeries.map((v) => Math.round(v * share));
+            // Real per-project weekly series (empty array ⇒ flat sparkline).
+            const series = weeklyByHash.get(p.hash) ?? [];
+            const expanded = expandedHash === p.hash;
+            const canExpand = Boolean(p.repoSlug) && p.sessionCount > 0;
             return (
-              <tr
-                key={p.hash}
-                className="border-b border-border last:border-b-0 hover:bg-muted/20"
-              >
-                <td className="px-3 py-2">
-                  {p.repoSlug ? (
-                    <Link
-                      to="/repos/$slug"
-                      params={{ slug: p.repoSlug }}
-                      className="font-mono text-foreground underline-offset-4 hover:underline"
-                    >
-                      {p.repoSlug}
-                    </Link>
-                  ) : (
-                    <span
-                      className="block max-w-[18rem] truncate font-mono text-muted-foreground"
-                      title={p.repoPath}
-                    >
-                      {p.repoPath}
-                    </span>
+              <React.Fragment key={p.hash}>
+                <tr
+                  className={cn(
+                    "border-b border-border hover:bg-muted/20",
+                    expanded && "bg-muted/20",
                   )}
-                </td>
-                <td className="px-3 py-2 text-right font-mono">
-                  {p.sessionCount.toLocaleString()}
-                </td>
-                <td className="px-3 py-2 font-mono text-muted-foreground">
-                  {p.lastActivityAt
-                    ? new Date(p.lastActivityAt).toLocaleString()
-                    : "—"}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-accent">
-                  {formatTokens(p.totalTokens)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center text-accent">
-                    <ClaudeUsageSparkline values={scaled} />
-                  </span>
-                </td>
-              </tr>
+                >
+                  <td className="px-2 py-2 align-middle">
+                    {canExpand ? (
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-label={
+                          expanded
+                            ? `Hide sessions for ${p.repoSlug}`
+                            : `Show sessions for ${p.repoSlug}`
+                        }
+                        onClick={() =>
+                          setExpandedHash(expanded ? null : p.hash)
+                        }
+                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      >
+                        {expanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                      </button>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2">
+                    {p.repoSlug ? (
+                      <Link
+                        to="/repos/$slug"
+                        params={{ slug: p.repoSlug }}
+                        className="font-mono text-foreground underline-offset-4 hover:underline"
+                      >
+                        {p.repoSlug}
+                      </Link>
+                    ) : (
+                      <span
+                        className="block max-w-[18rem] truncate font-mono text-muted-foreground"
+                        title={p.repoPath}
+                      >
+                        {p.repoPath}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {p.sessionCount.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground">
+                    {p.lastActivityAt
+                      ? new Date(p.lastActivityAt).toLocaleString()
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-accent">
+                    {formatTokens(p.totalTokens)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <span className="inline-flex items-center text-accent">
+                      <ClaudeUsageSparkline values={series} />
+                    </span>
+                  </td>
+                </tr>
+                {expanded && p.repoSlug ? (
+                  <tr className="border-b border-border bg-muted/10">
+                    <td colSpan={6} className="px-3 py-3">
+                      <ProjectSessions slug={p.repoSlug} />
+                    </td>
+                  </tr>
+                ) : null}
+              </React.Fragment>
             );
           })}
         </tbody>
       </table>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// ATR-021 — per-project session list + transcript viewer
+// ---------------------------------------------------------------------------
+
+interface ProjectSessionsProps {
+  slug: string;
+}
+
+/**
+ * Lists a project's sessions (loaded from `claude:repoState`) and lets
+ * the user open any session's transcript inline. Clicking a session row
+ * toggles the transcript viewer below it.
+ */
+function ProjectSessions({ slug }: ProjectSessionsProps) {
+  const repoStateQuery = useClaudeRepoState(slug);
+  const [openSessionId, setOpenSessionId] = React.useState<string | null>(null);
+
+  if (repoStateQuery.isLoading) {
+    return (
+      <p className="font-mono text-[11px] text-muted-foreground">
+        Loading sessions…
+      </p>
+    );
+  }
+  if (repoStateQuery.isError) {
+    return (
+      <p className="font-mono text-[11px] text-destructive">
+        Couldn’t load sessions for {slug}.
+      </p>
+    );
+  }
+
+  const sessions: ClaudeSession[] = repoStateQuery.data?.sessions ?? [];
+  if (sessions.length === 0) {
+    return (
+      <p className="font-mono text-[11px] text-muted-foreground">
+        No sessions recorded for this project.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        Sessions
+      </p>
+      {sessions.map((session) => {
+        const open = openSessionId === session.id;
+        return (
+          <div key={session.id} className="rounded border border-border/60">
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => setOpenSessionId(open ? null : session.id)}
+              className={cn(
+                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
+                open ? "bg-muted/40" : "hover:bg-muted/30",
+              )}
+            >
+              <span className="flex items-center gap-1.5">
+                {open ? (
+                  <ChevronDown
+                    className="h-3 w-3 text-muted-foreground"
+                    aria-hidden
+                  />
+                ) : (
+                  <ChevronRight
+                    className="h-3 w-3 text-muted-foreground"
+                    aria-hidden
+                  />
+                )}
+                <span className="text-foreground">
+                  {session.id.slice(0, 8)}
+                </span>
+              </span>
+              <span className="flex items-center gap-3 text-muted-foreground">
+                <span>{session.messageCount.toLocaleString()} msgs</span>
+                <span className="text-accent">
+                  {formatTokens(session.tokenUsage.totalTokens)}
+                </span>
+                <span>
+                  {session.lastActivityAt
+                    ? new Date(session.lastActivityAt).toLocaleString()
+                    : "—"}
+                </span>
+              </span>
+            </button>
+            {open ? <TranscriptViewer sessionId={session.id} /> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface TranscriptViewerProps {
+  sessionId: string;
+}
+
+/**
+ * Renders a session transcript via the lazy infinite query, with a
+ * "Load more" affordance that drives `fetchNextPage`.
+ */
+function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
+  const transcript = useClaudeTranscript(sessionId);
+
+  const events = React.useMemo<TranscriptEvent[]>(() => {
+    if (!transcript.data) return [];
+    return transcript.data.pages.flatMap((page) => page.events);
+  }, [transcript.data]);
+
+  if (transcript.isLoading) {
+    return (
+      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+        Loading transcript…
+      </div>
+    );
+  }
+  if (transcript.isError) {
+    return (
+      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-destructive">
+        Couldn’t load this transcript.
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return (
+      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+        This session has no transcript events.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-border/60 bg-background/40 px-3 py-2">
+      <ol className="flex max-h-80 flex-col gap-1 overflow-y-auto">
+        {events.map((event, i) => (
+          <TranscriptEventRow
+            key={(event.uuid as string | undefined) ?? `${i}`}
+            event={event}
+          />
+        ))}
+      </ol>
+      <div className="mt-2 flex items-center justify-between">
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {events.length.toLocaleString()} event
+          {events.length === 1 ? "" : "s"} loaded
+        </span>
+        {transcript.hasNextPage ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={transcript.isFetchingNextPage}
+            onClick={() => void transcript.fetchNextPage()}
+          >
+            {transcript.isFetchingNextPage ? "Loading…" : "Load more"}
+          </Button>
+        ) : (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            End of transcript
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface TranscriptEventRowProps {
+  event: TranscriptEvent;
+}
+
+/**
+ * One transcript event. The wire shape is loose (Zod passthrough), so we
+ * surface the stable fields (`type`, `timestamp`) plus a best-effort text
+ * preview pulled from common Claude Code event shapes.
+ */
+function TranscriptEventRow({ event }: TranscriptEventRowProps) {
+  const preview = extractEventText(event);
+  const timestamp =
+    typeof event.timestamp === "string" ? event.timestamp : null;
+  return (
+    <li className="rounded border border-border/40 bg-card/60 px-2 py-1.5">
+      <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="text-accent">{event.type || "event"}</span>
+        {timestamp ? (
+          <span>{new Date(timestamp).toLocaleTimeString()}</span>
+        ) : null}
+      </div>
+      {preview ? (
+        <p className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+          {preview}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * Best-effort text extraction from a transcript event. Claude Code's
+ * JSONL shape isn't a stable public schema, so this walks the common
+ * `message.content` shapes and falls back to null when nothing readable
+ * is present (the row then shows just the type/timestamp header).
+ */
+function extractEventText(event: TranscriptEvent): string | null {
+  const message = (event as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return null;
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") {
+    return truncatePreview(content);
+  }
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block && typeof block === "object") {
+        const text = (block as { text?: unknown }).text;
+        if (typeof text === "string" && text.length > 0) parts.push(text);
+      } else if (typeof block === "string") {
+        parts.push(block);
+      }
+    }
+    if (parts.length > 0) return truncatePreview(parts.join("\n"));
+  }
+  return null;
+}
+
+function truncatePreview(text: string): string {
+  const trimmed = text.trim();
+  const MAX = 800;
+  return trimmed.length > MAX ? `${trimmed.slice(0, MAX)}…` : trimmed;
 }
 
 function formatYmd(d: Date): string {

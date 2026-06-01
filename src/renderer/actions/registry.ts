@@ -25,7 +25,7 @@
  * deep-link bus) at dispatch time and passed in.
  */
 
-import type { Action } from "@shared/types";
+import type { Action, RepoDetail } from "@shared/types";
 
 import { queryClient, queryKeys } from "@renderer/lib/query-client";
 import { getAtr } from "@renderer/lib/atr";
@@ -261,7 +261,128 @@ export const actions: RegisteredAction[] = [
       await copyToClipboard(ctx.currentRepoFullPath);
     },
   },
+  {
+    id: "repo.open-in-editor",
+    label: "Open in Editor",
+    scope: "repo-detail",
+    shortcut: "CmdOrCtrl+Shift+O",
+    group: "Repo",
+    icon: "external-link",
+    handler: async (ctx) => {
+      // No focused repo → silently no-op (the action is still listed in
+      // the palette / menu, but there's nothing to launch).
+      if (!ctx.currentRepoSlug) return;
+      const atr = getAtr();
+      if (!atr) return;
+      // Delegates to LauncherService in main, which picks the user's
+      // Settings.defaultEditor. The result `{ ok, reason }` is ignored
+      // at the dispatch site — the repo-card buttons own inline error
+      // surfacing; from Cmd-K / the native menu a failure is logged.
+      const result = await atr.launcher.openInEditor({
+        slug: ctx.currentRepoSlug,
+      });
+      if (!result.ok && isDev) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[actions] repo.open-in-editor failed: ${result.reason ?? "unknown"}`,
+        );
+      }
+    },
+  },
+  {
+    id: "repo.open-in-finder",
+    label: "Reveal in Finder",
+    scope: "repo-detail",
+    shortcut: "CmdOrCtrl+Shift+R",
+    group: "Repo",
+    icon: "folder-open",
+    handler: async (ctx) => {
+      if (!ctx.currentRepoSlug) return;
+      const atr = getAtr();
+      if (!atr) return;
+      const result = await atr.launcher.openInFinder({
+        slug: ctx.currentRepoSlug,
+      });
+      if (!result.ok && isDev) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[actions] repo.open-in-finder failed: ${result.reason ?? "unknown"}`,
+        );
+      }
+    },
+  },
 ];
+
+/**
+ * The slice of `ActionContext` that identifies the currently-focused
+ * repo. Built by `resolveFocusedRepo` and spread into the full context
+ * at each dispatch site.
+ */
+export interface FocusedRepo {
+  currentRepoSlug: string | null;
+  currentRepoFullPath: string | null;
+}
+
+const EMPTY_FOCUSED_REPO: FocusedRepo = {
+  currentRepoSlug: null,
+  currentRepoFullPath: null,
+};
+
+/**
+ * Extract the focused repo slug from a memory-history location.
+ *
+ * Two surfaces carry the focused repo:
+ *   - the `/repos/$slug` route → the slug is the second path segment,
+ *   - the catalog `/` page → the `repo` URL search param (the catalog
+ *     shell mirrors its selected card into `?repo=<slug>`).
+ *
+ * Returns `null` when neither is present (settings, processes, claude,
+ * an empty catalog selection, …).
+ */
+export function focusedSlugFromLocation(loc: {
+  pathname: string;
+  search?: Record<string, unknown> | null;
+}): string | null {
+  const { pathname } = loc;
+  if (pathname.startsWith("/repos/")) {
+    const rest = pathname.slice("/repos/".length);
+    // Guard against trailing segments / slashes — the slug is the first
+    // path component after `/repos/`.
+    const slug = rest.split("/")[0]?.trim();
+    return slug ? slug : null;
+  }
+  if (pathname === "/" || pathname.startsWith("/?")) {
+    const repo = loc.search?.repo;
+    return typeof repo === "string" && repo.length > 0 ? repo : null;
+  }
+  return null;
+}
+
+/**
+ * Resolve the absolute filesystem path for a focused slug from the
+ * TanStack Query cache.
+ *
+ * `repo.copy-path` needs a synchronous `fullPath`, so we read the
+ * already-cached `RepoDetail` written by `useRepo` rather than issuing
+ * a fresh IPC round-trip at dispatch time. If the repo hasn't been
+ * fetched yet (cache miss) we return `null` and `repo.copy-path`
+ * degrades to a safe no-op — the slug-only launch actions still work.
+ *
+ * The cache reader is injected so the registry stays unit-testable
+ * without a live `QueryClient`; the default reads the singleton.
+ */
+export function resolveFocusedRepo(
+  slug: string | null,
+  getCachedRepo: (slug: string) => RepoDetail | null | undefined = (s) =>
+    queryClient.getQueryData<RepoDetail | null>(queryKeys.repos.detail(s)),
+): FocusedRepo {
+  if (!slug) return EMPTY_FOCUSED_REPO;
+  const cached = getCachedRepo(slug);
+  return {
+    currentRepoSlug: slug,
+    currentRepoFullPath: cached?.fullPath ?? null,
+  };
+}
 
 /**
  * Lookup an action by id. Returns `undefined` for unknown ids.

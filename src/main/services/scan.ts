@@ -28,12 +28,9 @@ import type {
   StartScanResult,
 } from "@shared/types";
 
-import {
-  rowToRepo,
-  upsertRepo,
-  type UpsertRepoInput,
-} from "@main/db/queries";
+import { rowToRepo, upsertRepo, type UpsertRepoInput } from "@main/db/queries";
 
+import { indexRepoEmbedding } from "./embedding";
 import { getSettings } from "./settings";
 import { inferTags } from "./tag";
 
@@ -283,6 +280,22 @@ class ScanService {
           const { row } = upsertRepo(input);
           const repo: Repo = rowToRepo(row);
           this.emitEvent({ kind: "repo", repo });
+
+          // ATR-018: wire the embedding write-path. Fire-and-forget so a slow
+          // or unreachable embedding provider never blocks the scan. The repo
+          // is already FTS-indexed via the upsert above; the vector index is a
+          // best-effort, content-hash-gated enrichment that degrades to a no-op
+          // when Ollama/OpenAI is down. `indexRepoEmbedding` never throws, but
+          // the extra `.catch` guards against any unforeseen rejection.
+          void indexRepoEmbedding({
+            repoId: row.id,
+            slug: row.slug,
+            name: row.name,
+            description: row.description,
+            readmeContent: msg.metadata.readmeContent,
+          }).catch((err) => {
+            console.error("[backend] embedding index error", err);
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           this.emitEvent({ kind: "error", message, path: msg.fullPath });

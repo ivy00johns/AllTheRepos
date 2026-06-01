@@ -2773,6 +2773,66 @@ describe("ClaudeGlobalUsageResultSchema (Phase 3b)", () => {
       }),
     ).toThrow();
   });
+
+  // --- ATR-020: optional per-project weekly series -----------------------
+
+  it("accepts a byProject entry carrying its own byWeek series", () => {
+    const parsed = ClaudeGlobalUsageResultSchema.parse({
+      totalTokens: 300,
+      byProject: [
+        {
+          hash: "h1",
+          repoPath: "/r/one",
+          repoSlug: "one",
+          totalTokens: 300,
+          byWeek: [
+            { weekStart: "2026-05-04", totalTokens: 100 },
+            { weekStart: "2026-05-11", totalTokens: 200 },
+          ],
+        },
+      ],
+      byDay: [],
+      byWeek: [
+        { weekStart: "2026-05-04", totalTokens: 100 },
+        { weekStart: "2026-05-11", totalTokens: 200 },
+      ],
+      byMonth: [],
+    });
+    expect(parsed.byProject[0]!.byWeek).toHaveLength(2);
+  });
+
+  it("stays backward-compatible: byProject.byWeek is optional", () => {
+    const parsed = ClaudeGlobalUsageResultSchema.parse({
+      totalTokens: 50,
+      byProject: [
+        { hash: "h1", repoPath: "/r/one", repoSlug: null, totalTokens: 50 },
+      ],
+      byDay: [],
+      byWeek: [],
+      byMonth: [],
+    });
+    expect(parsed.byProject[0]!.byWeek).toBeUndefined();
+  });
+
+  it("rejects a per-project byWeek entry with negative tokens", () => {
+    expect(() =>
+      ClaudeGlobalUsageResultSchema.parse({
+        totalTokens: 0,
+        byProject: [
+          {
+            hash: "h1",
+            repoPath: "/r/one",
+            repoSlug: null,
+            totalTokens: 0,
+            byWeek: [{ weekStart: "2026-05-04", totalTokens: -5 }],
+          },
+        ],
+        byDay: [],
+        byWeek: [],
+        byMonth: [],
+      }),
+    ).toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------

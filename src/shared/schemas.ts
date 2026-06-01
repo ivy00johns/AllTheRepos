@@ -894,6 +894,20 @@ export const ClaudeGlobalUsageResultSchema = z.object({
       repoPath: z.string().min(1),
       repoSlug: z.string().nullable(),
       totalTokens: z.number().int().nonnegative(),
+      /**
+       * ATR-020 — this project's OWN weekly token series, bucketed with
+       * the same ISO-Monday logic + zero-fill as the global `byWeek`.
+       * Optional so older `globalUsage` payloads (pre-ATR-020) still
+       * validate; the renderer falls back to a flat sparkline when absent.
+       */
+      byWeek: z
+        .array(
+          z.object({
+            weekStart: z.string(),
+            totalTokens: z.number().int().nonnegative(),
+          }),
+        )
+        .optional(),
     }),
   ),
   byDay: z.array(

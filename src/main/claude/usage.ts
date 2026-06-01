@@ -67,15 +67,19 @@ export function rollupUsage(input: RollupInputs): ClaudeGlobalUsageResult {
   for (const s of filtered) totalTokens += s.tokenUsage.totalTokens;
 
   // ---- By project -------------------------------------------------------
-  const byProjectMap = new Map<
-    string,
-    {
-      hash: string;
-      repoPath: string;
-      repoSlug: string | null;
-      totalTokens: number;
-    }
-  >();
+  // We accumulate each project's running total AND its own dated-session
+  // list (for the per-project weekly series, ATR-020) in one pass. The
+  // weekly series is bucketed AFTER we know the global range so every
+  // project's `byWeek` aligns 1:1 with the global `byWeek` (same Monday
+  // keys, same zero-fill).
+  interface ByProjectAcc {
+    hash: string;
+    repoPath: string;
+    repoSlug: string | null;
+    totalTokens: number;
+    dated: { date: string; tokens: number }[];
+  }
+  const byProjectMap = new Map<string, ByProjectAcc>();
   for (const session of filtered) {
     const hash = session.projectHash;
     const repoPath = registry.reverse.get(hash) ?? "";
@@ -87,14 +91,20 @@ export function rollupUsage(input: RollupInputs): ClaudeGlobalUsageResult {
         repoPath,
         repoSlug: slugByPath ? slugByPath(repoPath) : null,
         totalTokens: 0,
+        dated: [],
       };
       byProjectMap.set(hash, entry);
     }
     entry.totalTokens += session.tokenUsage.totalTokens;
+    // Only sessions with a parseable activity date contribute to the
+    // per-week series — mirrors the global time-bucket filtering below.
+    if (session.lastActivityAt) {
+      const day = toDayString(session.lastActivityAt);
+      if (day) {
+        entry.dated.push({ date: day, tokens: session.tokenUsage.totalTokens });
+      }
+    }
   }
-  const byProject = Array.from(byProjectMap.values()).sort(
-    (a, b) => b.totalTokens - a.totalTokens,
-  );
 
   // ---- Time buckets -----------------------------------------------------
   const datedSessions: { date: string; tokens: number }[] = [];
@@ -117,6 +127,21 @@ export function rollupUsage(input: RollupInputs): ClaudeGlobalUsageResult {
   const byDay = bucketByDay(datedSessions, rangeStart, rangeEnd);
   const byWeek = bucketByWeek(datedSessions, rangeStart, rangeEnd);
   const byMonth = bucketByMonth(datedSessions, rangeStart, rangeEnd);
+
+  // Now that the global range is known, derive each project's own weekly
+  // series over the SAME [rangeStart, rangeEnd] window so the renderer
+  // can line a project's sparkline up against the global trend. A project
+  // with no dated sessions still gets a zero-filled series (the renderer
+  // renders that as a flat line — no fabrication).
+  const byProject = Array.from(byProjectMap.values())
+    .sort((a, b) => b.totalTokens - a.totalTokens)
+    .map((entry) => ({
+      hash: entry.hash,
+      repoPath: entry.repoPath,
+      repoSlug: entry.repoSlug,
+      totalTokens: entry.totalTokens,
+      byWeek: bucketByWeek(entry.dated, rangeStart, rangeEnd),
+    }));
 
   return { totalTokens, byProject, byDay, byWeek, byMonth };
 }

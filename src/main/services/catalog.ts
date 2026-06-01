@@ -41,7 +41,12 @@ import {
 } from "@main/db/queries";
 import { getSqlite } from "@main/db/client";
 
-import { canonicalPath, readRepoMetadata, slugFromNameAndPath } from "./metadata";
+import { indexRepoEmbedding } from "./embedding";
+import {
+  canonicalPath,
+  readRepoMetadata,
+  slugFromNameAndPath,
+} from "./metadata";
 import { inferTags } from "./tag";
 
 class CatalogService {
@@ -119,6 +124,22 @@ class CatalogService {
       sizeBytes: metadata.sizeBytes,
     };
     const { row: upserted } = upsertRepo(input);
+
+    // ATR-018: re-index the semantic embedding on rescan. Fire-and-forget and
+    // content-hash gated — if the README is unchanged this is a no-op, and if
+    // the embedding provider is down it degrades to FTS-only without blocking
+    // (or failing) the rescan. `indexRepoEmbedding` never throws; the `.catch`
+    // is belt-and-suspenders.
+    void indexRepoEmbedding({
+      repoId: upserted.id,
+      slug: upserted.slug,
+      name: upserted.name,
+      description: upserted.description,
+      readmeContent: metadata.readmeContent,
+    }).catch((err) => {
+      console.error("[backend] embedding index error", err);
+    });
+
     return rowToRepo(upserted);
   }
 

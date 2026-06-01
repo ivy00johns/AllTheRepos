@@ -18,7 +18,12 @@ import * as React from "react";
 import { getAtr } from "@renderer/lib/atr";
 import { router } from "@renderer/router";
 import { useUiStore } from "@renderer/stores/ui";
-import { dispatchAction, type ActionContext } from "./registry";
+import {
+  dispatchAction,
+  focusedSlugFromLocation,
+  resolveFocusedRepo,
+  type ActionContext,
+} from "./registry";
 
 export function useDeepLinkBus(): void {
   // Use the router singleton directly. `useNavigate()` would crash here
@@ -69,11 +74,26 @@ export function useDeepLinkBus(): void {
         return;
       }
 
-      // `action/<id>` — dispatch via the action registry.
+      // `action/<id>` — dispatch via the action registry. A deep link
+      // MAY carry an explicit `repo` capture/query param naming the repo
+      // the action should target; otherwise we fall back to whatever is
+      // currently focused (router location). Resolving the slug here
+      // lets `action/repo.copy-path?repo=<slug>` work from a cold link.
       if (path.startsWith("action/")) {
         const actionId = params.actionId ?? path.slice("action/".length);
         if (actionId) {
-          dispatchAction(actionId, ctxRef.current);
+          const loc = router.state.location;
+          const slug =
+            (typeof params.repo === "string" && params.repo) ||
+            (typeof params.slug === "string" && params.slug) ||
+            focusedSlugFromLocation({
+              pathname: loc.pathname,
+              search: loc.search as Record<string, unknown> | undefined,
+            });
+          dispatchAction(actionId, {
+            ...ctxRef.current,
+            ...resolveFocusedRepo(slug || null),
+          });
         }
         return;
       }

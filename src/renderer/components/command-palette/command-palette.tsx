@@ -32,6 +32,8 @@ import { cn } from "@renderer/lib/cn";
 import {
   actions,
   dispatchAction,
+  focusedSlugFromLocation,
+  resolveFocusedRepo,
   type ActionContext,
   type RegisteredAction,
 } from "@renderer/actions/registry";
@@ -94,7 +96,11 @@ export function CommandPalette() {
   const closePalette = useUiStore((s) => s.closePalette);
   const togglePalette = useUiStore((s) => s.togglePalette);
 
-  const ctx = React.useMemo<ActionContext>(
+  // The base context (navigate + store actions) is stable; the focused
+  // repo is resolved fresh at dispatch time inside `onSelect` so the
+  // query cache (and the URL `?repo=` selection / `$slug` param) is read
+  // at the moment the user runs the command, not at render time.
+  const baseCtx = React.useMemo<ActionContext>(
     () => ({
       navigate,
       ui: { toggleSidebar, openPalette, closePalette, togglePalette },
@@ -127,9 +133,17 @@ export function CommandPalette() {
       // focus an input — runs against the already-restored DOM. cmdk
       // re-flows the focus ring on the next frame regardless.
       close();
-      dispatchAction(id, ctx);
+      // Resolve the currently-focused repo from the live location +
+      // query cache so `repo.copy-path` / `repo.open-in-editor` /
+      // `repo.open-in-finder` carry a real slug + fullPath. With no
+      // focused repo these stay null and those actions no-op safely.
+      const slug = focusedSlugFromLocation({
+        pathname: location.pathname,
+        search: location.search as Record<string, unknown> | undefined,
+      });
+      dispatchAction(id, { ...baseCtx, ...resolveFocusedRepo(slug) });
     },
-    [close, ctx],
+    [close, baseCtx, location.pathname, location.search],
   );
 
   return (

@@ -15,7 +15,7 @@
  * Owner: qe-agent (Phase 2).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@renderer/lib/query-client", () => ({
   queryClient: {
@@ -34,10 +34,13 @@ import {
   actions,
   dispatchAction,
   findAction,
+  focusedSlugFromLocation,
+  resolveFocusedRepo,
   serializeActionsForIpc,
   type ActionContext,
   type RegisteredAction,
 } from "@renderer/actions/registry";
+import { getAtr } from "@renderer/lib/atr";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -292,5 +295,191 @@ describe("RegisteredAction type", () => {
       handler: () => {},
     };
     expect(ra.handler).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// focusedSlugFromLocation — pure URL → slug extraction (ATR-022)
+// ---------------------------------------------------------------------------
+
+describe("focusedSlugFromLocation", () => {
+  it("extracts the slug from a /repos/$slug pathname", () => {
+    expect(focusedSlugFromLocation({ pathname: "/repos/my-cool-repo" })).toBe(
+      "my-cool-repo",
+    );
+  });
+
+  it("takes only the first path segment after /repos/", () => {
+    expect(
+      focusedSlugFromLocation({ pathname: "/repos/my-repo/extra/bits" }),
+    ).toBe("my-repo");
+  });
+
+  it("reads the ?repo= search param on the catalog (/) route", () => {
+    expect(
+      focusedSlugFromLocation({ pathname: "/", search: { repo: "selected" } }),
+    ).toBe("selected");
+  });
+
+  it("returns null on the catalog route with no repo selected", () => {
+    expect(focusedSlugFromLocation({ pathname: "/", search: {} })).toBeNull();
+    expect(focusedSlugFromLocation({ pathname: "/" })).toBeNull();
+  });
+
+  it("returns null on unrelated routes (settings / claude / processes)", () => {
+    expect(focusedSlugFromLocation({ pathname: "/settings" })).toBeNull();
+    expect(focusedSlugFromLocation({ pathname: "/claude" })).toBeNull();
+    expect(focusedSlugFromLocation({ pathname: "/processes" })).toBeNull();
+  });
+
+  it("ignores a non-string ?repo= value", () => {
+    expect(
+      focusedSlugFromLocation({
+        pathname: "/",
+        search: { repo: 123 as unknown as string },
+      }),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveFocusedRepo — slug + cached fullPath, graceful on cache miss
+// ---------------------------------------------------------------------------
+
+describe("resolveFocusedRepo", () => {
+  it("returns nulls for a null slug (no focused repo)", () => {
+    const out = resolveFocusedRepo(null, () => undefined);
+    expect(out.currentRepoSlug).toBeNull();
+    expect(out.currentRepoFullPath).toBeNull();
+  });
+
+  it("resolves fullPath from the cache reader when the repo is cached", () => {
+    const out = resolveFocusedRepo(
+      "cached-repo",
+      () =>
+        ({ slug: "cached-repo", fullPath: "/abs/path/cached-repo" }) as never,
+    );
+    expect(out.currentRepoSlug).toBe("cached-repo");
+    expect(out.currentRepoFullPath).toBe("/abs/path/cached-repo");
+  });
+
+  it("keeps the slug but nulls fullPath on a cache miss (degrades safely)", () => {
+    const out = resolveFocusedRepo("uncached-repo", () => undefined);
+    expect(out.currentRepoSlug).toBe("uncached-repo");
+    expect(out.currentRepoFullPath).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// repo.* dispatch effects — the ATR-022 bug: ctx must carry the focused repo
+// ---------------------------------------------------------------------------
+
+describe("repo.copy-path dispatch", () => {
+  const realNavigator = globalThis.navigator;
+
+  afterEach(() => {
+    // Restore whatever navigator was (likely undefined under node env).
+    if (realNavigator === undefined) {
+      delete (globalThis as { navigator?: unknown }).navigator;
+    } else {
+      Object.defineProperty(globalThis, "navigator", {
+        value: realNavigator,
+        configurable: true,
+      });
+    }
+  });
+
+  function stubClipboard(): ReturnType<typeof vi.fn> {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(globalThis, "navigator", {
+      value: { clipboard: { writeText } },
+      configurable: true,
+    });
+    return writeText;
+  }
+
+  it("writes the repo fullPath to the clipboard when ctx carries one", async () => {
+    const writeText = stubClipboard();
+    const ctx = makeCtx({
+      currentRepoSlug: "my-repo",
+      currentRepoFullPath: "/Users/me/code/my-repo",
+    });
+    dispatchAction("repo.copy-path", ctx);
+    // Handler is fire-and-forget; let the microtask settle.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith("/Users/me/code/my-repo");
+  });
+
+  it("no-ops (no clipboard write) when ctx has no focused repo path", async () => {
+    const writeText = stubClipboard();
+    const ctx = makeCtx({
+      currentRepoSlug: null,
+      currentRepoFullPath: null,
+    });
+    dispatchAction("repo.copy-path", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writeText).not.toHaveBeenCalled();
+  });
+});
+
+describe("repo launch action dispatch (open-in-editor / open-in-finder)", () => {
+  afterEach(() => {
+    // `vi.clearAllMocks()` clears call history but NOT implementations
+    // set via `mockReturnValue`, so restore the default `getAtr` → null
+    // so a launcher stub doesn't leak into sibling tests.
+    vi.mocked(getAtr).mockReturnValue(null);
+  });
+
+  it("registers the launch actions in the repo-detail scope", () => {
+    const editor = findAction("repo.open-in-editor");
+    const finder = findAction("repo.open-in-finder");
+    expect(editor).toBeDefined();
+    expect(finder).toBeDefined();
+    expect(editor?.scope).toBe("repo-detail");
+    expect(finder?.scope).toBe("repo-detail");
+  });
+
+  it("calls launcher.openInEditor with the focused slug", async () => {
+    const openInEditor = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.mocked(getAtr).mockReturnValue({
+      launcher: { openInEditor },
+    } as never);
+    const ctx = makeCtx({ currentRepoSlug: "focused-repo" });
+    dispatchAction("repo.open-in-editor", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(openInEditor).toHaveBeenCalledWith({ slug: "focused-repo" });
+  });
+
+  it("calls launcher.openInFinder with the focused slug", async () => {
+    const openInFinder = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.mocked(getAtr).mockReturnValue({
+      launcher: { openInFinder },
+    } as never);
+    const ctx = makeCtx({ currentRepoSlug: "focused-repo" });
+    dispatchAction("repo.open-in-finder", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(openInFinder).toHaveBeenCalledWith({ slug: "focused-repo" });
+  });
+
+  it("no-ops the launch actions when no repo is focused", async () => {
+    const openInEditor = vi.fn(() => Promise.resolve({ ok: true }));
+    const openInFinder = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.mocked(getAtr).mockReturnValue({
+      launcher: { openInEditor, openInFinder },
+    } as never);
+    const ctx = makeCtx({ currentRepoSlug: null });
+    dispatchAction("repo.open-in-editor", ctx);
+    dispatchAction("repo.open-in-finder", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(openInEditor).not.toHaveBeenCalled();
+    expect(openInFinder).not.toHaveBeenCalled();
+  });
+
+  it("no-ops safely when the preload bridge is unavailable", async () => {
+    vi.mocked(getAtr).mockReturnValue(null);
+    const ctx = makeCtx({ currentRepoSlug: "focused-repo" });
+    expect(() => dispatchAction("repo.open-in-editor", ctx)).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
   });
 });

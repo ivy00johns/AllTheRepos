@@ -12,7 +12,10 @@
  * the result set still comes back from FTS5.
  */
 
+import crypto from "node:crypto";
+
 import { getSettings } from "./settings";
+import { getEmbeddingContentHash, upsertEmbedding } from "./lance";
 
 const MAX_INPUT_CHARS = 2000;
 
@@ -38,9 +41,7 @@ export interface OllamaEmbedOptions {
  * POST to {baseUrl}/api/embeddings with {model, prompt}.
  * Throws EmbedUnavailableError on connection refused / network failure.
  */
-export async function ollamaEmbed(
-  opts: OllamaEmbedOptions,
-): Promise<number[]> {
+export async function ollamaEmbed(opts: OllamaEmbedOptions): Promise<number[]> {
   const url = `${opts.baseUrl.replace(/\/+$/, "")}/api/embeddings`;
   let res: Response;
   try {
@@ -74,9 +75,7 @@ export interface OpenAIEmbedOptions {
   input: string;
 }
 
-export async function openaiEmbed(
-  opts: OpenAIEmbedOptions,
-): Promise<number[]> {
+export async function openaiEmbed(opts: OpenAIEmbedOptions): Promise<number[]> {
   let res: Response;
   try {
     res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -89,9 +88,7 @@ export async function openaiEmbed(
     });
   } catch (err) {
     throw new EmbedUnavailableError(
-      `OpenAI unreachable: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      `OpenAI unreachable: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!res.ok) {
@@ -142,4 +139,153 @@ export async function embed(text: string): Promise<number[]> {
   throw new EmbedUnavailableError(
     "No embedding provider available (Ollama unreachable, no OPENAI_API_KEY)",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Embedding write-path (ATR-018)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal repo shape needed to build the embedding text + content-hash gate.
+ * Maps onto the fields a scanned/rescanned repo already carries.
+ */
+export interface EmbeddableRepo {
+  repoId: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  readmeContent: string | null;
+}
+
+/**
+ * The semantic-search embedding text for a repo: name + description + readme,
+ * joined with blank lines and trimmed. The downstream {@link embed} call
+ * truncates to {@link MAX_INPUT_CHARS}.
+ */
+export function buildEmbeddingText(repo: {
+  name: string;
+  description: string | null;
+  readmeContent: string | null;
+}): string {
+  return [repo.name, repo.description ?? "", repo.readmeContent ?? ""]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * `sha256` of a string. Stable digest used to gate re-embedding.
+ */
+function sha256(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * `sha256(readme ?? "")` — kept for callers/tests that reason about the README
+ * hash specifically (it matches `metadata.ts`'s `readme_hash` convention).
+ */
+export function readmeContentHash(readmeContent: string | null): string {
+  return sha256(readmeContent ?? "");
+}
+
+/**
+ * The content-hash that gates re-embedding. Hashes the FULL embedding input
+ * (name + description + readme, via {@link buildEmbeddingText}) — not the README
+ * alone — so a name- or description-only change still triggers a re-embed.
+ * (The earlier readme-only gate would keep a stale vector when, e.g., a
+ * `package.json` description changed but the README did not.)
+ *
+ * The hash covers a superset of what `embed()` actually sends (which truncates
+ * to {@link MAX_INPUT_CHARS}), so the invariant holds: we never SKIP when the
+ * embedded content changed; at worst we re-embed when only the truncated tail
+ * differs (a harmless extra embed, never a stale skip).
+ */
+export function embeddingContentHash(repo: {
+  name: string;
+  description: string | null;
+  readmeContent: string | null;
+}): string {
+  return sha256(buildEmbeddingText(repo));
+}
+
+export type IndexEmbeddingOutcome =
+  | "embedded"
+  | "skipped-unchanged"
+  | "skipped-unavailable";
+
+/**
+ * Compute + store the semantic-search embedding for one repo, gated on the
+ * embedding-input content hash.
+ *
+ * Contract:
+ *   - Only re-embeds when {@link embeddingContentHash} (name + description +
+ *     readme) differs from the hash stored alongside the existing LanceDB row
+ *     (returns `"skipped-unchanged"` when equal).
+ *   - The embedding provider (Ollama / OpenAI) may be DOWN. A failed `embed()`
+ *     is logged and SWALLOWED — this function NEVER throws. The scan/rescan
+ *     path that calls it must complete (and the repo must still be FTS-indexed)
+ *     regardless of embedding availability. Returns `"skipped-unavailable"`.
+ *
+ * Returns the outcome for observability/testing; callers may ignore it.
+ */
+export async function indexRepoEmbedding(
+  repo: EmbeddableRepo,
+): Promise<IndexEmbeddingOutcome> {
+  const contentHash = embeddingContentHash(repo);
+
+  // 1. Content-hash gate — skip the (expensive) embed + LanceDB upsert when the
+  //    embedding input (name + description + readme) is unchanged since the
+  //    last successful embed.
+  try {
+    const prior = await getEmbeddingContentHash(repo.repoId);
+    if (prior !== null && prior === contentHash) {
+      return "skipped-unchanged";
+    }
+  } catch (err) {
+    // A failed gate read must not block (or fail) the scan — fall through and
+    // attempt to (re)embed; the embed step is itself failure-tolerant.
+    console.warn(
+      "[backend] embedding content-hash read failed; will attempt re-embed",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // 2. Compute the vector. Ollama/OpenAI may be unreachable (it is on this
+  //    machine) — log and skip; the scan still completes and FTS still works.
+  let vector: number[];
+  try {
+    vector = await embed(buildEmbeddingText(repo));
+  } catch (err) {
+    if (err instanceof EmbedUnavailableError) {
+      console.warn(
+        `[backend] embedding unavailable for ${repo.slug}; skipping vector index (FTS-only)`,
+        err.message,
+      );
+    } else {
+      console.error(
+        `[backend] unexpected embedding error for ${repo.slug}; skipping vector index`,
+        err,
+      );
+    }
+    return "skipped-unavailable";
+  }
+
+  // 3. Store. A LanceDB write failure is non-fatal to the scan as well.
+  try {
+    await upsertEmbedding({
+      repo_id: repo.repoId,
+      slug: repo.slug,
+      vector,
+      content_hash: contentHash,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(
+      `[backend] embedding upsert failed for ${repo.slug}; FTS unaffected`,
+      err,
+    );
+    return "skipped-unavailable";
+  }
+
+  return "embedded";
 }

@@ -406,6 +406,162 @@ describe("rollupUsage — byMonth (YYYY-MM-01)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-project weekly series (ATR-020)
+// ---------------------------------------------------------------------------
+
+describe("rollupUsage — per-project byWeek (ATR-020)", () => {
+  it("attaches each project's OWN weekly series, aligned with the global range", () => {
+    const registry = mkRegistry([
+      { hash: "h1", repoPath: "/r/one" },
+      { hash: "h2", repoPath: "/r/two" },
+    ]);
+    const out = rollupUsage({
+      sessions: [
+        // h1: 100 in week of 2026-05-04 (Monday)
+        mkSession({
+          id: "a",
+          projectHash: "h1",
+          lastActivityAt: "2026-05-04T10:00:00.000Z",
+          totalTokens: 100,
+        }),
+        // h2: 200 in week of 2026-05-11 (Monday)
+        mkSession({
+          id: "b",
+          projectHash: "h2",
+          lastActivityAt: "2026-05-11T10:00:00.000Z",
+          totalTokens: 200,
+        }),
+      ],
+      registry,
+      from: "2026-05-04",
+      to: "2026-05-17",
+    });
+
+    // Both projects share the SAME week keys as the global byWeek so a
+    // renderer can line them up.
+    const globalWeeks = out.byWeek.map((w) => w.weekStart);
+    for (const proj of out.byProject) {
+      expect(proj.byWeek).toBeDefined();
+      expect(proj.byWeek!.map((w) => w.weekStart)).toEqual(globalWeeks);
+    }
+
+    const h1 = out.byProject.find((p) => p.hash === "h1")!;
+    const h2 = out.byProject.find((p) => p.hash === "h2")!;
+
+    // h1 has 100 in the first week, 0 in the second.
+    expect(
+      h1.byWeek!.find((w) => w.weekStart === "2026-05-04")!.totalTokens,
+    ).toBe(100);
+    expect(
+      h1.byWeek!.find((w) => w.weekStart === "2026-05-11")!.totalTokens,
+    ).toBe(0);
+    // h2 has 0 in the first week, 200 in the second.
+    expect(
+      h2.byWeek!.find((w) => w.weekStart === "2026-05-04")!.totalTokens,
+    ).toBe(0);
+    expect(
+      h2.byWeek!.find((w) => w.weekStart === "2026-05-11")!.totalTokens,
+    ).toBe(200);
+  });
+
+  it("per-project weekly totals sum to the global weekly totals", () => {
+    const registry = mkRegistry([
+      { hash: "h1", repoPath: "/r/one" },
+      { hash: "h2", repoPath: "/r/two" },
+    ]);
+    const out = rollupUsage({
+      sessions: [
+        mkSession({
+          id: "a",
+          projectHash: "h1",
+          lastActivityAt: "2026-05-04T10:00:00.000Z",
+          totalTokens: 100,
+        }),
+        mkSession({
+          id: "b",
+          projectHash: "h2",
+          lastActivityAt: "2026-05-04T12:00:00.000Z",
+          totalTokens: 250,
+        }),
+      ],
+      registry,
+      from: "2026-05-04",
+      to: "2026-05-10",
+    });
+    const monday = "2026-05-04";
+    const globalMonday = out.byWeek.find((w) => w.weekStart === monday)!;
+    const perProjectSum = out.byProject.reduce((acc, p) => {
+      const wk = p.byWeek!.find((w) => w.weekStart === monday);
+      return acc + (wk?.totalTokens ?? 0);
+    }, 0);
+    expect(perProjectSum).toBe(globalMonday.totalTokens);
+    expect(globalMonday.totalTokens).toBe(350);
+  });
+
+  it("gives a project with no dated sessions a zero-filled series (no fabrication)", () => {
+    // A project whose only session has a null lastActivityAt contributes
+    // tokens to byProject.totalTokens but produces a flat (all-zero)
+    // weekly series.
+    const registry = mkRegistry([
+      { hash: "h1", repoPath: "/r/one" },
+      { hash: "h2", repoPath: "/r/two" },
+    ]);
+    const out = rollupUsage({
+      sessions: [
+        mkSession({
+          id: "dated",
+          projectHash: "h1",
+          lastActivityAt: "2026-05-04T10:00:00.000Z",
+          totalTokens: 100,
+        }),
+        mkSession({
+          id: "undated",
+          projectHash: "h2",
+          lastActivityAt: null,
+          totalTokens: 999,
+        }),
+      ],
+      registry,
+      from: "2026-05-04",
+      to: "2026-05-10",
+    });
+    const h2 = out.byProject.find((p) => p.hash === "h2")!;
+    expect(h2.totalTokens).toBe(999);
+    expect(h2.byWeek).toBeDefined();
+    // Every bucket is zero — a flat sparkline, not a scaled fake.
+    expect(h2.byWeek!.every((w) => w.totalTokens === 0)).toBe(true);
+  });
+
+  it("excludes out-of-range sessions from the per-project weekly series", () => {
+    const registry = mkRegistry([{ hash: "h1", repoPath: "/r/one" }]);
+    const out = rollupUsage({
+      sessions: [
+        mkSession({
+          id: "in",
+          projectHash: "h1",
+          lastActivityAt: "2026-05-05T10:00:00.000Z",
+          totalTokens: 50,
+        }),
+        mkSession({
+          id: "after",
+          projectHash: "h1",
+          lastActivityAt: "2026-06-01T10:00:00.000Z",
+          totalTokens: 999,
+        }),
+      ],
+      registry,
+      from: "2026-05-04",
+      to: "2026-05-10",
+    });
+    const h1 = out.byProject.find((p) => p.hash === "h1")!;
+    const seriesSum = h1.byWeek!.reduce((acc, w) => acc + w.totalTokens, 0);
+    // The out-of-range session is filtered before bucketing, so the
+    // weekly series only carries the in-range 50.
+    expect(seriesSum).toBe(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Empty
 // ---------------------------------------------------------------------------
 
