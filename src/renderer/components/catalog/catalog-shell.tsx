@@ -6,6 +6,7 @@ import type { Group, Repo, RepoDetail } from "@shared/types";
 import { GroupSidebar } from "@renderer/components/groups/group-sidebar";
 import { KeyboardShortcuts } from "@renderer/components/layout/keyboard-shortcuts";
 import { SearchBar } from "@renderer/components/search/search-bar";
+import { useGroupMemberSlugs } from "@renderer/hooks/use-groups";
 import { useSearch as useCatalogSearch } from "@renderer/hooks/use-search";
 import { requireAtr } from "@renderer/lib/atr";
 
@@ -108,6 +109,30 @@ export function CatalogShell({
     [queryLanguage, queryTags, queryGroupId, queryDirty],
   );
 
+  // The active group (if any) and whether it is a MANUAL group. Smart
+  // groups carry a `smartFilter` we evaluate client-side; manual groups
+  // have no member info on `Repo` or in the `groups:list` payload, so we
+  // fetch their member slugs from the catalog bridge below (ATR-011).
+  const activeGroup = React.useMemo(
+    () =>
+      filters.groupId === null
+        ? null
+        : (groups.find((g) => g.id === filters.groupId) ?? null),
+    [groups, filters.groupId],
+  );
+  const isManualGroupActive = activeGroup !== null && !activeGroup.isSmart;
+
+  // Member-slug set for the active MANUAL group. Resolved via `catalog:list`
+  // with the groupId (the main process joins `repo_groups`), so it is the
+  // authoritative membership read path. `null` group => disabled query =>
+  // no restriction. Smart/All-repos selections never enable this.
+  const manualMembersQuery = useGroupMemberSlugs(
+    isManualGroupActive ? filters.groupId : null,
+  );
+  const manualMemberSlugs = isManualGroupActive
+    ? (manualMembersQuery.data ?? null)
+    : null;
+
   const updateParams = React.useCallback(
     (patch: Record<string, string | string[] | null | undefined>) => {
       // TanStack Router's `search` setter is typed per-route; this
@@ -171,8 +196,15 @@ export function CatalogShell({
       if (filters.groupId === null) return true;
       const g = groups.find((x) => x.id === filters.groupId);
       if (!g) return true;
-      if (g.isSmart && g.smartFilter) {
+      if (g.isSmart) {
+        // Smart group: evaluate its `smartFilter` client-side. A smart
+        // group with no filter (`smartFilter === null`) is unconstrained
+        // and matches everything — never fall through to the manual
+        // member-set path below (the member set is never fetched for a
+        // smart group, so falling through would strand it on an empty
+        // grid).
         const f = g.smartFilter;
+        if (!f) return true;
         if (f.language && repo.primaryLanguage !== f.language) return false;
         if (f.dirtyOnly && !repo.isDirty) return false;
         if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote)
@@ -192,8 +224,12 @@ export function CatalogShell({
         }
         return true;
       }
-      // Manual membership isn't on Repo; assume matches for now.
-      return true;
+      // Manual group (ATR-011): membership lives in `repo_groups`, not on
+      // `Repo`, so we restrict to the member-slug set fetched from the
+      // catalog bridge. While that set is still loading (`null`), render
+      // nothing rather than the whole catalog — showing every repo was the
+      // original bug. A repo matches only if its slug is in the set.
+      return manualMemberSlugs?.has(repo.slug) ?? false;
     };
     return initialRepos.filter((r) => {
       if (filters.language && r.primaryLanguage !== filters.language)
@@ -206,7 +242,7 @@ export function CatalogShell({
       if (!groupMembership(r)) return false;
       return true;
     });
-  }, [initialRepos, filters, groups]);
+  }, [initialRepos, filters, groups, manualMemberSlugs]);
 
   // The grid source: search hits (mapped to `Repo`, score order
   // preserved) when querying, else the browsed list.

@@ -50,6 +50,50 @@ export function useGroups(): UseQueryResult<ListGroupsResult, Error> {
   });
 }
 
+/**
+ * useGroupMemberSlugs — the manual-group membership read path (ATR-011).
+ *
+ * The `groups:list` payload carries no member slugs/ids (see `GroupSchema`
+ * — only `repoCount`), so we cannot derive a manual group's members from
+ * the groups list alone. The authoritative read path is `catalog:list`
+ * with a `groupId`: the main process resolves membership through the
+ * `repo_groups` join (`src/main/db/queries.ts` — `listRepos`), returning
+ * exactly the repos in that group. We ask for the contract max (`limit:
+ * 200`) and project the result down to a `Set<slug>` the catalog grid can
+ * intersect against.
+ *
+ * Passing `groupId === null` disables the query and yields `null`, the
+ * "no manual-group restriction" sentinel the shell treats as "show all".
+ * Smart groups are still filtered client-side by their `smartFilter`, so
+ * callers should only enable this for MANUAL groups.
+ */
+export function useGroupMemberSlugs(
+  groupId: number | null,
+): UseQueryResult<Set<string>, Error> {
+  return useQuery<Set<string>, Error>({
+    // `queryKeys.groups` only registers `all`/`list`; this read is keyed
+    // off the shared `groups.all` prefix (so the group mutations'
+    // `invalidateQueries({ queryKey: queryKeys.groups.all })` also drops
+    // stale member sets) plus the groupId discriminator.
+    queryKey: [...queryKeys.groups.all, "members", groupId ?? -1],
+    queryFn: async () => {
+      const atr = getAtr();
+      if (!atr) {
+        throw new Error(
+          "Preload bridge unavailable — cannot fetch group members.",
+        );
+      }
+      const result = await atr.catalog.list({
+        groupId: groupId as number,
+        limit: 200,
+      });
+      return new Set(result.items.map((r) => r.slug));
+    },
+    enabled:
+      groupId !== null && typeof window !== "undefined" && Boolean(getAtr()),
+  });
+}
+
 export function useCreateGroup(): UseMutationResult<
   CreateGroupResult,
   Error,

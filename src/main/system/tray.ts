@@ -19,8 +19,10 @@ import {
   Menu,
   Tray,
   app,
+  ipcMain,
   nativeImage,
   webContents as electronWebContents,
+  type IpcMainEvent,
   type MenuItemConstructorOptions,
 } from "electron";
 import { join } from "node:path";
@@ -29,11 +31,36 @@ import { IPC } from "@shared/ipc";
 import { TrayOpenRepoPayloadSchema } from "@shared/schemas";
 import type { TrayOpenRepoPayload } from "@shared/types";
 
+import { getSqlite } from "@main/db/client";
+
 import { showSpotlight } from "./hotkey";
 import { showTrayPopover } from "./tray-popover-bridge";
 
+/**
+ * Renderer → main request channel for "open this repo in the main window".
+ *
+ * The spotlight + tray-popover windows are SEPARATE renderer processes;
+ * they can't fire the main-window-bound `tray:on:open-repo` push event
+ * themselves. Instead they `send` the picked slug on this channel and
+ * main re-broadcasts it via `broadcastTrayOpenRepo()` — the cross-window
+ * forward the renderer can't do directly (see ATR-006).
+ *
+ * This is a renderer→main ONE-WAY channel (ipcMain.on, not handle): the
+ * sender doesn't await a response, it just hands main the slug. It is
+ * intentionally NOT in the shared `IPC` request/response registry —
+ * that union only covers `invoke` round-trips. Kept as a local const so
+ * the preload sender + this listener share one literal.
+ */
+export const TRAY_OPEN_REPO_REQUEST_CHANNEL = "tray:request-open-repo" as const;
+
+/** How many recent repos to surface in the tray right-click menu. */
+const RECENT_REPO_MENU_LIMIT = 5;
+
 // Module-scoped reference — keeps the Tray alive (macOS GC behaviour).
 let tray: Tray | null = null;
+
+/** Guards against double-registering the ipcMain forwarder on hot-reload. */
+let forwarderWired = false;
 
 /**
  * Resolve the tray template asset path. In the bundled build the asset
@@ -50,16 +77,57 @@ function resolveTrayIconPath(): string {
 }
 
 /**
- * Build the right-click fallback menu. Kept intentionally small — the
- * primary tray UX is the popover BrowserWindow owned by
- * `src/main/window/tray-popover.ts`.
+ * Read the most-recently-opened repos straight from SQLite for the
+ * tray right-click menu. Synchronous (better-sqlite3) so the menu can
+ * be built inline in the click handler.
+ *
+ * Defensive: any failure (db not yet migrated, table missing during a
+ * cold boot) yields an empty list rather than throwing — the menu just
+ * shows the disabled "Recent repos" header in that case.
+ */
+function loadRecentRepos(): Array<{ slug: string; name: string }> {
+  try {
+    const sqlite = getSqlite();
+    const rows = sqlite
+      .prepare(
+        `SELECT slug, name FROM repos
+         ORDER BY COALESCE(last_opened_at, last_commit_date, updated_at) DESC
+         LIMIT ?`,
+      )
+      .all(RECENT_REPO_MENU_LIMIT) as Array<{ slug: string; name: string }>;
+    return rows.filter((r) => typeof r.slug === "string" && r.slug.length > 0);
+  } catch (err) {
+    console.warn("[tray] failed to load recent repos for menu", err);
+    return [];
+  }
+}
+
+/**
+ * Build the right-click fallback menu. The popover BrowserWindow owned
+ * by `src/main/window/tray-popover.ts` is the primary tray UX, but the
+ * native menu is the always-available path: its recent-repo items are
+ * real and fire `tray:on:open-repo` via `broadcastTrayOpenRepo()` so
+ * the main window navigates even when the popover isn't shipped/visible.
  */
 function buildContextMenu(): Menu {
+  const recent = loadRecentRepos();
+  const recentItems: MenuItemConstructorOptions[] =
+    recent.length === 0
+      ? [{ label: "Recent repos", enabled: false }]
+      : [
+          { label: "Recent repos", enabled: false },
+          ...recent.map(
+            (repo): MenuItemConstructorOptions => ({
+              label: repo.name || repo.slug,
+              click: () => {
+                broadcastTrayOpenRepo({ slug: repo.slug });
+              },
+            }),
+          ),
+        ];
+
   const template: MenuItemConstructorOptions[] = [
-    {
-      label: "Recent repos",
-      enabled: false,
-    },
+    ...recentItems,
     { type: "separator" },
     {
       label: "Open Spotlight…",
@@ -116,23 +184,33 @@ export function createTray(): Tray | null {
     tray = null;
   }
 
+  // Make `broadcastTrayOpenRepo()` reachable from the spotlight /
+  // tray-popover renderers (ATR-006). Idempotent across hot-reload.
+  wireOpenRepoForwarder();
+
   const iconPath = resolveTrayIconPath();
   const image = nativeImage.createFromPath(iconPath);
 
-  // If the asset is missing (e.g. fresh checkout without the placeholder)
-  // we still want the app to boot — log loudly and skip tray creation.
+  // If the asset is genuinely missing/undecodable, `isEmpty()` is true.
+  // The tray icon is a hard requirement for a usable menu-bar app, so a
+  // missing asset is a real failure — log loudly and skip tray creation
+  // (returning null is correct here; the previous comment claimed we
+  // "don't return" but the code did, and the 1×1 placeholder it referred
+  // to is gone now that resources/tray/tray-Template.png is a real
+  // 22×22 template image).
   if (image.isEmpty()) {
     console.warn(
       `[tray] tray icon at ${iconPath} is empty/missing — tray disabled. ` +
-        `Add a 22×22 black-on-transparent PNG (see resources/tray/tray-README.md).`,
+        `Restore the 22×22 black-on-transparent template PNG ` +
+        `(see resources/tray/tray-README.md).`,
     );
-    // Don't return — we still want to install a 1×1 transparent so the
-    // OS shows a click-through slot in dev. The placeholder is a 1×1
-    // transparent PNG which `isEmpty()` returns false for, but be safe.
     return null;
   }
 
-  // `template: true` tells macOS to auto-invert in dark mode.
+  // macOS template image: a black-on-transparent glyph that the OS
+  // auto-inverts for light/dark menu bars and selection highlight. The
+  // @2x asset (resources/tray/tray-Template@2x.png) is picked up
+  // automatically by `createFromPath` via the `@2x` filename suffix.
   image.setTemplateImage(true);
 
   tray = new Tray(image);
@@ -172,13 +250,57 @@ export function destroyTray(): void {
     }
     tray = null;
   }
+  if (forwarderWired) {
+    try {
+      ipcMain.removeListener(
+        TRAY_OPEN_REPO_REQUEST_CHANNEL,
+        handleOpenRepoRequest,
+      );
+    } catch {
+      // ignore
+    }
+    forwarderWired = false;
+  }
+}
+
+/**
+ * ipcMain handler for the renderer→main "open repo" request. Validates
+ * the payload with `safeParse` (so untrusted renderer input can't crash
+ * main) and re-broadcasts it as `tray:on:open-repo`. A malformed payload
+ * is logged and dropped rather than forwarded.
+ */
+function handleOpenRepoRequest(_event: IpcMainEvent, raw: unknown): void {
+  const parsed = TrayOpenRepoPayloadSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn("[tray] dropped malformed open-repo request", parsed.error);
+    return;
+  }
+  broadcastTrayOpenRepo(parsed.data);
+}
+
+/**
+ * Register the renderer→main open-repo forwarder (ATR-006). The
+ * spotlight + tray-popover renderers `send` the picked slug on
+ * `TRAY_OPEN_REPO_REQUEST_CHANNEL`; main re-broadcasts it to the
+ * main-window renderer via `broadcastTrayOpenRepo()`. Idempotent.
+ *
+ * Called from `createTray()` so the listener exists for the lifetime of
+ * the tray; `destroyTray()` tears it down for test isolation.
+ */
+export function wireOpenRepoForwarder(): void {
+  if (forwarderWired) return;
+  forwarderWired = true;
+  ipcMain.on(TRAY_OPEN_REPO_REQUEST_CHANNEL, handleOpenRepoRequest);
 }
 
 /**
  * Broadcast a `tray:on:open-repo` event to every renderer window.
- * The tray-popover (owned by backend-windows) calls this when the user
- * clicks a recent-repo row. The renderer subscribes via
- * `window.atr.app.onTrayOpenRepo(...)` and navigates to the slug.
+ * Fired when the user picks a recent repo — from the tray native menu,
+ * the tray popover, or the spotlight (the latter two route through
+ * `wireOpenRepoForwarder()` since they're separate renderer processes).
+ * The main-window renderer subscribes via `window.atr.tray.onOpenRepo`
+ * / `app.onTrayOpenRepo` (see `useTrayOpenRepoBus`) and navigates to the
+ * slug.
  */
 export function broadcastTrayOpenRepo(payload: TrayOpenRepoPayload): void {
   const parsed = TrayOpenRepoPayloadSchema.parse(payload);

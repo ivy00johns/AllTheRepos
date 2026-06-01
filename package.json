@@ -18,6 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:electron-e2e": "node scripts/run-electron-e2e.mjs",
+    "test:full": "pnpm rebuild better-sqlite3 find-git-repositories && pnpm test && pnpm test:electron-e2e",
     "electron:rebuild": "node scripts/rebuild-natives.mjs",
     "electron:dev": "pnpm electron:rebuild && electron-vite dev",
     "electron:build": "electron-vite build",

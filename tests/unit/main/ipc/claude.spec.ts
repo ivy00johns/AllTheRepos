@@ -345,12 +345,12 @@ describe("handleClaudeLaunch", () => {
     vi.mocked(claudeService.launch).mockResolvedValue({ ok: true });
     const out = await handleClaudeLaunch({
       slug: "foo",
-      resumeSessionId: "sess-1",
+      resumeSessionId: "f9a3248a-ec0c-4b07-8367-e2ec103dc69f",
       starterPrompt: "hi",
     });
     expect(claudeService.launch).toHaveBeenCalledWith({
       slug: "foo",
-      resumeSessionId: "sess-1",
+      resumeSessionId: "f9a3248a-ec0c-4b07-8367-e2ec103dc69f",
       starterPrompt: "hi",
     });
     expect(out.ok).toBe(true);

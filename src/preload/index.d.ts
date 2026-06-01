@@ -6,7 +6,12 @@
  * `PRELOAD_BRIDGE_KEY` constant in `@shared/ipc` MUST match the literal
  * `"atr"` used here; the cross-check is the test in `tests/preload`.
  *
- * Phase 2 surface (all derived from `typeof api` in `./api.ts`):
+ * Current surface (all derived from `typeof api` in `./api.ts`).
+ * The TYPE below is always exactly `typeof api`, so this list is a
+ * human-readable index, not a second source of truth — keep it in
+ * step with `./api.ts` when namespaces change.
+ *
+ * Phase 0/1/2:
  *   - `window.atr.system.ping`
  *   - `window.atr.catalog.{list,get,search,rescan,setTags,smartFilter}`
  *   - `window.atr.scan.{start,status,cancel,onProgress}`
@@ -16,11 +21,18 @@
  *   - `window.atr.app.{setDockBadge,notify,showSpotlight,hideSpotlight,registerActions}`
  *   - `window.atr.app.{onMenuCommand,onDeepLink,onTrayOpenRepo}` (push streams)
  *
- * The `on*` methods (Phase 1: `scan.onProgress`; Phase 2:
- * `app.onMenuCommand`, `app.onDeepLink`, `app.onTrayOpenRepo`) are
- * the only non-`invoke` methods — each returns an unsubscribe lambda
- * the renderer MUST call from cleanup to avoid listener leaks on
- * hot-reload.
+ * Phase 3a (process + launcher):
+ *   - `window.atr.process.{list,listForRepo,kill,onUpdate}`
+ *   - `window.atr.launcher.{detect,openInEditor,openInTerminal,openInFinder,openRemote,copyPath}`
+ *
+ * Phase 3b (Claude Code integration):
+ *   - `window.atr.claude.{index,projects,repoState,sessionTranscript,globalUsage,launch,openClaudeMd,onUpdate}`
+ *
+ * The `on*` methods (`scan.onProgress`; `app.onMenuCommand`,
+ * `app.onDeepLink`, `app.onTrayOpenRepo`; `process.onUpdate`;
+ * `claude.onUpdate`) are the only non-`invoke` methods — each returns
+ * an unsubscribe lambda the renderer MUST call from cleanup to avoid
+ * listener leaks on hot-reload.
  */
 
 import type { AtrApi } from "./api";

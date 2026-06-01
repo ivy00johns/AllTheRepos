@@ -44,6 +44,7 @@ import {
   registerGlobalHotkeys,
   unregisterGlobalHotkeys,
 } from "./system/hotkey";
+import { setDockBadge } from "./system/dock-badge";
 import { notifyScanComplete } from "./system/notification";
 import { registerProtocolHandler } from "./system/protocol";
 import { createTray } from "./system/tray";
@@ -79,6 +80,27 @@ function broadcastProcessUpdate(
     if (win.isDestroyed()) continue;
     win.webContents.send(IPC.PROCESS.ON_UPDATE, payload);
   }
+}
+
+/**
+ * ATR-010 — derive the dock-badge count from a ProcessService snapshot
+ * and drive the macOS dock badge. "Running dev servers" is the count of
+ * listening processes bound to a known repo (`repoSlug != null`) — the
+ * unbound listeners (system daemons, unrelated tools) aren't the user's
+ * dev servers, so they don't earn a badge.
+ *
+ * `setDockBadge` clears the badge on `0` and is a no-op off darwin, so
+ * this is safe to call on every update. Returns the running count for
+ * the caller's convenience / testability.
+ */
+function driveDockBadge(
+  payload: import("@shared/types").ProcessUpdateEvent,
+): number {
+  const runningCount = payload.processes.filter(
+    (p) => p.repoSlug != null,
+  ).length;
+  setDockBadge(runningCount);
+  return runningCount;
 }
 
 /**
@@ -168,6 +190,12 @@ if (!gotSingleInstanceLock) {
       // `update` events fire only when the (pid, port, repoSlug) triple
       // set changes, so wire cost is minimal.
       processService.events.on("update", broadcastProcessUpdate);
+
+      // ATR-010 — auto-drive the macOS dock badge from the same
+      // ProcessService snapshot. Separate listener (not folded into the
+      // broadcast) so the badge logic is independently testable and one
+      // consumer failing can't starve the other.
+      processService.events.on("update", driveDockBadge);
 
       // Phase 3b — fan ClaudeService chokidar updates to every renderer.
       // Renderer invalidates the matching `claude:projects` /

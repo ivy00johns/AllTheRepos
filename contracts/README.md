@@ -1,5 +1,11 @@
 # Contracts — AllTheRepos MVP
 
+> **LEGACY (Next.js).** This document describes the original Next.js MVP
+> surface (REST routes + server actions). It is SUPERSEDED for the Electron
+> app by the IPC contracts in `ipc.v3*.md` (and `ipc.v1.md`) plus
+> `data-layer.v1.*`. Read those for the current desktop architecture; this
+> file is retained for historical context only.
+
 **Contract version:** v1.0 — 2026-04-15
 **Status:** Frozen for initial build. Changes require orchestrator approval + version bump.
 
@@ -18,12 +24,12 @@
 
 ## File Ownership
 
-| Role | Owns (exclusive write) | Read-only |
-|---|---|---|
-| backend | `lib/db/**`, `lib/git/**`, `lib/embed/**`, `lib/search/**`, `lib/tag/**`, `app/api/**`, `app/actions/**`, `drizzle/**`, `lib/types.ts` | `contracts/**` |
-| frontend | `app/(catalog)/**`, `app/settings/**`, `app/repos/**`, `components/**`, `app/page.tsx`, `app/layout.tsx`, `app/globals.css` | `contracts/**`, `lib/types.ts` |
-| qe | `tests/**`, `e2e/**`, `vitest.config.ts`, `playwright.config.ts` | all |
-| orchestrator | `contracts/**`, `package.json`, `tsconfig.json`, `next.config.ts`, `postcss.config.mjs`, `.env.example`, `.gitignore`, `README.md`, `docs/**` | all |
+| Role         | Owns (exclusive write)                                                                                                                        | Read-only                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| backend      | `lib/db/**`, `lib/git/**`, `lib/embed/**`, `lib/search/**`, `lib/tag/**`, `app/api/**`, `app/actions/**`, `drizzle/**`, `lib/types.ts`        | `contracts/**`                 |
+| frontend     | `app/(catalog)/**`, `app/settings/**`, `app/repos/**`, `components/**`, `app/page.tsx`, `app/layout.tsx`, `app/globals.css`                   | `contracts/**`, `lib/types.ts` |
+| qe           | `tests/**`, `e2e/**`, `vitest.config.ts`, `playwright.config.ts`                                                                              | all                            |
+| orchestrator | `contracts/**`, `package.json`, `tsconfig.json`, `next.config.ts`, `postcss.config.mjs`, `.env.example`, `.gitignore`, `README.md`, `docs/**` | all                            |
 
 Directory-level ownership wins. If frontend needs a type from `lib/types.ts`, import it — don't redefine it.
 

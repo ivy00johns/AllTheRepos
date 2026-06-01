@@ -96,18 +96,27 @@ test.describe("Phase 3b Claude flow", () => {
         // No seeded repos — verify the global /claude route is reachable
         // via the in-app navigation and renders its "Claude Usage"
         // heading. This still exercises the IPC + renderer.
+        //
+        // NOTE: the renderer uses TanStack Router with createMemoryHistory,
+        // so `win.goto("/claude")` is a NO-OP — the URL bar changes but the
+        // router never sees it and the route never mounts. We MUST navigate
+        // via the in-app affordance. The top-bar (src/renderer/components/
+        // layout/top-bar.tsx) renders a `<Link to="/claude">` with
+        // `aria-label="Claude usage"`, which surfaces as a link with that
+        // accessible name.
         console.warn(
           "[claude-flow] no repo cards in catalog — falling back to /claude global usage assertion",
         );
-        await win.goto("/claude").catch(() => {
-          // TanStack Router uses memory history; .goto() may noop.
-        });
-        // The route ships a "Claude Usage" h1 (or "Claude usage
-        // unavailable" callout when the preload bridge is missing).
+        const claudeNav = win.getByRole("link", { name: /^claude usage$/i });
+        await expect(claudeNav).toBeVisible({ timeout: 10_000 });
+        await claudeNav.click();
+
+        // The route ships a "Claude Usage" <h1> once mounted. (When the
+        // preload bridge is missing it instead renders a "Claude usage
+        // unavailable" notice as a <p>, not a heading — but in the Electron
+        // E2E the bridge is always present, so the <h1> is the real target.)
         const heading = win
-          .getByRole("heading", {
-            name: /claude usage|claude usage unavailable/i,
-          })
+          .getByRole("heading", { name: /^claude usage$/i })
           .first();
         await expect(heading).toBeVisible({ timeout: 10_000 });
       } else {

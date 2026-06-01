@@ -64,10 +64,54 @@ let uFuzzyCtor: any = null;
 })();
 
 import { useRepos } from "@renderer/hooks/use-repos";
-import { getAtr } from "@renderer/lib/atr";
+import { getAtr, type AtrBridge } from "@renderer/lib/atr";
 import { cn } from "@renderer/lib/cn";
 import { actions, type RegisteredAction } from "@renderer/actions/registry";
 import type { Repo } from "@shared/types";
+
+/**
+ * Optional renderer→main "open repo" sender. The preload MAY expose this
+ * as `window.atr.tray.openRepo(slug)` (canonical) or `app.openRepo(slug)`
+ * (alias) — a thin `ipcRenderer.send("tray:request-open-repo", { slug })`
+ * wrapper that main forwards via `broadcastTrayOpenRepo()` (ATR-006).
+ *
+ * It is not yet in the typed `AtrBridge` surface (the preload is owned by
+ * another lane), so we probe for it defensively — exactly the pattern
+ * `useTrayOpenRepoBus` uses for the receive side. When the sender is
+ * absent we dev-log the picked slug so the pick is still observable.
+ */
+type OpenRepoSender = (slug: string) => void;
+
+function resolveOpenRepoSender(atr: AtrBridge): OpenRepoSender | null {
+  const tray = atr.tray as { openRepo?: OpenRepoSender } | undefined;
+  if (typeof tray?.openRepo === "function") {
+    return tray.openRepo.bind(tray);
+  }
+  const appNs = atr.app as { openRepo?: OpenRepoSender } | undefined;
+  if (typeof appNs?.openRepo === "function") {
+    return appNs.openRepo.bind(appNs);
+  }
+  return null;
+}
+
+function forwardOpenRepo(atr: AtrBridge, slug: string): void {
+  const send = resolveOpenRepoSender(atr);
+  if (send) {
+    try {
+      send(slug);
+      return;
+    } catch {
+      // fall through to the dev log below
+    }
+  }
+  if (import.meta.env?.DEV) {
+    // eslint-disable-next-line no-console
+    console.info(
+      `[spotlight] picked repo "${slug}" (no openRepo bridge sender; ` +
+        `main forwarder ready on tray:request-open-repo)`,
+    );
+  }
+}
 
 interface RepoRow {
   slug: string;
@@ -104,15 +148,17 @@ function copyPath(text: string): void {
 }
 
 /**
- * Hide the spotlight + ask main to navigate the main window to the
- * given repo. We trigger navigation via the `tray:on:open-repo` push
- * stream conceptually — but the spotlight renderer can't fire main →
- * renderer events. Instead, we route through a deep-link: the spotlight
- * renderer simply hides itself and asks main to dispatch the URL.
+ * Hide the spotlight + ask main to navigate the MAIN window to the
+ * given repo (ATR-006).
  *
- * Backend-system's main process exposes a side channel for this in
- * Phase 2 (the spotlight bridge). If unavailable, fall back to a
- * console-logged no-op and rely on the user's clipboard.
+ * The spotlight is its own renderer process, so it can't fire the
+ * main-window-bound `tray:on:open-repo` push event directly. Instead it
+ * `send`s the picked slug to main, which re-broadcasts it via
+ * `broadcastTrayOpenRepo()`; the main window's `useTrayOpenRepoBus`
+ * navigates to `/repos/$slug`. See `src/main/system/tray.ts`.
+ *
+ * We hide the spotlight FIRST so the user sees the main window come
+ * forward (main brings it forward on receipt), then forward the slug.
  */
 async function openRepoInMain(slug: string): Promise<void> {
   const atr = getAtr();
@@ -122,21 +168,7 @@ async function openRepoInMain(slug: string): Promise<void> {
   } catch {
     // ignore — main may have already hidden us via blur.
   }
-  // The contract leaves the cross-window plumbing to backend-system;
-  // we surface intent via dispatching a tray-open-repo equivalent.
-  // For Phase 2 the simplest viable path is: backend-system's main
-  // process listens for hide-spotlight + a follow-up "open-repo"
-  // intent on a dedicated channel, OR re-uses the protocol push.
-  //
-  // To stay within the published Phase 2 IPC surface, we fall back to
-  // the action registry's `repo.copy-path` style — log the intent so
-  // QE can verify. backend-system's wave-2 main process is expected
-  // to add a forward-spotlight-pick channel; until then this is a
-  // no-op past the hide call.
-  if (import.meta.env?.DEV) {
-    // eslint-disable-next-line no-console
-    console.info(`[spotlight] picked repo "${slug}"`);
-  }
+  forwardOpenRepo(atr, slug);
 }
 
 interface ResultRow {

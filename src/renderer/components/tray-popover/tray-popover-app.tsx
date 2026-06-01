@@ -25,32 +25,56 @@
 import * as React from "react";
 
 import { useRepos } from "@renderer/hooks/use-repos";
-import { getAtr } from "@renderer/lib/atr";
+import { getAtr, type AtrBridge } from "@renderer/lib/atr";
 import { cn } from "@renderer/lib/cn";
 import type { Repo } from "@shared/types";
 
+/**
+ * Optional renderer→main "open repo" sender (ATR-006). The popover is its
+ * own renderer process, so it can't fire the main-window-bound
+ * `tray:on:open-repo` push event directly; it forwards the picked slug to
+ * main, which re-broadcasts it via `broadcastTrayOpenRepo()` and brings
+ * the main window forward. See `src/main/system/tray.ts`.
+ *
+ * The preload MAY expose this as `window.atr.tray.openRepo(slug)`
+ * (canonical) or `app.openRepo(slug)` (alias). It isn't yet in the typed
+ * `AtrBridge` surface (preload owned by another lane), so we probe for it
+ * defensively — the same pattern `useTrayOpenRepoBus` uses on the receive
+ * side. When absent we dev-log the pick so it stays observable.
+ */
+type OpenRepoSender = (slug: string) => void;
+
+function resolveOpenRepoSender(atr: AtrBridge): OpenRepoSender | null {
+  const tray = atr.tray as { openRepo?: OpenRepoSender } | undefined;
+  if (typeof tray?.openRepo === "function") {
+    return tray.openRepo.bind(tray);
+  }
+  const appNs = atr.app as { openRepo?: OpenRepoSender } | undefined;
+  if (typeof appNs?.openRepo === "function") {
+    return appNs.openRepo.bind(appNs);
+  }
+  return null;
+}
+
 function openRepoFromPopover(slug: string): void {
   const atr = getAtr();
-  // Backend-system's tray-popover module exposes the "open repo"
-  // intent through the tray namespace — the popover renderer
-  // doesn't navigate the main window directly; it asks main to fire
-  // `tray:on:open-repo` against the main window's webContents.
-  //
-  // The renderer-side surface for that side-effect is intentionally
-  // narrow — there's no `app.openRepo(slug)` channel in Phase 2 —
-  // so we delegate to a hide-then-deep-link pattern: ask main to
-  // hide this popover (popover bridge owns its visibility) and rely
-  // on the tray.ts bridge to broadcast on its own.
-  //
-  // For Phase 2 the simplest viable path is the tray's right-click
-  // fallback: click a tray menu item that fires `tray:on:open-repo`
-  // for the slug. The popover bridge in main currently does this on
-  // popover-click via `tray-popover-bridge.ts`.
+  if (!atr) return;
+  const send = resolveOpenRepoSender(atr);
+  if (send) {
+    try {
+      send(slug);
+      return;
+    } catch {
+      // fall through to the dev log below
+    }
+  }
   if (import.meta.env?.DEV) {
     // eslint-disable-next-line no-console
-    console.info(`[tray-popover] picked repo "${slug}"`);
+    console.info(
+      `[tray-popover] picked repo "${slug}" (no openRepo bridge sender; ` +
+        `main forwarder ready on tray:request-open-repo)`,
+    );
   }
-  void atr?.app?.hideSpotlight().catch(() => {});
 }
 
 function openSpotlightFromPopover(): void {

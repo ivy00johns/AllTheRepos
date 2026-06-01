@@ -919,8 +919,14 @@ export const ClaudeGlobalUsageResultSchema = z.object({
 export const ClaudeLaunchInputSchema = z
   .object({
     slug: z.string().min(1),
-    /** Resume a specific session via `claude --resume <sessionId>`. */
-    resumeSessionId: z.string().optional(),
+    /**
+     * Resume a specific session via `claude --resume <sessionId>`.
+     * UUID-validated: the value is interpolated UNQUOTED into the launch
+     * command string (`buildLaunchCommand`), so constraining it to a UUID
+     * closes a shell-injection vector while matching Claude Code's real
+     * session-id format (e.g. `f9a3248a-…`). See ATR-026.
+     */
+    resumeSessionId: z.string().uuid().optional(),
     /** Trusted starter prompt injected as a one-shot CLI arg. */
     starterPrompt: z.string().optional(),
   })

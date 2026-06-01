@@ -225,6 +225,16 @@ export const api = {
    * reload.
    */
   app: {
+    /**
+     * Ask main to navigate the main window to a repo (ATR-006). One-way
+     * `ipcRenderer.send` to the tray open-repo forwarder; the spotlight
+     * and tray-popover renderers call this, main re-broadcasts
+     * `tray:on:open-repo`, and the main-window bus navigates to
+     * `/repos/<slug>`. Channel literal matches `TRAY_OPEN_REPO_REQUEST_CHANNEL`.
+     */
+    openRepo: (slug: string): void => {
+      ipcRenderer.send("tray:request-open-repo", { slug });
+    },
     setDockBadge: (input: SetDockBadgeInput): Promise<SetDockBadgeResult> =>
       ipcRenderer.invoke(
         IPC.APP.SET_DOCK_BADGE,

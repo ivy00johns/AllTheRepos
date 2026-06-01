@@ -103,9 +103,13 @@ launch + open-CLAUDE.md actions delegate to LauncherService.
   - Base: `claude`
   - With resume: `claude --resume <sessionId>`
   - With starter prompt: append `--prompt <quoted>`
-- **Safety:** the resume sessionId is validated as a UUIDv4 in the
-  schema. `starterPrompt` is shell-quoted before injection — `'`
-  → `'\''`, wrap in single quotes.
+- **Safety:** `starterPrompt` is shell-quoted before injection — `'`
+  → `'\''`, wrap in single quotes. `resumeSessionId` is validated as a
+  **UUID** (`z.string().uuid()`) in `ClaudeLaunchInputSchema`; since it is
+  interpolated unquoted into the `claude --resume <sessionId>` command
+  string, the UUID constraint is what prevents shell injection (a UUID
+  contains no shell metacharacters). This matches Claude Code's on-disk
+  session-id format. (Resolved ATR-023 drift + ATR-026 injection guard.)
 
 ### `claude:openClaudeMd`
 

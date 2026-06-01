@@ -10,49 +10,18 @@
  *   - Every handler asserts the request came from our renderer frame.
  */
 
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import { ipcMain } from "electron";
 
 import { IPC } from "@shared/ipc";
 import { PingInputSchema, PingResponseSchema } from "@shared/schemas";
 import type { PingResponse } from "@shared/types";
 
-/**
- * Origins we accept IPC from. The expected renderer origin differs
- * between dev (Vite dev server) and prod (file://).
- *
- * In dev we tolerate the URL not having loaded yet by treating an
- * empty senderFrame.url as "renderer is initializing" and allowing
- * it — the BrowserWindow loads our renderer URL exclusively, so any
- * frame here is the renderer's main frame.
- */
-function isFrameFromOurRenderer(frameUrl: string): boolean {
-  if (frameUrl === "" || frameUrl === "about:blank") {
-    return true;
-  }
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (rendererUrl && frameUrl.startsWith(rendererUrl)) {
-    return true;
-  }
-  // Production: renderer is loaded from a file:// URL pointing into out/renderer.
-  if (frameUrl.startsWith("file://")) {
-    return true;
-  }
-  return false;
-}
+// Frame-origin enforcement lives in the single source of truth `_frame.ts`
+// (ATR-014). Re-exported here so the historical `system.ts > assertRendererFrame`
+// symbol keeps resolving for any caller, while the policy is defined once.
+import { assertRendererFrame } from "./_frame";
 
-/**
- * Throws if the IPC request did not originate from our renderer's
- * main frame. Call at the start of every handler.
- */
-export function assertRendererFrame(event: IpcMainInvokeEvent): void {
-  const frame = event.senderFrame;
-  const frameUrl = frame?.url ?? "";
-  if (!isFrameFromOurRenderer(frameUrl)) {
-    throw new Error(
-      `ipc:rejected:foreign_frame frame_url=${JSON.stringify(frameUrl)}`
-    );
-  }
-}
+export { assertRendererFrame };
 
 /**
  * Pure handler body for `system:ping`. Lives outside `ipcMain.handle` so QE

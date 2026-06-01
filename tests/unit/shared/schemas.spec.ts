@@ -2786,14 +2786,23 @@ describe("ClaudeLaunchInputSchema (Phase 3b)", () => {
     });
   });
 
-  it("accepts slug + resumeSessionId + starterPrompt", () => {
+  it("accepts slug + resumeSessionId (uuid) + starterPrompt", () => {
     expect(
       ClaudeLaunchInputSchema.parse({
         slug: "foo",
-        resumeSessionId: "sess-1",
+        resumeSessionId: "f9a3248a-ec0c-4b07-8367-e2ec103dc69f",
         starterPrompt: "hi",
       }),
     ).toBeTruthy();
+  });
+
+  it("rejects a non-uuid resumeSessionId (shell-injection guard, ATR-026)", () => {
+    expect(() =>
+      ClaudeLaunchInputSchema.parse({
+        slug: "foo",
+        resumeSessionId: "sess-1; rm -rf ~",
+      }),
+    ).toThrow();
   });
 
   it("rejects empty slug", () => {
