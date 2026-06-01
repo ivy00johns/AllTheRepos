@@ -240,7 +240,6 @@ describe("handleRegisterActions", () => {
   it("rejects when an action has an unknown scope", async () => {
     await expect(
       handleRegisterActions({
-        // @ts-expect-error - intentionally bad scope
         actions: [{ ...sampleAction, scope: "wat" }],
       }),
     ).rejects.toThrow();
@@ -272,7 +271,6 @@ describe("handleRegisterActions", () => {
 
   it("rejects when the service returns a malformed result", async () => {
     vi.mocked(installNativeMenu).mockReturnValue({
-      // @ts-expect-error - intentionally bad
       accepted: -1,
       skipped: 0,
     });

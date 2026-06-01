@@ -6,6 +6,7 @@ import type { Group, Repo, RepoDetail } from "@shared/types";
 import { GroupSidebar } from "@renderer/components/groups/group-sidebar";
 import { KeyboardShortcuts } from "@renderer/components/layout/keyboard-shortcuts";
 import { SearchBar } from "@renderer/components/search/search-bar";
+import { useSearch as useCatalogSearch } from "@renderer/hooks/use-search";
 import { requireAtr } from "@renderer/lib/atr";
 
 import { DetailPanel } from "./detail-panel";
@@ -58,6 +59,16 @@ interface CatalogSearch {
  *      (pure-action callback — exempt from the "use hooks only" rule).
  *      If the bridge is unavailable (browser-only QE run) we fall back
  *      to the legacy `vscode://file/...` URL the Next.js app used.
+ *
+ *   4. Real search (ATR-003): a non-empty query drives the grid from the
+ *      backend `catalog:search` (hybrid FTS + vector) via the
+ *      `useCatalogSearch` hook; an empty query browses `initialRepos`
+ *      with the facet filters applied client-side.
+ *
+ *   5. One search source of truth (ATR-012): the `q` URL search param is
+ *      authoritative. The global top-bar SearchBar writes the same param,
+ *      and the effect below adopts external `q` changes into the local
+ *      input so both inputs stay in lockstep.
  */
 export function CatalogShell({
   initialRepos,
@@ -74,7 +85,8 @@ export function CatalogShell({
   const queryQ = search.q ?? "";
   const queryLanguage = search.lang ?? null;
   const queryTags = React.useMemo(
-    () => (Array.isArray(search.tag) ? search.tag : search.tag ? [search.tag] : []),
+    () =>
+      Array.isArray(search.tag) ? search.tag : search.tag ? [search.tag] : [],
     [search.tag],
   );
   const queryGroupId = search.groupId ?? null;
@@ -129,11 +141,32 @@ export function CatalogShell({
     [navigate],
   );
 
-  // Filter + search client-side against the initial server-rendered set.
-  // Once backend `catalog:search` is wired through useSearch(), replace
-  // `filteredRepos` with the query result.
-  const filteredRepos = React.useMemo(() => {
-    const needle = debouncedQ.trim().toLowerCase();
+  // Whether the user has an active text query. When set, the grid is
+  // driven by the real backend `catalog:search` (hybrid FTS + vector);
+  // when empty, we browse `initialRepos` with the facet filters applied
+  // client-side. The hook owns its own debounce, so we hand it the raw
+  // `q` and read the (debounced) result.
+  const trimmedQuery = q.trim();
+  const isSearching = trimmedQuery.length > 0;
+
+  // Real catalog search. Forward the active facet filters so FTS/vector
+  // results respect the same language/tag/dirty constraints as browsing.
+  // `groupIds` is included when a group is selected so the backend can
+  // scope hybrid results to a group's members. The contract caps `limit`
+  // at 200; ask for the max so search isn't silently truncated.
+  const searchQuery = useCatalogSearch(q, {
+    mode: "hybrid",
+    limit: 200,
+    filters: {
+      language: filters.language ?? undefined,
+      tags: filters.tags.length ? filters.tags : undefined,
+      groupIds: filters.groupId !== null ? [filters.groupId] : undefined,
+      dirtyOnly: filters.dirtyOnly || undefined,
+    },
+  });
+
+  // Browse path: client-side facet filter over the server-rendered set.
+  const browseRepos = React.useMemo(() => {
     const groupMembership = (repo: Repo): boolean => {
       if (filters.groupId === null) return true;
       const g = groups.find((x) => x.id === filters.groupId);
@@ -142,7 +175,8 @@ export function CatalogShell({
         const f = g.smartFilter;
         if (f.language && repo.primaryLanguage !== f.language) return false;
         if (f.dirtyOnly && !repo.isDirty) return false;
-        if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote) return false;
+        if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote)
+          return false;
         if (f.tagsInclude?.length) {
           const have = new Set(repo.tags.map((t) => t.value));
           if (!f.tagsInclude.every((t) => have.has(t))) return false;
@@ -162,27 +196,24 @@ export function CatalogShell({
       return true;
     };
     return initialRepos.filter((r) => {
-      if (filters.language && r.primaryLanguage !== filters.language) return false;
+      if (filters.language && r.primaryLanguage !== filters.language)
+        return false;
       if (filters.dirtyOnly && !r.isDirty) return false;
       if (filters.tags.length) {
         const have = new Set(r.tags.map((t) => t.value));
         if (!filters.tags.every((t) => have.has(t))) return false;
       }
       if (!groupMembership(r)) return false;
-      if (needle) {
-        const hay = [
-          r.name,
-          r.description ?? "",
-          r.primaryLanguage ?? "",
-          ...r.tags.map((t) => t.value),
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(needle)) return false;
-      }
       return true;
     });
-  }, [initialRepos, debouncedQ, filters, groups]);
+  }, [initialRepos, filters, groups]);
+
+  // The grid source: search hits (mapped to `Repo`, score order
+  // preserved) when querying, else the browsed list.
+  const displayedRepos = React.useMemo<Repo[]>(() => {
+    if (!isSearching) return browseRepos;
+    return (searchQuery.data ?? []).map((hit) => hit.repo);
+  }, [isSearching, browseRepos, searchQuery.data]);
 
   // Load detail when URL param changes.
   React.useEffect(() => {
@@ -225,6 +256,18 @@ export function CatalogShell({
     updateParamsRef.current({ q: debouncedQ || null });
   }, [debouncedQ]);
 
+  // Adopt external changes to the URL `q` param as the single source of
+  // truth (ATR-012-search): the global top-bar SearchBar drives the same
+  // `q` param, and back/forward + deep links can change it too. When the
+  // URL diverges from the local input, sync the input (and its debounced
+  // mirror) so search results follow. This converges — once they match,
+  // neither this nor the debounce effect above re-fires — so there is no
+  // ping-pong with the local→URL sync.
+  React.useEffect(() => {
+    setQ((prev) => (prev === queryQ ? prev : queryQ));
+    setDebouncedQ((prev) => (prev === queryQ ? prev : queryQ));
+  }, [queryQ]);
+
   const selectRepo = React.useCallback(
     (slug: string | null) => {
       updateParams({ repo: slug });
@@ -256,8 +299,8 @@ export function CatalogShell({
   const closeDetail = React.useCallback(() => selectRepo(null), [selectRepo]);
 
   const slugs = React.useMemo(
-    () => filteredRepos.map((r) => r.slug),
-    [filteredRepos],
+    () => displayedRepos.map((r) => r.slug),
+    [displayedRepos],
   );
 
   return (
@@ -277,7 +320,7 @@ export function CatalogShell({
             value={q}
             onChange={setQ}
             onDebouncedChange={setDebouncedQ}
-            loading={searching}
+            loading={isSearching && (searching || searchQuery.isFetching)}
           />
           <FilterChips
             filters={filters}
@@ -306,8 +349,17 @@ export function CatalogShell({
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="flex items-center justify-between pb-3 text-xs text-muted-foreground font-mono">
             <span>
-              {filteredRepos.length} of {initialRepos.length} repo
-              {initialRepos.length === 1 ? "" : "s"}
+              {isSearching ? (
+                <>
+                  {displayedRepos.length} result
+                  {displayedRepos.length === 1 ? "" : "s"} for “{trimmedQuery}”
+                </>
+              ) : (
+                <>
+                  {displayedRepos.length} of {initialRepos.length} repo
+                  {initialRepos.length === 1 ? "" : "s"}
+                </>
+              )}
             </span>
             <span className="hidden sm:inline">
               <kbd className="rounded border border-border bg-muted px-1.5 py-0.5">
@@ -325,11 +377,11 @@ export function CatalogShell({
             </span>
           </div>
           <RepoGrid
-            repos={filteredRepos}
+            repos={displayedRepos}
             selectedSlug={querySlug}
             onSelect={selectRepo}
             onOpenEditor={openInEditor}
-            loading={searching && debouncedQ !== q}
+            loading={isSearching && (searching || searchQuery.isPending)}
           />
         </div>
       </main>

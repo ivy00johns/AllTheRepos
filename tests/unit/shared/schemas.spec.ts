@@ -1262,10 +1262,7 @@ describe("ActionSchema", () => {
   });
 
   it("rejects an unknown scope", () => {
-    expect(() =>
-      // @ts-expect-error - intentionally bad
-      ActionSchema.parse({ ...base, scope: "wat" }),
-    ).toThrow();
+    expect(() => ActionSchema.parse({ ...base, scope: "wat" })).toThrow();
   });
 
   it("rejects a non-ASCII shortcut", () => {
@@ -1292,7 +1289,6 @@ describe("NotificationActionSchema", () => {
 
   it("rejects a non-button type", () => {
     expect(() =>
-      // @ts-expect-error - intentionally bad
       NotificationActionSchema.parse({ type: "link", text: "Open" }),
     ).toThrow();
   });
@@ -1598,7 +1594,6 @@ describe("DeepLinkPayloadSchema", () => {
 
   it("rejects non-string param values", () => {
     expect(() =>
-      // @ts-expect-error - intentionally bad
       DeepLinkPayloadSchema.parse({ path: "settings", params: { a: 1 } }),
     ).toThrow();
   });

@@ -3,8 +3,7 @@
  *
  * Lives above every route. Provides:
  *   - app title + sidebar collapse toggle,
- *   - a slot for the search bar (frontend-components mounts `SearchBar`
- *     here once it exists),
+ *   - the global search bar (single source of truth — see below),
  *   - navigation affordances to /settings and /debug (Phase 1 only).
  *
  * Visual treatment is deliberately minimal — the frontend-components
@@ -12,7 +11,8 @@
  * pass. Keep this file focused on slots + behaviour.
  */
 
-import { Link } from "@tanstack/react-router";
+import * as React from "react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Activity,
   Brain,
@@ -28,16 +28,43 @@ import { useUiStore } from "@renderer/stores/ui";
 
 export function TopBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
-  // SearchBar requires `value` + `onChange`. Wave-gate fix: bind to the
-  // Zustand `activeFilter.q` slice rather than local state so the
-  // top-bar query persists across route changes. On the catalog route
-  // (`/`) the `CatalogShell` renders its own SearchBar wired to URL
-  // search params — the two are independent and that's intentional for
-  // Phase 1. A later pass can unify them once we lift filter state to
-  // a single source of truth.
-  const query = useUiStore((s) => s.activeFilter.q);
-  const setActiveFilter = useUiStore((s) => s.setActiveFilter);
   const processCount = useProcessCount();
+
+  // ATR-012-search: ONE search source of truth. The catalog reads its
+  // query from the TanStack Router `q` search param, so the global
+  // top-bar SearchBar drives that SAME param (rather than the old dead
+  // Zustand `activeFilter.q` slice). Typing here updates the URL `q`,
+  // which the catalog shell adopts; typing in the catalog updates the
+  // URL, which this bar reflects. Both read/write a single value.
+  const navigate = useNavigate();
+  // Route-agnostic read (`strict: false`) so this global bar works on
+  // every route, not just `/`.
+  const search = useSearch({ strict: false }) as { q?: string };
+  const urlQuery = search.q ?? "";
+
+  // Local input mirror for responsiveness; synced from the URL when it
+  // changes externally (catalog typing, back/forward, deep links).
+  const [value, setValue] = React.useState(urlQuery);
+  React.useEffect(() => {
+    setValue((prev) => (prev === urlQuery ? prev : urlQuery));
+  }, [urlQuery]);
+
+  // Debounced write to the URL `q` param. Navigating to "/" ensures a
+  // query typed from another route surfaces results on the catalog.
+  const handleDebouncedChange = React.useCallback(
+    (next: string) => {
+      const trimmed = next.trim();
+      if (trimmed === urlQuery.trim()) return;
+      void navigate({
+        to: "/",
+        search: ((prev: Record<string, unknown>) => ({
+          ...prev,
+          q: trimmed ? next : undefined,
+        })) as unknown as never,
+      });
+    },
+    [navigate, urlQuery],
+  );
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
@@ -58,7 +85,11 @@ export function TopBar() {
       </Link>
 
       <div className="ml-4 min-w-0 flex-1">
-        <SearchBar value={query} onChange={(q) => setActiveFilter({ q })} />
+        <SearchBar
+          value={value}
+          onChange={setValue}
+          onDebouncedChange={handleDebouncedChange}
+        />
       </div>
 
       <nav className="flex items-center gap-1">

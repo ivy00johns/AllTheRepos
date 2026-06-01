@@ -342,17 +342,40 @@ describe("kill state machine", () => {
 
   it("escalates to SIGTERM when SIGINT is ignored", async () => {
     const { spawn } = await import("node:child_process");
-    // Child ignores SIGINT, exits on SIGTERM.
+    // Child ignores SIGINT, exits on SIGTERM. It prints "READY" to stdout
+    // once both signal handlers are installed so the test can await that
+    // marker deterministically instead of racing a fixed sleep (which
+    // flakes under full-suite scheduling pressure).
     const child = spawn(
       process.execPath,
       [
         "-e",
-        "process.on('SIGINT',()=>{}); setInterval(()=>{},10000); process.on('SIGTERM',()=>process.exit(0));",
+        "process.on('SIGINT',()=>{}); process.on('SIGTERM',()=>process.exit(0)); setInterval(()=>{},10000); process.stdout.write('READY\\n');",
       ],
-      { stdio: "ignore" },
+      { stdio: ["ignore", "pipe", "ignore"] },
     );
     try {
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait until the child has installed its SIGINT/SIGTERM handlers
+      // (signalled by the READY marker on stdout) before we start killing.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("timed out waiting for child READY marker")),
+          5_000,
+        );
+        let buf = "";
+        child.stdout!.setEncoding("utf8");
+        child.stdout!.on("data", (chunk: string) => {
+          buf += chunk;
+          if (buf.includes("READY")) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        child.once("error", (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
       const pid = child.pid!;
       const result = await processService.kill({ pid, escalateMs: 300 });
       expect(result.stopped).toBe(true);

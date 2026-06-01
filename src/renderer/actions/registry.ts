@@ -31,6 +31,20 @@ import { queryClient, queryKeys } from "@renderer/lib/query-client";
 import { getAtr } from "@renderer/lib/atr";
 
 /**
+ * Vite injects `import.meta.env.DEV` at build time. The renderer tsconfig
+ * (`tsconfig.web.json`) pulls in the `vite/client` ambient types so
+ * `import.meta.env` is typed there, but this module is ALSO transitively
+ * compiled by the root tsconfig (via `@main/system/menu` importing the
+ * registry for its metadata), which loads neither `vite/client` nor
+ * `vite-env.d.ts`. Read the flag once through a locally-typed view so the
+ * access type-checks under both programs without depending on the ambient
+ * augmentation being in scope.
+ */
+const isDev: boolean | undefined = (
+  import.meta as unknown as { env?: { DEV?: boolean } }
+).env?.DEV;
+
+/**
  * Strict subset of the TanStack Router `useNavigate` return type that
  * action handlers actually need.
  *
@@ -270,7 +284,7 @@ export function findAction(id: string): RegisteredAction | undefined {
 export function dispatchAction(id: string, ctx: ActionContext): void {
   const action = findAction(id);
   if (!action) {
-    if (import.meta.env?.DEV) {
+    if (isDev) {
       // eslint-disable-next-line no-console
       console.warn(
         `dispatchAction: unknown action id "${id}". Has the registry drifted?`,
@@ -296,9 +310,7 @@ export function dispatchAction(id: string, ctx: ActionContext): void {
  * `contracts/actions.v1.md` (the renderer is the source of truth for
  * which actions are dev-only).
  */
-export function serializeActionsForIpc(
-  isProd = !import.meta.env?.DEV,
-): Action[] {
+export function serializeActionsForIpc(isProd = !isDev): Action[] {
   return actions
     .filter((a) => !isProd || !a.devOnly)
     .map(({ handler: _handler, ...meta }) => meta);

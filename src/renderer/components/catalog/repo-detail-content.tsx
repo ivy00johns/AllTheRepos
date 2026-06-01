@@ -20,6 +20,7 @@ import {
 import type { RepoDetail } from "@shared/types";
 
 import { cn } from "@renderer/lib/cn";
+import { useSetRepoTags } from "@renderer/hooks/use-repos";
 import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -54,6 +55,8 @@ export function RepoDetailContent({
   const [draft, setDraft] = React.useState("");
   const [activeTab, setActiveTab] = React.useState<DetailTab>("details");
 
+  const setRepoTags = useSetRepoTags();
+
   // Reset tab selection whenever the user switches to a different
   // repo — landing on a fresh detail should always show "Details"
   // first.
@@ -65,17 +68,39 @@ export function RepoDetailContent({
     setTags(repo.tags.filter((t) => t.source === "user").map((t) => t.value));
   }, [repo.slug, repo.tags]);
 
+  // Persist the full desired USER-tag set via `catalog:setTags`. The
+  // server overwrites user tags and preserves heuristic/smart tags, so
+  // we only ever send the user-editable values. Local state is updated
+  // optimistically; on success the invalidated repo-detail query reseeds
+  // `tags` from the canonical server response (the effect above).
+  const persistTags = (next: string[]) => {
+    setRepoTags.mutate(
+      { slug: repo.slug, tags: next },
+      {
+        onError: () => {
+          // Roll back to the server's last-known user tags on failure so
+          // the UI never claims a tag stuck when it didn't.
+          setTags(
+            repo.tags.filter((t) => t.source === "user").map((t) => t.value),
+          );
+        },
+      },
+    );
+  };
+
   const addTag = () => {
     const v = draft.trim().toLowerCase();
     if (!v || tags.includes(v)) return;
-    setTags([...tags, v]);
+    const next = [...tags, v];
+    setTags(next);
     setDraft("");
-    // TODO: wire to `useSetRepoTags` hook (catalog:setTags) — see Phase 1 report.
+    persistTags(next);
   };
 
   const removeTag = (v: string) => {
-    setTags(tags.filter((t) => t !== v));
-    // TODO: wire to `useSetRepoTags` hook (catalog:setTags) — see Phase 1 report.
+    const next = tags.filter((t) => t !== v);
+    setTags(next);
+    persistTags(next);
   };
 
   const heuristicTags = repo.tags.filter((t) => t.source !== "user");
@@ -242,8 +267,9 @@ export function RepoDetailContent({
                     key={t}
                     type="button"
                     onClick={() => removeTag(t)}
+                    disabled={setRepoTags.isPending}
                     aria-label={`Remove tag ${t}`}
-                    className="group inline-flex items-center gap-1 rounded-md border border-border-strong bg-card px-2 py-0.5 font-mono text-[11px] hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group inline-flex items-center gap-1 rounded-md border border-border-strong bg-card px-2 py-0.5 font-mono text-[11px] hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                   >
                     {t}
                     <X
@@ -281,7 +307,7 @@ export function RepoDetailContent({
                   size="sm"
                   variant="outline"
                   onClick={addTag}
-                  disabled={!draft.trim()}
+                  disabled={!draft.trim() || setRepoTags.isPending}
                   aria-label="Add tag"
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden />

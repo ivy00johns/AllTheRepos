@@ -1,18 +1,23 @@
 import * as React from "react";
-import { Link } from "@tanstack/react-router";
 import {
   Boxes,
   ChevronLeft,
   ChevronRight,
   Folder,
+  Pencil,
   Plus,
-  Settings as SettingsIcon,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 import type { Group } from "@shared/types";
 
 import { cn } from "@renderer/lib/cn";
+import {
+  useCreateGroup,
+  useDeleteGroup,
+  useRenameGroup,
+} from "@renderer/hooks/use-groups";
 import { Button } from "@renderer/components/ui/button";
 import {
   Dialog,
@@ -100,6 +105,7 @@ export function GroupSidebar({
             active={selectedGroupId === g.id}
             collapsed={collapsed}
             onClick={() => onSelectGroup(g.id)}
+            group={g}
           />
         ))}
 
@@ -122,17 +128,6 @@ export function GroupSidebar({
 
       <div className="mt-auto flex flex-col gap-1 border-t border-border p-2">
         <CreateGroupDialog collapsed={collapsed} />
-        <Link
-          to="/settings"
-          className={cn(
-            "inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed && "justify-center",
-          )}
-          aria-label="Settings"
-        >
-          <SettingsIcon className="h-4 w-4 shrink-0" aria-hidden />
-          {!collapsed ? <span>Settings</span> : null}
-        </Link>
       </div>
     </aside>
   );
@@ -154,6 +149,8 @@ interface SidebarItemProps {
   collapsed: boolean;
   onClick: () => void;
   smart?: boolean;
+  /** When set (manual groups only), render rename/delete affordances. */
+  group?: Group;
 }
 
 function SidebarItem({
@@ -164,48 +161,98 @@ function SidebarItem({
   collapsed,
   onClick,
   smart,
+  group,
 }: SidebarItemProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      title={collapsed ? `${label} (${count})` : undefined}
-      className={cn(
-        "relative mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active
-          ? "bg-accent/10 text-foreground"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        collapsed && "justify-center",
-      )}
-    >
-      {active ? (
-        <span
-          aria-hidden
-          className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-accent"
-        />
-      ) : null}
-      {icon}
-      {!collapsed ? (
-        <>
-          <span className="min-w-0 flex-1 truncate">
-            {label}
-            {smart ? (
-              <span className="sr-only"> (smart group)</span>
-            ) : null}
-          </span>
-          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            {count}
-          </span>
-        </>
-      ) : null}
-    </button>
+    <div className="group/item relative">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-current={active ? "true" : undefined}
+        title={collapsed ? `${label} (${count})` : undefined}
+        className={cn(
+          "relative mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active
+            ? "bg-accent/10 text-foreground"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          collapsed && "justify-center",
+        )}
+      >
+        {active ? (
+          <span
+            aria-hidden
+            className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-accent"
+          />
+        ) : null}
+        {icon}
+        {!collapsed ? (
+          <>
+            <span className="min-w-0 flex-1 truncate">
+              {label}
+              {smart ? <span className="sr-only"> (smart group)</span> : null}
+            </span>
+            <span
+              className={cn(
+                "shrink-0 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground",
+                // When manage affordances are present, hide the count on
+                // hover/focus so the action buttons can take its place.
+                group
+                  ? "group-hover/item:opacity-0 group-focus-within/item:opacity-0"
+                  : "",
+              )}
+            >
+              {count}
+            </span>
+          </>
+        ) : null}
+      </button>
+
+      {group && !collapsed ? <GroupRowActions group={group} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Rename / delete affordances for a manual group. Rendered absolutely
+ * over the trailing count badge; revealed on row hover or keyboard
+ * focus. Each opens its own dialog so the destructive delete is gated
+ * behind an explicit confirm.
+ */
+function GroupRowActions({ group }: { group: Group }) {
+  return (
+    <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100">
+      <RenameGroupDialog group={group} />
+      <DeleteGroupDialog group={group} />
+    </div>
   );
 }
 
 function CreateGroupDialog({ collapsed }: { collapsed: boolean }) {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
+  const createGroup = useCreateGroup();
+
+  // Reset transient state whenever the dialog closes.
+  React.useEffect(() => {
+    if (!open) {
+      setName("");
+      createGroup.reset();
+    }
+  }, [open, createGroup]);
+
+  const handleCreate = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    createGroup.mutate(
+      { name: trimmed },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          setName("");
+        },
+      },
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -237,23 +284,188 @@ function CreateGroupDialog({ collapsed }: { collapsed: boolean }) {
             id="group-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim() && !createGroup.isPending) {
+                e.preventDefault();
+                handleCreate();
+              }
+            }}
             placeholder="e.g. Side projects"
             autoFocus
           />
+          {createGroup.isError ? (
+            <p role="alert" className="text-xs text-destructive">
+              {createGroup.error.message || "Failed to create group."}
+            </p>
+          ) : null}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={createGroup.isPending}
+          >
             Cancel
           </Button>
           <Button
-            disabled={!name.trim()}
-            onClick={() => {
-              // TODO: wire to `useCreateGroup` hook (groups:create) — see Phase 1 report.
-              setOpen(false);
-              setName("");
-            }}
+            disabled={!name.trim() || createGroup.isPending}
+            onClick={handleCreate}
           >
-            Create
+            {createGroup.isPending ? "Creating…" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RenameGroupDialog({ group }: { group: Group }) {
+  const [open, setOpen] = React.useState(false);
+  const [name, setName] = React.useState(group.name);
+  const renameGroup = useRenameGroup();
+
+  // Re-seed the field from the current group name each time we open, and
+  // clear any prior error when we close.
+  React.useEffect(() => {
+    if (open) {
+      setName(group.name);
+    } else {
+      renameGroup.reset();
+    }
+  }, [open, group.name, renameGroup]);
+
+  const handleRename = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    renameGroup.mutate(
+      { id: group.id, name: trimmed },
+      {
+        onSuccess: () => {
+          setOpen(false);
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Rename group ${group.name}`}
+          className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename group</DialogTitle>
+          <DialogDescription>Give “{group.name}” a new name.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={`rename-group-${group.id}`}>Name</Label>
+          <Input
+            id={`rename-group-${group.id}`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim() && !renameGroup.isPending) {
+                e.preventDefault();
+                handleRename();
+              }
+            }}
+            autoFocus
+          />
+          {renameGroup.isError ? (
+            <p role="alert" className="text-xs text-destructive">
+              {renameGroup.error.message || "Failed to rename group."}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={renameGroup.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              !name.trim() ||
+              name.trim() === group.name ||
+              renameGroup.isPending
+            }
+            onClick={handleRename}
+          >
+            {renameGroup.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteGroupDialog({ group }: { group: Group }) {
+  const [open, setOpen] = React.useState(false);
+  const deleteGroup = useDeleteGroup();
+
+  React.useEffect(() => {
+    if (!open) {
+      deleteGroup.reset();
+    }
+  }, [open, deleteGroup]);
+
+  const handleDelete = () => {
+    deleteGroup.mutate(
+      { id: group.id },
+      {
+        onSuccess: () => {
+          setOpen(false);
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Delete group ${group.name}`}
+          className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete group</DialogTitle>
+          <DialogDescription>
+            Delete “{group.name}”? The repos in it are not deleted — they just
+            leave this group.
+          </DialogDescription>
+        </DialogHeader>
+        {deleteGroup.isError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {deleteGroup.error.message || "Failed to delete group."}
+          </p>
+        ) : null}
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={deleteGroup.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteGroup.isPending}
+            onClick={handleDelete}
+          >
+            {deleteGroup.isPending ? "Deleting…" : "Delete"}
           </Button>
         </DialogFooter>
       </DialogContent>
