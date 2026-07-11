@@ -17,9 +17,11 @@ awaiting archival (ATR-013).
 | 3 Deep integrations (process, launcher, **Claude**, git) | ✅ functional — 138 real Claude projects, real per-project usage trends, transcript viewer; embeddings wired (Ollama-gated). Deferred: MCP "running" status |
 | 4 Intelligence · 5 Distribution · 6 Cross-platform       | ⛔ not started (post-MVP)                                                                                                                                   |
 
-**Goal:** a daily-driver MVP. **22 of 26 ledger items closed across Waves 1–3.** What's left
-is cleanup: legacy-stack retirement (ATR-013), test-ABI automation tail (ATR-016), and two
-env papercuts (ATR-024/025). See [`docs/PLAN.md`](./docs/PLAN.md).
+**Goal:** a daily-driver MVP. **22 of 26 ledger items closed across Waves 1–3.** Left over
+from the waves: legacy-stack retirement (ATR-013), test-ABI automation tail (ATR-016), and two
+env papercuts (ATR-024/025). A **2026-07-11 data-safety/scan/UX audit** then added **11 P1
+items (ATR-027…045)** — moved-repo identity, stale-row lifecycle, scanner blind spots,
+last-opened accuracy, catalog list UX. See [`docs/PLAN.md`](./docs/PLAN.md).
 
 **Build health:** `tsc --noEmit` ✅ · `vitest` **858 passed / 5 skipped / 0 failed** ·
 **Electron E2E 7/7**. Fonts (IBM Plex Sans) load at runtime.
