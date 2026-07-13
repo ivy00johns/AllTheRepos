@@ -167,6 +167,21 @@ export interface SetRepoTagsInput {
 /** Response for `catalog:setTags`. The updated Repo. */
 export type SetRepoTagsResult = Repo;
 
+/** Input for `catalog:delete` — remove one repo row from the catalog (ATR-028). */
+export interface DeleteRepoInput {
+  slug: string;
+}
+
+/**
+ * Response for `catalog:delete`. `deleted` is false when no row had the slug.
+ * Deleting never touches the repo on disk — it only drops the catalog row,
+ * its FTS entry, group memberships, and (best-effort) its vector embedding.
+ */
+export interface DeleteRepoResult {
+  slug: string;
+  deleted: boolean;
+}
+
 /**
  * Input for `catalog:smartFilter` — Phase 4 feature, contract locked in
  * Phase 1 so the renderer can wire the UI affordance early.

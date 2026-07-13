@@ -20,6 +20,7 @@ import type {
   CancelScanResult,
   CreateGroupInput,
   DeleteGroupResult,
+  DeleteRepoResult,
   GetRepoResult,
   GitBranch,
   GitStatus,
@@ -49,6 +50,8 @@ export interface CatalogService {
   get(slug: string): Promise<GetRepoResult>;
   rescan(slug: string): Promise<RescanRepoResult>;
   setTags(slug: string, tags: string[]): Promise<SetRepoTagsResult>;
+  /** ATR-028: drop one catalog row (FTS/memberships/vector included); disk untouched. */
+  deleteRepo(slug: string): Promise<DeleteRepoResult>;
 
   // Group methods (catalog owns the same DB; grouping them here avoids
   // a separate import for a 1-table service).
@@ -56,7 +59,10 @@ export interface CatalogService {
   createGroup(input: CreateGroupInput): Promise<Group>;
   renameGroup(id: number, name: string): Promise<Group>;
   deleteGroup(id: number): Promise<DeleteGroupResult>;
-  setGroupMembers(groupId: number, slugs: string[]): Promise<SetGroupMembersResult>;
+  setGroupMembers(
+    groupId: number,
+    slugs: string[],
+  ): Promise<SetGroupMembersResult>;
 }
 
 // ---------------------------------------------------------------------------

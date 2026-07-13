@@ -13,7 +13,7 @@
  *
  * Phase 0/1/2:
  *   - `window.atr.system.ping`
- *   - `window.atr.catalog.{list,get,search,rescan,setTags,smartFilter}`
+ *   - `window.atr.catalog.{list,get,search,rescan,setTags,delete,smartFilter}`
  *   - `window.atr.scan.{start,status,cancel,onProgress}`
  *   - `window.atr.git.{status,branches,openInEditor}`
  *   - `window.atr.settings.{get,update}`

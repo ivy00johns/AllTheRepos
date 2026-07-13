@@ -48,6 +48,7 @@ import type {
 } from "@shared/types";
 
 import { getSqlite } from "@main/db/client";
+import { markRepoOpened } from "@main/db/queries";
 import { openExternalAllowlisted } from "@main/security/allowlist";
 import { getSettings } from "@main/services/settings";
 
@@ -457,11 +458,38 @@ class LauncherService {
     return { editor, terminal };
   }
 
+  /**
+   * ATR-030: every successful open stamps `repos.last_opened_at` so
+   * "recently opened" (tray, `sort:lastOpened`) reflects reality, whichever
+   * surface drove the open (card buttons, Cmd-K, native menu, tray). A stamp
+   * failure must never turn a successful open into an error.
+   */
+  private async stampIfOk(
+    slug: string,
+    open: Promise<LauncherResult>,
+  ): Promise<LauncherResult> {
+    const result = await open;
+    if (result.ok) {
+      try {
+        await markRepoOpened(slug);
+      } catch (err) {
+        console.error("[launcher] failed to stamp last_opened_at", err);
+      }
+    }
+    return result;
+  }
+
   // -------------------------------------------------------------------------
   // openInEditor
   // -------------------------------------------------------------------------
 
   async openInEditor(input: OpenInEditorPhase3Input): Promise<LauncherResult> {
+    return this.stampIfOk(input.slug, this.openInEditorImpl(input));
+  }
+
+  private async openInEditorImpl(
+    input: OpenInEditorPhase3Input,
+  ): Promise<LauncherResult> {
     const repoPath = repoPathBySlug(input.slug);
     if (!repoPath) {
       return { ok: false, reason: "repo not found" };
@@ -538,6 +566,12 @@ class LauncherService {
   // -------------------------------------------------------------------------
 
   async openInTerminal(input: OpenInTerminalInput): Promise<LauncherResult> {
+    return this.stampIfOk(input.slug, this.openInTerminalImpl(input));
+  }
+
+  private async openInTerminalImpl(
+    input: OpenInTerminalInput,
+  ): Promise<LauncherResult> {
     const repoPath = repoPathBySlug(input.slug);
     if (!repoPath) {
       return { ok: false, reason: "repo not found" };
@@ -617,6 +651,12 @@ class LauncherService {
   // -------------------------------------------------------------------------
 
   async openInFinder(input: OpenSlugInput): Promise<LauncherResult> {
+    return this.stampIfOk(input.slug, this.openInFinderImpl(input));
+  }
+
+  private async openInFinderImpl(
+    input: OpenSlugInput,
+  ): Promise<LauncherResult> {
     const repoPath = repoPathBySlug(input.slug);
     if (!repoPath) {
       return { ok: false, reason: "repo not found" };
@@ -630,6 +670,10 @@ class LauncherService {
   // -------------------------------------------------------------------------
 
   async openRemote(input: OpenSlugInput): Promise<LauncherResult> {
+    return this.stampIfOk(input.slug, this.openRemoteImpl(input));
+  }
+
+  private async openRemoteImpl(input: OpenSlugInput): Promise<LauncherResult> {
     const repoPath = repoPathBySlug(input.slug);
     if (!repoPath) {
       return { ok: false, reason: "repo not found" };

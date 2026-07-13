@@ -80,6 +80,8 @@ import type {
   RegisterActionsResult,
   RenameGroupInput,
   RenameGroupResult,
+  DeleteRepoInput,
+  DeleteRepoResult,
   RescanRepoInput,
   RescanRepoResult,
   ScanEvent,
@@ -134,6 +136,11 @@ export const api = {
         IPC.CATALOG.SET_TAGS,
         input,
       ) as Promise<SetRepoTagsResult>,
+    delete: (input: DeleteRepoInput): Promise<DeleteRepoResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.DELETE,
+        input,
+      ) as Promise<DeleteRepoResult>,
     smartFilter: (input: SmartFilterInput): Promise<SmartFilterResult> =>
       ipcRenderer.invoke(
         IPC.CATALOG.SMART_FILTER,

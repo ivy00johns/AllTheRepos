@@ -25,6 +25,8 @@ import {
 import { requireAtr, getAtr } from "@renderer/lib/atr";
 import { queryKeys } from "@renderer/lib/query-client";
 import type {
+  DeleteRepoInput,
+  DeleteRepoResult,
   ListReposInput,
   ListReposResult,
   SetRepoTagsInput,
@@ -82,6 +84,38 @@ export function useSetRepoTags(): UseMutationResult<
       });
       // Tags appear on grid cards and can be active filters — refresh
       // every list query rather than guessing the active filter key.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.repos.all,
+      });
+    },
+  });
+}
+
+/**
+ * useDeleteRepo — mutation over `catalog:delete` (ATR-028).
+ *
+ * Removes ONE catalog row (plus its FTS entry, group memberships, and
+ * best-effort vector embedding). The repo on disk is never touched — this
+ * exists to clear ghost entries whose folder was deleted or moved away.
+ *
+ * On success we invalidate the repo-detail query for the slug and every
+ * `catalog:list` query so the grid and any open panel drop the row.
+ */
+export function useDeleteRepo(): UseMutationResult<
+  DeleteRepoResult,
+  Error,
+  DeleteRepoInput
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation<DeleteRepoResult, Error, DeleteRepoInput>({
+    mutationFn: async (input: DeleteRepoInput) => {
+      return requireAtr().catalog.delete(input);
+    },
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.repos.detail(variables.slug),
+      });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.repos.all,
       });

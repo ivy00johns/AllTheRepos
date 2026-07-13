@@ -49,6 +49,12 @@ export interface Repo {
   createdAt: string;
   updatedAt: string;
   source: "manual" | "filesystem_scan";
+  /**
+   * ATR-028: true when `fullPath` no longer exists on disk (computed at read
+   * time, never stored). Optional so the superseded `lib/` implementation
+   * (ATR-013) keeps compiling; the Electron backend always sets it.
+   */
+  missing?: boolean;
 }
 
 export interface RepoDetail extends Repo {
@@ -81,9 +87,22 @@ export interface SmartFilter {
 export type ScanProgressEvent =
   | { kind: "started"; totalPaths: number }
   | { kind: "discovered"; fullPath: string; index: number; totalFound: number }
-  | { kind: "indexed"; slug: string; name: string; index: number; totalFound: number }
+  | {
+      kind: "indexed";
+      slug: string;
+      name: string;
+      index: number;
+      totalFound: number;
+    }
   | { kind: "error"; fullPath: string; message: string }
-  | { kind: "completed"; scanned: number; added: number; updated: number; errors: number; durationMs: number };
+  | {
+      kind: "completed";
+      scanned: number;
+      added: number;
+      updated: number;
+      errors: number;
+      durationMs: number;
+    };
 
 /** Search */
 export interface SearchQuery {

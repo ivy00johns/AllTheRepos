@@ -19,6 +19,8 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import { IPC } from "@shared/ipc";
 import {
+  DeleteRepoInputSchema,
+  DeleteRepoResultSchema,
   GetRepoInputSchema,
   GetRepoResultSchema,
   ListReposInputSchema,
@@ -33,6 +35,7 @@ import {
   SmartFilterResultSchema,
 } from "@shared/schemas";
 import type {
+  DeleteRepoResult,
   GetRepoResult,
   ListReposResult,
   RescanRepoResult,
@@ -46,7 +49,9 @@ import { searchService } from "@main/services/search";
 
 import { assertRendererFrame } from "./_frame";
 
-export async function handleCatalogList(raw: unknown): Promise<ListReposResult> {
+export async function handleCatalogList(
+  raw: unknown,
+): Promise<ListReposResult> {
   const input = ListReposInputSchema.parse(raw);
   const result = await catalogService.list(input);
   return ListReposResultSchema.parse(result);
@@ -58,19 +63,37 @@ export async function handleCatalogGet(raw: unknown): Promise<GetRepoResult> {
   return GetRepoResultSchema.parse(result);
 }
 
-export async function handleCatalogSearch(raw: unknown): Promise<SearchReposResult> {
+export async function handleCatalogSearch(
+  raw: unknown,
+): Promise<SearchReposResult> {
   const input = SearchReposInputSchema.parse(raw);
   const result = await searchService.search(input);
   return SearchReposResultSchema.parse(result);
 }
 
-export async function handleCatalogRescan(raw: unknown): Promise<RescanRepoResult> {
+export async function handleCatalogRescan(
+  raw: unknown,
+): Promise<RescanRepoResult> {
   const input = RescanRepoInputSchema.parse(raw);
   const result = await catalogService.rescan(input.slug);
   return RescanRepoResultSchema.parse(result);
 }
 
-export async function handleCatalogSetTags(raw: unknown): Promise<SetRepoTagsResult> {
+/**
+ * ATR-028: remove one repo row from the catalog. Never touches the repo on
+ * disk — row + FTS + memberships + (best-effort) vector only.
+ */
+export async function handleCatalogDelete(
+  raw: unknown,
+): Promise<DeleteRepoResult> {
+  const input = DeleteRepoInputSchema.parse(raw);
+  const result = await catalogService.deleteRepo(input.slug);
+  return DeleteRepoResultSchema.parse(result);
+}
+
+export async function handleCatalogSetTags(
+  raw: unknown,
+): Promise<SetRepoTagsResult> {
   const input = SetRepoTagsInputSchema.parse(raw);
   const result = await catalogService.setTags(input.slug, input.tags);
   return SetRepoTagsResultSchema.parse(result);
@@ -80,7 +103,9 @@ export async function handleCatalogSetTags(raw: unknown): Promise<SetRepoTagsRes
  * Phase 1 stub: contract-locked, returns `[]`. Phase 4 will swap in the
  * real LLM-tagging implementation. The renderer can wire the UI today.
  */
-export async function handleCatalogSmartFilter(raw: unknown): Promise<SmartFilterResult> {
+export async function handleCatalogSmartFilter(
+  raw: unknown,
+): Promise<SmartFilterResult> {
   SmartFilterInputSchema.parse(raw);
   const empty: SmartFilterResult = [];
   return SmartFilterResultSchema.parse(empty);
@@ -97,6 +122,7 @@ export function registerCatalogHandlers(): void {
     IPC.CATALOG.SEARCH,
     IPC.CATALOG.RESCAN,
     IPC.CATALOG.SET_TAGS,
+    IPC.CATALOG.DELETE,
     IPC.CATALOG.SMART_FILTER,
   ] as const;
   for (const channel of channels) {
@@ -140,6 +166,14 @@ export function registerCatalogHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<SetRepoTagsResult> => {
       assertRendererFrame(event);
       return handleCatalogSetTags(raw);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CATALOG.DELETE,
+    async (event: IpcMainInvokeEvent, raw): Promise<DeleteRepoResult> => {
+      assertRendererFrame(event);
+      return handleCatalogDelete(raw);
     },
   );
 

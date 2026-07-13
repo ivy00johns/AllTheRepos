@@ -20,6 +20,8 @@
  *      electron-store. They are NOT the runtime read/write API.
  */
 
+import fs from "node:fs";
+
 import { and, desc, eq, sql, inArray } from "drizzle-orm";
 import type {
   Group,
@@ -119,6 +121,9 @@ export function rowToRepo(row: RepoRow): Repo {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     source: (row.source as "manual" | "filesystem_scan") ?? "filesystem_scan",
+    // ATR-028: computed at read time so a repo whose folder was deleted or
+    // moved away is flagged the moment any surface lists it — never stored.
+    missing: !fs.existsSync(row.fullPath),
   };
 }
 
@@ -209,7 +214,9 @@ export async function listRepos(query: RepoListQuery): Promise<RepoListResult> {
 
   const selectQ = db.select().from(reposTable);
   const withWhere = whereExpr ? selectQ.where(whereExpr) : selectQ;
-  const ordered = withWhere.orderBy(order === "asc" ? sortColumn : desc(sortColumn));
+  const ordered = withWhere.orderBy(
+    order === "asc" ? sortColumn : desc(sortColumn),
+  );
 
   const rows = (await ordered) as RepoRow[];
 
@@ -308,7 +315,8 @@ export function getSettingsFromTable(): Settings | null {
     ollamaBaseUrl: parsed.ollamaBaseUrl ?? "http://localhost:11434",
     ollamaEmbedModel: parsed.ollamaEmbedModel ?? "nomic-embed-text",
     openaiEmbedModel: parsed.openaiEmbedModel ?? null,
-    defaultEditor: (parsed.defaultEditor ?? "vscode") as Settings["defaultEditor"],
+    defaultEditor: (parsed.defaultEditor ??
+      "vscode") as Settings["defaultEditor"],
     schemaVersion: parsed.schemaVersion ?? row.schema_version ?? 1,
   };
 }
@@ -362,8 +370,54 @@ export interface UpsertRepoResult {
 }
 
 /**
+ * ATR-027 — locate the ghost row of a repo that moved on disk.
+ *
+ * Identity: same `remote_url`, or for remote-less repos the same `name` +
+ * `last_commit_hash`. Only rows whose own `full_path` no longer exists on
+ * disk qualify — a row whose path is still present is a second clone, not a
+ * move. When several ghosts match (e.g. two dead checkouts of one remote),
+ * prefer the one whose folder name matches, then the most recently scanned.
+ */
+function findMovedGhost(input: UpsertRepoInput): RepoRow | undefined {
+  const sqlite = getSqlite();
+  let rows: Record<string, unknown>[];
+  if (input.remoteUrl) {
+    rows = sqlite
+      .prepare("SELECT * FROM repos WHERE remote_url = ? AND full_path != ?")
+      .all(input.remoteUrl, input.fullPath) as Record<string, unknown>[];
+  } else if (input.lastCommitHash) {
+    rows = sqlite
+      .prepare(
+        "SELECT * FROM repos WHERE remote_url IS NULL AND name = ? AND last_commit_hash = ? AND full_path != ?",
+      )
+      .all(input.name, input.lastCommitHash, input.fullPath) as Record<
+      string,
+      unknown
+    >[];
+  } else {
+    return undefined;
+  }
+
+  const ghosts = rows
+    .map(mapRawRepoRow)
+    .filter((r) => !fs.existsSync(r.fullPath));
+  if (ghosts.length === 0) return undefined;
+  const byName = ghosts.filter((g) => g.name === input.name);
+  const pool = byName.length > 0 ? byName : ghosts;
+  pool.sort((a, b) =>
+    (b.lastScannedAt ?? "").localeCompare(a.lastScannedAt ?? ""),
+  );
+  return pool[0];
+}
+
+/**
  * Idempotent upsert by full_path. Preserves slug, user tags, notes (n/a here),
  * and group memberships (FK cascade handles groups).
+ *
+ * ATR-027: when no row matches the incoming `full_path`, a same-identity row
+ * whose own path is gone from disk (see {@link findMovedGhost}) counts as
+ * this repo's pre-move row and is rebound in place — new path + fresh scan
+ * metadata, same id/slug/user-tags/groups/`last_opened_at`.
  */
 export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
   const sqlite = getSqlite();
@@ -372,8 +426,12 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
   const existingStmt = sqlite.prepare(
     "SELECT * FROM repos WHERE full_path = ?",
   );
-  const existingRaw = existingStmt.get(input.fullPath) as Record<string, unknown> | undefined;
-  const existing = existingRaw ? mapRawRepoRow(existingRaw) : undefined;
+  const existingRaw = existingStmt.get(input.fullPath) as
+    | Record<string, unknown>
+    | undefined;
+  const existing = existingRaw
+    ? mapRawRepoRow(existingRaw)
+    : findMovedGhost(input);
 
   if (!existing) {
     const allTags: Tag[] = input.heuristicTags.slice(0, 12);
@@ -410,7 +468,9 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
         now,
         "filesystem_scan",
       );
-    const created = mapRawRepoRow(existingStmt.get(input.fullPath) as Record<string, unknown>);
+    const created = mapRawRepoRow(
+      existingStmt.get(input.fullPath) as Record<string, unknown>,
+    );
     return { row: created, created: true };
   }
 
@@ -435,6 +495,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
     .prepare(
       `UPDATE repos SET
         name = ?,
+        full_path = ?,
         remote_url = ?,
         default_branch = ?,
         current_branch = ?,
@@ -455,6 +516,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
     )
     .run(
       input.name,
+      input.fullPath,
       input.remoteUrl,
       input.defaultBranch,
       input.currentBranch,
@@ -473,17 +535,22 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
       now,
       existing.id,
     );
-  const updated = mapRawRepoRow(existingStmt.get(input.fullPath) as Record<string, unknown>);
+  const updated = mapRawRepoRow(
+    existingStmt.get(input.fullPath) as Record<string, unknown>,
+  );
   return { row: updated, created: false };
 }
 
-export async function setRepoGroups(repoId: number, groupIds: number[]): Promise<void> {
+export async function setRepoGroups(
+  repoId: number,
+  groupIds: number[],
+): Promise<void> {
   const db = getDb();
   await db.delete(repoGroups).where(eq(repoGroups.repoId, repoId));
   if (groupIds.length === 0) return;
-  await db.insert(repoGroups).values(
-    groupIds.map((gid) => ({ repoId, groupId: gid })),
-  );
+  await db
+    .insert(repoGroups)
+    .values(groupIds.map((gid) => ({ repoId, groupId: gid })));
 }
 
 export async function addRepoToGroupBySlug(
@@ -498,10 +565,7 @@ export async function addRepoToGroupBySlug(
     .limit(1);
   const repoId = r[0]?.id;
   if (!repoId) throw new Error("repo not found");
-  await db
-    .insert(repoGroups)
-    .values({ repoId, groupId })
-    .onConflictDoNothing();
+  await db.insert(repoGroups).values({ repoId, groupId }).onConflictDoNothing();
 }
 
 export async function removeRepoFromGroupBySlug(
@@ -534,9 +598,7 @@ export async function setUserTagsBySlug(
   const existing = parseJson<Tag[]>(row.tagsJson, []);
   const merged = mergeUserTags(existing, values).slice(0, 12);
   sqlite
-    .prepare(
-      "UPDATE repos SET tags_json = ?, updated_at = ? WHERE id = ?",
-    )
+    .prepare("UPDATE repos SET tags_json = ?, updated_at = ? WHERE id = ?")
     .run(JSON.stringify(merged), new Date().toISOString(), row.id);
   const refreshedRaw = sqlite
     .prepare("SELECT * FROM repos WHERE id = ?")
@@ -551,6 +613,22 @@ export async function markRepoOpened(slug: string): Promise<void> {
       "UPDATE repos SET last_opened_at = ?, updated_at = ? WHERE slug = ?",
     )
     .run(new Date().toISOString(), new Date().toISOString(), slug);
+}
+
+/**
+ * ATR-028 — delete one repo row from the catalog. Never touches the repo on
+ * disk. The `repos_fts_delete` trigger clears the FTS entry and the
+ * `repo_groups` FK cascade clears memberships. Returns the deleted row's id
+ * (so callers can clear the vector index), or null when no row had the slug.
+ */
+export function deleteRepoBySlug(slug: string): { id: number } | null {
+  const sqlite = getSqlite();
+  const row = sqlite
+    .prepare("SELECT id FROM repos WHERE slug = ?")
+    .get(slug) as { id: number } | undefined;
+  if (!row) return null;
+  sqlite.prepare("DELETE FROM repos WHERE id = ?").run(row.id);
+  return { id: row.id };
 }
 
 export async function getRepoIdBySlug(slug: string): Promise<number | null> {
@@ -599,7 +677,9 @@ export async function insertGroup(input: {
       name: input.name,
       description: input.description ?? null,
       isSmart: input.isSmart ?? false,
-      smartFilterJson: input.smartFilter ? JSON.stringify(input.smartFilter) : null,
+      smartFilterJson: input.smartFilter
+        ? JSON.stringify(input.smartFilter)
+        : null,
       parentGroupId: input.parentGroupId ?? null,
     })
     .returning();
@@ -621,7 +701,8 @@ export async function updateGroupRow(
       ? JSON.stringify(patch.smartFilter)
       : null;
   }
-  if (patch.parentGroupId !== undefined) set.parentGroupId = patch.parentGroupId;
+  if (patch.parentGroupId !== undefined)
+    set.parentGroupId = patch.parentGroupId;
   if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
   await db.update(groupsTable).set(set).where(eq(groupsTable.id, id));
   const rows = await db
@@ -658,16 +739,19 @@ export async function setGroupMembersBySlugs(
     ? ((await db
         .select({ id: reposTable.id, slug: reposTable.slug })
         .from(reposTable)
-        .where(inArray(reposTable.slug, slugs))) as Array<{ id: number; slug: string }>)
+        .where(inArray(reposTable.slug, slugs))) as Array<{
+        id: number;
+        slug: string;
+      }>)
     : [];
   const desiredIds = new Set(repoRows.map((r) => r.id));
 
   // Delete all current memberships for this group, then re-insert.
   await db.delete(repoGroups).where(eq(repoGroups.groupId, groupId));
   if (desiredIds.size > 0) {
-    await db.insert(repoGroups).values(
-      [...desiredIds].map((repoId) => ({ repoId, groupId })),
-    );
+    await db
+      .insert(repoGroups)
+      .values([...desiredIds].map((repoId) => ({ repoId, groupId })));
   }
   return desiredIds.size;
 }
@@ -678,9 +762,9 @@ export async function setGroupMembersBySlugs(
  */
 export async function getRepoSummaryBySlug(slug: string): Promise<Repo | null> {
   const sqlite = getSqlite();
-  const raw = sqlite
-    .prepare("SELECT * FROM repos WHERE slug = ?")
-    .get(slug) as Record<string, unknown> | undefined;
+  const raw = sqlite.prepare("SELECT * FROM repos WHERE slug = ?").get(slug) as
+    | Record<string, unknown>
+    | undefined;
   if (!raw) return null;
   return rowToRepo(mapRawRepoRow(raw));
 }

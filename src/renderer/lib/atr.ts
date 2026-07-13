@@ -86,6 +86,8 @@ import type {
   RegisterActionsResult,
   RenameGroupInput,
   RenameGroupResult,
+  DeleteRepoInput,
+  DeleteRepoResult,
   RescanRepoInput,
   RescanRepoResult,
   ScanEvent,
@@ -123,6 +125,8 @@ export interface AtrBridge {
     search(input: SearchReposInput): Promise<SearchReposResult>;
     rescan(input: RescanRepoInput): Promise<RescanRepoResult>;
     setTags(input: SetRepoTagsInput): Promise<SetRepoTagsResult>;
+    /** ATR-028: drop one catalog row; the repo on disk is untouched. */
+    delete(input: DeleteRepoInput): Promise<DeleteRepoResult>;
     smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
   };
   scan: {

@@ -5,6 +5,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import {
+  AlertTriangle,
   ArrowUpRight,
   Brain,
   Circle,
@@ -14,13 +15,14 @@ import {
   Hash,
   Plus,
   Tag,
+  Trash2,
   X,
 } from "lucide-react";
 
 import type { RepoDetail } from "@shared/types";
 
 import { cn } from "@renderer/lib/cn";
-import { useSetRepoTags } from "@renderer/hooks/use-repos";
+import { useDeleteRepo, useSetRepoTags } from "@renderer/hooks/use-repos";
 import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -54,14 +56,33 @@ export function RepoDetailContent({
   );
   const [draft, setDraft] = React.useState("");
   const [activeTab, setActiveTab] = React.useState<DetailTab>("details");
+  // ATR-028: two-step confirm for "Remove from catalog" — no blocking
+  // window.confirm, no accidental one-click deletes.
+  const [confirmingRemove, setConfirmingRemove] = React.useState(false);
 
   const setRepoTags = useSetRepoTags();
+  const deleteRepo = useDeleteRepo();
+
+  const handleRemoveFromCatalog = () => {
+    deleteRepo.mutate(
+      { slug: repo.slug },
+      {
+        onSuccess: () => {
+          // Panel variant: collapse the panel. Page variant: the route
+          // component re-renders its not-found state once the detail
+          // query invalidates; closing is still the friendlier exit.
+          onClose?.();
+        },
+      },
+    );
+  };
 
   // Reset tab selection whenever the user switches to a different
   // repo — landing on a fresh detail should always show "Details"
   // first.
   React.useEffect(() => {
     setActiveTab("details");
+    setConfirmingRemove(false);
   }, [repo.slug]);
 
   React.useEffect(() => {
@@ -129,6 +150,15 @@ export function RepoDetailContent({
             <h2 className="truncate font-mono text-lg font-semibold">
               {repo.name}
             </h2>
+            {repo.missing ? (
+              <Badge
+                variant="destructive"
+                className="gap-1 font-mono"
+                title={`${repo.fullPath} no longer exists on disk`}
+              >
+                missing
+              </Badge>
+            ) : null}
             {repo.isDirty ? (
               <Badge variant="warning" className="gap-1 font-mono">
                 <Circle className="h-2 w-2 fill-current" aria-hidden />
@@ -151,6 +181,72 @@ export function RepoDetailContent({
           </button>
         ) : null}
       </header>
+
+      {repo.missing ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 border-b border-border bg-destructive/10 p-3 text-xs"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">
+                Folder not found on disk
+              </p>
+              <p className="mt-0.5 text-muted-foreground">
+                <span className="font-mono">{repo.fullPath}</span> no longer
+                exists — the project was moved or deleted. If it was moved, run
+                a scan and this entry relinks automatically (tags and groups
+                included). If it&apos;s gone for good, you can remove the entry;
+                only the catalog row is deleted, never files.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {confirmingRemove ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setConfirmingRemove(false)}
+                  disabled={deleteRepo.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleRemoveFromCatalog}
+                  disabled={deleteRepo.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  {deleteRepo.isPending
+                    ? "Removing…"
+                    : "Confirm — remove entry"}
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setConfirmingRemove(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                Remove from catalog…
+              </Button>
+            )}
+          </div>
+          {deleteRepo.isError ? (
+            <p className="text-destructive">
+              {deleteRepo.error.message || "Failed to remove the entry."}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div
         role="tablist"
@@ -362,12 +458,23 @@ export function RepoDetailContent({
       </div>
 
       <footer className="flex items-center gap-2 border-t border-border p-3">
-        <Button asChild className="flex-1">
-          <a href={editorUrl} aria-label={`Open ${repo.name} in VS Code`}>
+        {repo.missing ? (
+          <Button
+            className="flex-1"
+            disabled
+            title="Folder not found on disk — nothing to open"
+          >
             <ExternalLink className="h-4 w-4" aria-hidden />
             Open in VS Code
-          </a>
-        </Button>
+          </Button>
+        ) : (
+          <Button asChild className="flex-1">
+            <a href={editorUrl} aria-label={`Open ${repo.name} in VS Code`}>
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              Open in VS Code
+            </a>
+          </Button>
+        )}
         <Button asChild variant="outline" aria-label="Open full detail page">
           <Link to="/repos/$slug" params={{ slug: repo.slug }}>
             <ArrowUpRight className="h-4 w-4" aria-hidden />

@@ -45,6 +45,8 @@ export const IPC = {
     SEARCH: "catalog:search",
     /** Refresh metadata for one repo. */
     RESCAN: "catalog:rescan",
+    /** ATR-028: remove one repo row from the catalog (never touches disk). */
+    DELETE: "catalog:delete",
     /** Overwrite user tags (heuristic tags preserved). */
     SET_TAGS: "catalog:setTags",
     /** LLM-tagged smart filter (Phase 4 feature, contract locked now). */

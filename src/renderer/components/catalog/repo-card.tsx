@@ -88,12 +88,23 @@ export function RepoCard({
           </h3>
           <PortChipsForRepo processes={processes} className="ml-1" />
         </div>
-        {repo.isDirty ? (
-          <Badge variant="warning" className="shrink-0 gap-1 font-mono">
-            <Circle className="h-2 w-2 fill-current" aria-hidden />
-            dirty
-          </Badge>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {repo.missing ? (
+            <Badge
+              variant="destructive"
+              className="gap-1 font-mono"
+              title={`${repo.fullPath} no longer exists on disk`}
+            >
+              missing
+            </Badge>
+          ) : null}
+          {repo.isDirty ? (
+            <Badge variant="warning" className="gap-1 font-mono">
+              <Circle className="h-2 w-2 fill-current" aria-hidden />
+              dirty
+            </Badge>
+          ) : null}
+        </div>
       </header>
 
       <p className="line-clamp-1 text-xs text-muted-foreground">

@@ -61,6 +61,8 @@ export const RepoSchema = z.object({
   createdAt: IsoDateString,
   updatedAt: IsoDateString,
   source: z.enum(["manual", "filesystem_scan"]),
+  /** ATR-028: computed at read time — true when fullPath is gone from disk. */
+  missing: z.boolean().optional(),
 });
 
 export const SmartFilterSchema = z.object({
@@ -239,6 +241,19 @@ export const RescanRepoInputSchema = z.object({
 });
 
 export const RescanRepoResultSchema = RepoSchema;
+
+// ---------------------------------------------------------------------------
+// catalog:delete (ATR-028)
+// ---------------------------------------------------------------------------
+
+export const DeleteRepoInputSchema = z.object({
+  slug: SlugSchema,
+});
+
+export const DeleteRepoResultSchema = z.object({
+  slug: SlugSchema,
+  deleted: z.boolean(),
+});
 
 // ---------------------------------------------------------------------------
 // catalog:setTags

@@ -35,6 +35,7 @@ vi.mock("@main/services/catalog", () => ({
     get: vi.fn(),
     rescan: vi.fn(),
     setTags: vi.fn(),
+    deleteRepo: vi.fn(),
     listGroups: vi.fn(),
     createGroup: vi.fn(),
     renameGroup: vi.fn(),
@@ -57,6 +58,7 @@ import {
   handleCatalogSearch,
   handleCatalogRescan,
   handleCatalogSetTags,
+  handleCatalogDelete,
   handleCatalogSmartFilter,
 } from "@main/ipc/catalog";
 
@@ -255,6 +257,27 @@ describe("handleCatalogSetTags", () => {
     const tags = Array.from({ length: 13 }, (_, i) => `t${i}`);
     await expect(handleCatalogSetTags({ slug: "foo", tags })).rejects.toThrow();
     expect(catalogService.setTags).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleCatalogDelete (ATR-028)
+// ---------------------------------------------------------------------------
+
+describe("handleCatalogDelete", () => {
+  it("forwards the slug to the service and returns the delete result", async () => {
+    vi.mocked(catalogService.deleteRepo).mockResolvedValue({
+      slug: "foo",
+      deleted: true,
+    });
+    const out = await handleCatalogDelete({ slug: "foo" });
+    expect(catalogService.deleteRepo).toHaveBeenCalledWith("foo");
+    expect(out).toEqual({ slug: "foo", deleted: true });
+  });
+
+  it("rejects an empty slug before touching the service", async () => {
+    await expect(handleCatalogDelete({ slug: "" })).rejects.toThrow();
+    expect(catalogService.deleteRepo).not.toHaveBeenCalled();
   });
 });
 
