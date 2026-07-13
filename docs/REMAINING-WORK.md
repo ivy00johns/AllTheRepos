@@ -20,6 +20,8 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 > — moved-repo identity, stale-row lifecycle, scanner blind spots, last-opened accuracy, and
 > catalog list UX. Its 8 P2 findings and 4 speculative directions were **not** intaken
 > (approver chose P1-only); they remain in the audit doc for a later pass.
+>
+> **Wave 4 (2026-07-13):** ATR-027/028/030 shipped — 8 of the 11 remain open.
 
 ---
 
@@ -28,9 +30,6 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 | ID      | P   | Area        | Summary                                                                                                                                                                                                                                                                                                                                                                                                                          | Status    |
 | ------- | --- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | ATR-013 | P1  | migration   | **Retire the legacy Next.js stack** (`app/`, `components/`, `lib/` superseded; zero `src/ → lib/` imports). Its own focused pass: archive the trees, drop `next`/`eslint-config-next`/`.next/` + the `@next` tsconfig plugin, remove the legacy `playwright.config.ts` + `e2e/` and the GPG scanner flake, then `pnpm install` to resync the lockfile. Touches package.json/lockfile/tsconfig so it can't share a parallel wave. | open      |
-| ATR-027 | P1  | scanner/db  | **Identity-based repo matching on scan** — `upsertRepo` matches only `full_path` and the slug embeds a path hash, so moving a folder duplicates the repo and strands user tags/groups/`last_opened_at` on a dead ghost row. Match by stable identity (`remote_url`, else root-commit hash) and rebind `full_path` in place. [DS-1]                                                                                               | open      |
-| ATR-028 | P1  | catalog     | **Stale-repo lifecycle** — nothing flags or deletes rows whose path is gone: no `catalog:delete` IPC, `deleteEmbedding` has zero callers, ghosts keep matching in FTS/vector search and drive the launcher into dead cwds. Reconcile pass + "missing" badge + delete IPC that clears FTS/Lance. [DS-2/DS-7]                                                                                                                      | open      |
-| ATR-030 | P1  | launcher    | **Stamp `last_opened_at` in all open paths** — only `git:openInEditor` stamps it (vscode/cursor only); the launcher verbs behind card buttons/Cmd-K/menu never do, so "recently opened" sorts mostly-null values. Stamp on success in every launcher open verb. [DS-4]                                                                                                                                                           | open      |
 | ATR-033 | P1  | scanner     | **Discovery: root-is-a-repo / nested repos** — the native walker prunes a subtree at the first `.git`, so a scan root that is itself a git repo indexes 1 repo and hides everything beneath it. Pre-expand roots / keep queuing subdirs after a repo hit. [SC-1]                                                                                                                                                                 | open      |
 | ATR-037 | P1  | scan        | **Auto-detect new projects** — no watcher on `scanPaths` and no scan-on-launch (`scanService.boot()` is a no-op); new repos are invisible until a manual "Scan now". Debounced chokidar watcher (mirror the Claude watcher) → incremental scan. [SC-6]                                                                                                                                                                           | open      |
 | ATR-038 | P1  | ux          | **First-run flow** — fresh install shows "No repos match / adjust your filters" with no scan CTA; the only trigger is buried in Settings. Distinguish unconfigured-empty from filtered-empty; folder-picker CTA + first scan. [SC-7/UX-3]                                                                                                                                                                                        | open      |
@@ -47,6 +46,14 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 ---
 
 ## Done / closed
+
+**Wave 4 (2026-07-13)** — ATR-027/028/030 (the audit's data-safety core):
+moved-repo identity rebind (`upsertRepo` matches `remote_url`, else name +
+`last_commit_hash`, only when the old path is gone — tags/groups/last-opened
+survive folder moves); stale-repo lifecycle (`missing` computed at read time,
+ghost badge + banner, `catalog:delete` IPC clearing FTS/memberships/vector,
+guarded remove flow — disk never touched); `last_opened_at` stamped by every
+launcher open verb. 19 new tests. Commit `4124c39`.
 
 **Wave 1 (2026-05-31)** — ATR-001/002/003/004/005/009/012/015: Claude tab real data (138 projects), catalog search + tag/group persistence, `pnpm dev`→Electron, green typecheck, de-flaked test.
 
