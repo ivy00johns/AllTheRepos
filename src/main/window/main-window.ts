@@ -71,7 +71,17 @@ export function createMainWindow(): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
-    window.show();
+    // Under E2E (`ATR_E2E=1`, set by playwright.electron.config.ts) show the
+    // window WITHOUT activating it. A plain `show()` makes macOS focus the
+    // app, so a test run repeatedly yanks keyboard focus away from whatever
+    // the developer is typing into — and the suite launches one app per spec.
+    // `showInactive()` renders identically for Playwright, which drives the
+    // window over the debugger protocol and never needs it focused.
+    if (process.env.ATR_E2E === "1") {
+      window.showInactive();
+    } else {
+      window.show();
+    }
   });
 
   // Defense in depth: any anchor with target=_blank or a window.open()

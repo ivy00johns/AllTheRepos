@@ -90,6 +90,12 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
   fire-and-forget (~26s → ~22s), but the architectural fix is deliberately NOT in this wave.
   That single change was enough to take **Electron E2E from 0/7 to 7/7** and cut the suite
   from 4.0m to 1.6m — the specs had been dying on `firstWindow()`'s 30s default.
+- **E2E no longer steals focus.** The suite launches one Electron app per spec (7 per
+  run) and `main-window.ts` called `show()`, which *activates* the app on macOS — so a run
+  repeatedly yanked keyboard focus away from whatever was being typed. Under `ATR_E2E=1`
+  (set once in `playwright.electron.config.ts`, propagated by each spec's
+  `...process.env` spread) the app now hides its dock icon and uses `showInactive()`.
+  Playwright drives the window over the debugger protocol and never needs it focused.
 - **ATR-016 — native-ABI flip automated.** New `scripts/ensure-native-abi.mjs` probes the
   ABI and rebuilds only on a genuine mismatch; every test script now guards itself, so
   `pnpm test` and `pnpm test:electron-e2e` can be run in any order. Two real traps found

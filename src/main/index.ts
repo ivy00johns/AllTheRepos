@@ -135,6 +135,17 @@ if (!gotSingleInstanceLock) {
   app
     .whenReady()
     .then(async () => {
+      // 0. E2E only — run as a macOS accessory app so the suite never steals
+      //    focus. Launching a normal app ACTIVATES it, which interrupts
+      //    whatever the developer is typing; the suite launches one app per
+      //    spec, so that adds up fast. Hiding the dock icon (LSUIElement
+      //    behaviour) keeps the app out of the activation path entirely.
+      //    Playwright drives the window over the debugger protocol and never
+      //    needs it focused. No E2E spec asserts on dock or activation state.
+      if (process.env.ATR_E2E === "1") {
+        app.dock?.hide();
+      }
+
       // 1. CSP — must be in place before any document load.
       installContentSecurityPolicy();
 

@@ -16,6 +16,12 @@
 
 import { defineConfig } from "@playwright/test";
 
+// Mark the whole run as E2E. Every spec spreads `...process.env` into its
+// `_electron.launch({ env })`, so setting it here reaches all of them without
+// touching a single spec. The main process uses it to show the window
+// inactive and to hide the dock icon, so a run no longer steals focus.
+process.env.ATR_E2E = "1";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   // Phase 0: electron-launch.spec.ts; Phase 1: catalog-flow.spec.ts;
