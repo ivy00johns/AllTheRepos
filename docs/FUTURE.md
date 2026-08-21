@@ -14,11 +14,14 @@ The "make the app opinionated" phase. None of this exists yet (correctly — it'
 - **Smart suggestions** — cards on the home view (stale repos, dirty-and-unpushed, etc.).
 - **LLM auto-tagging** — Ollama-first / OpenAI-fallback background job writing `tags(source='smart')`. (The `catalog:smartFilter` IPC channel is already reserved and returns `[]`.)
 - **Activity timeline + heatmap.**
-- **Semantic search activation** — the LanceDB plumbing exists but embeddings are never written (ATR-018). Turning conceptual search on is really a Phase 4 deliverable; until then the affordance should be hidden or relabeled.
+- **Semantic search activation** — ~~embeddings are never written~~ the write path shipped in Wave 3 (ATR-018); vectors are produced whenever Ollama is reachable. What remains here is making conceptual search a first-class, always-on feature rather than an Ollama-gated best effort.
 
 ## Phase 5 — Polish & distribution
 
-The "a .dmg you'd put on a release page" phase. None of this is built.
+> **Promoted out of this file on 2026-08-21.** Phase 5 is now in scope and tracked as
+> **ATR-046…052** in [`REMAINING-WORK.md`](./REMAINING-WORK.md); the list below is kept as
+> the original scoping note. Nothing here is built yet — ATR-046 (signing) is blocked on an
+> Apple Developer Program membership.
 
 - Multi-theme support (OLED, Slate, Light, High-contrast) + density modes + custom keymaps.
 - Snapshots / export-import.
@@ -38,4 +41,4 @@ The "a .dmg you'd put on a release page" phase. None of this is built.
 ## Decisions parked here
 
 - **Tauri migration** — NEW-PLAN §2 acknowledges Tauri would cut bundle size ~10×, but the JS-native stack (Drizzle/LanceDB/simple-git) makes Electron the pragmatic choice for a single-user tool. Revisit only if distribution scale ever demands it; the renderer + shared schemas would port unchanged.
-- **GitHub API integration** — a WIP `lib/github/` client exists on the `feature/github-api-integration` branch and as dead code in the tree. Not wired to either app. If it's wanted, it belongs in a Phase 4 "GitHub metadata" work item; otherwise delete it (tracked as part of ATR-013).
+- **GitHub API integration** — the WIP `lib/github/` client was **deleted with the legacy stack** on 2026-08-21 (ATR-013), along with the `@octokit/*` deps that only it used. It survives on the `feature/github-api-integration` branch. If GitHub metadata is ever wanted, it returns as a fresh Phase 4 work item built against `src/main`.

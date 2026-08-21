@@ -22,6 +22,14 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 > (approver chose P1-only); they remain in the audit doc for a later pass.
 >
 > **Wave 4 (2026-07-13):** ATR-027/028/030 shipped — 8 of the 11 remain open.
+>
+> **Wave 0 (2026-08-21):** the goal widened from *daily-driver MVP* to **production
+> ready** — see [`plans/2026-08-21-production-readiness-plan.md`](./plans/2026-08-21-production-readiness-plan.md).
+> Foundation work landed: `main` fast-forwarded past 19 unmerged commits and pushed to a
+> GitHub remote (the project previously existed on one disk with no backup), the legacy
+> Next.js stack retired (ATR-013), and the native-ABI flip automated (ATR-016). Phase 5
+> distribution was promoted out of `FUTURE.md` into **ATR-046…052**; ATR-053/054 record
+> fallout from the retirement. The 8 Wave-A P1s are unchanged and next.
 
 ---
 
@@ -29,7 +37,6 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 
 | ID      | P   | Area        | Summary                                                                                                                                                                                                                                                                                                                                                                                                                          | Status    |
 | ------- | --- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| ATR-013 | P1  | migration   | **Retire the legacy Next.js stack** (`app/`, `components/`, `lib/` superseded; zero `src/ → lib/` imports). Its own focused pass: archive the trees, drop `next`/`eslint-config-next`/`.next/` + the `@next` tsconfig plugin, remove the legacy `playwright.config.ts` + `e2e/` and the GPG scanner flake, then `pnpm install` to resync the lockfile. Touches package.json/lockfile/tsconfig so it can't share a parallel wave. | open      |
 | ATR-033 | P1  | scanner     | **Discovery: root-is-a-repo / nested repos** — the native walker prunes a subtree at the first `.git`, so a scan root that is itself a git repo indexes 1 repo and hides everything beneath it. Pre-expand roots / keep queuing subdirs after a repo hit. [SC-1]                                                                                                                                                                 | open      |
 | ATR-037 | P1  | scan        | **Auto-detect new projects** — no watcher on `scanPaths` and no scan-on-launch (`scanService.boot()` is a no-op); new repos are invisible until a manual "Scan now". Debounced chokidar watcher (mirror the Claude watcher) → incremental scan. [SC-6]                                                                                                                                                                           | open      |
 | ATR-038 | P1  | ux          | **First-run flow** — fresh install shows "No repos match / adjust your filters" with no scan CTA; the only trigger is buried in Settings. Distinguish unconfigured-empty from filtered-empty; folder-picker CTA + first scan. [SC-7/UX-3]                                                                                                                                                                                        | open      |
@@ -38,7 +45,16 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 | ATR-042 | P1  | ui          | **Lift the silent 200-repo cap** — `useRepos({limit:200})` + a non-virtualized grid mounting a live card per repo; repos 201+ are invisible and the count reads "200 of 200". Pagination or virtualization + true counts. [UX-5]                                                                                                                                                                                                 | open      |
 | ATR-043 | P1  | ui          | **Group-membership UI** — `useSetGroupMembers` and the `groups.setMembers` preload bridge have zero callers; manual groups can be created/renamed/deleted but never populated. Add-to-group affordance on detail + card context action. [UX-6]                                                                                                                                                                                   | open      |
 | ATR-045 | P1  | ui          | **List/table view toggle** — card grid only today; wrong primitive for triaging hundreds of repos. Compact sortable table (name/description/last-opened/size) toggleable with cards. Pairs with ATR-040/042. [UX-8]                                                                                                                                                                                                              | open      |
-| ATR-016 | P2  | build/tests | `test:electron-e2e` + `test:full` scripts shipped (W2). Tail remaining: implement the `rebuild-natives.mjs` → `electron-builder install-app-deps` fallback (still dead code); align `tests/helpers/test-db.ts` CONTRACT_SQL to the fixed FTS triggers (harmless drift flagged in W3).                                                                                                                                            | ◐ partial |
+| ATR-046 | P1  | dist        | **Code signing + notarization** — `electron-builder.yml` ships `identity: null` + `hardenedRuntime: false`, and `scripts/notarize.mjs` is an explicit no-op placeholder. Needs a Developer ID Application cert + App Store Connect API key (see D2 in the plan). Blocked on an Apple Developer Program membership.                                     | open      |
+| ATR-047 | P1  | dist        | **CI on GitHub Actions** — no `.github/` exists. Run `typecheck` (all three tsconfigs) + `vitest` + Electron E2E on push/PR. Unblocked by ATR-016: CI can no longer be defeated by the native-ABI flip.                                                                                                                                             | open      |
+| ATR-048 | P1  | dist        | **Release workflow** — tag push → signed, notarized DMG published to GitHub Releases. Depends on ATR-046 + ATR-047.                                                                                                                                                                                                                                 | open      |
+| ATR-049 | P1  | dist        | **Auto-update** — `electron-updater` is a dependency but imported nowhere in `src/`. Wire the GitHub Releases feed + a user-visible update affordance. Depends on ATR-048.                                                                                                                                                                          | open      |
+| ATR-055 | P1  | perf        | **~22s cold start — the window is gated on service boot.** `app.whenReady()` awaits `processService.boot()` → `launcherService.boot()` → `claudeService.boot()` *before* creating the main window, so nothing paints until every service finishes. Measured on 2026-08-21: process **18.4s**, claude **5.6s**, launcher **1.5s** (~26s to first paint). Making the process prime-tick fire-and-forget cut it to ~22s, but the concurrent `lsof` sweep still saturates the main thread while the other services boot. Real fix: register IPC handlers, create the window, THEN boot services in the background with each handler awaiting its service's `ready` promise. Also why Electron E2E is flaky — `firstWindow()` defaults to a 30s timeout. | open      |
+| ATR-050 | P2  | dist        | **First-run onboarding window** — scan-path selection, default editor/terminal, hotkey. May be redundant once ATR-038 ships its in-app first-run CTA; decide at the Wave A gate (D3 in the plan).                                                                                                                                                   | open      |
+| ATR-051 | P2  | dist        | **Branded DMG** — background image + custom installer layout.                                                                                                                                                                                                                                                                                      | open      |
+| ATR-052 | P2  | dist        | **Release discipline** — versioning, changelog, and release docs (`package.json` is still `0.1.0` / `private: true`).                                                                                                                                                                                                                               | open      |
+| ATR-053 | P2  | test        | **Hybrid-search coverage gap** — retiring the legacy stack (ATR-013) deleted `tests/search/hybrid.test.ts`, which was the only coverage of hybrid FTS+vector search. It was wired to `lib/db` / `lib/embed` / `lib/search`, so porting is a rewrite against `src/main/services/search.ts`, not a move. `services/tag.ts` coverage WAS ported.        | open      |
+| ATR-054 | P2  | build       | **No lint at all** — `lint` was `next lint` and went with the Next stack; there is no `eslint.config.*` in the repo and never was. Add a flat ESLint config covering `src/`, `tests/`, `scripts/`, and wire it into ATR-047's CI.                                                                                                                    | open      |
 | ATR-024 | P2  | build       | nvm shell wrapper recurses on bare `node`/`npx`/`npm` (broken dotfile `_load_nvm`). Workaround: absolute binary. Fix in the user's `~/.zshrc`/profile (outside the repo — needs the user, or explicit OK to edit dotfiles).                                                                                                                                                                                                      | open      |
 | ATR-025 | P2  | build       | Commit signing fails non-interactively (1Password SSH agent) → this session's commits used `--no-gpg-sign`. Re-sign on a real terminal (approve the 1Password prompt) or relax signing for agent sessions.                                                                                                                                                                                                                       | open      |
 | —       | P2  | claude      | MCP server **"running"** status (PID-matching) — explicitly **deferred** out of ATR-021 (not faked; `mergeMcpServers` emits `configured`/`unavailable` only). Promote to a numbered item if/when it's wanted.                                                                                                                                                                                                                    | deferred  |
@@ -46,6 +62,44 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 ---
 
 ## Done / closed
+
+**Wave 0 (2026-08-21)** — production-readiness foundation:
+
+- **Backup + branch topology** — `main` was **19 commits behind** `feat/move-safety`
+  (every build wave lived on one unmerged branch), and the repo had **no git remote at
+  all**. Fast-forwarded `main`, created a private GitHub remote, and pushed all 8 branches.
+  Neither risk was tracked by any ATR item.
+- **ATR-013 — legacy Next.js stack retired.** Removed `app/`, `components/`, `lib/`,
+  `e2e/`, `playwright.config.ts`, `next.config.ts`, `next-env.d.ts`, and the six legacy
+  test dirs. Dropped `next`, both `@octokit/*` (only `lib/github/` used them),
+  `eslint-config-next`, `jsdom`, and `tsx`; resynced the lockfile. Kept what turned out to
+  be shared, not legacy: `drizzle/` (the live app runs its migrations from there),
+  `postcss.config.mjs` (Tailwind 4 for the renderer), and `@leeoniya/ufuzzy` (loaded via a
+  **dynamic** import in `spotlight-app.tsx`, which a naive grep misses). Repointed
+  `drizzle.config.ts` at `src/main/db/schema.ts` and `components.json` at the renderer.
+  Ported `tests/tag/heuristic.test.ts` → `tests/unit/main/services/tag.spec.ts` (7 tests)
+  so the live tagger kept its coverage; the hybrid-search suite could not be ported and is
+  now ATR-053.
+- **`typecheck` actually checks the app now.** The root `tsconfig.json` *excluded*
+  `src/main`, `src/preload`, and `src/renderer`, so `tsc --noEmit` had never covered the
+  Electron code — the "tsc clean" signal was weaker than it looked. `typecheck` now runs
+  all three configs.
+- **Cold-start bug found (ATR-055).** Chasing the Electron E2E failures surfaced a
+  ~26-second cold start: the main window is created only after every service finishes
+  booting. Measured per service and filed with the diagnosis; the `lsof` prime tick is now
+  fire-and-forget (~26s → ~22s), but the architectural fix is deliberately NOT in this wave.
+  That single change was enough to take **Electron E2E from 0/7 to 7/7** and cut the suite
+  from 4.0m to 1.6m — the specs had been dying on `firstWindow()`'s 30s default.
+- **ATR-016 — native-ABI flip automated.** New `scripts/ensure-native-abi.mjs` probes the
+  ABI and rebuilds only on a genuine mismatch; every test script now guards itself, so
+  `pnpm test` and `pnpm test:electron-e2e` can be run in any order. Two real traps found
+  while building it: a bare `require("better-sqlite3")` succeeds against a foreign ABI
+  because `bindings()` is deferred until the first `new Database(...)` (so the probe must
+  *exercise* the addon), and `find-git-repositories` ships **per-ABI** builds side by side
+  so it loads under both runtimes and can never indicate the tree's ABI — only
+  `better-sqlite3` is authoritative. Also aligned `tests/helpers/test-db.ts` CONTRACT_SQL
+  to the live post-ATR-019 FTS triggers (it still carried the *buggy* `tags_text = ''`
+  insert trigger).
 
 **Wave 4 (2026-07-13)** — ATR-027/028/030 (the audit's data-safety core):
 moved-repo identity rebind (`upsertRepo` matches `remote_url`, else name +

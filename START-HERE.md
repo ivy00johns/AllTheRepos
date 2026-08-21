@@ -1,31 +1,43 @@
 # START HERE — AllTheRepos
 
 A local-first macOS **Electron** desktop hub for the dozens-to-thousands of git repos on
-your machine. Mid-migration from a legacy Next.js web app; the Electron app (`src/`) is the
-real product and the Next.js app (`app/`, `components/`, `lib/`) is a superseded safety net
-awaiting archival (ATR-013).
+your machine. The Electron app under `src/` is the whole product — the legacy Next.js app
+was **retired on 2026-08-21** (ATR-013), so `app/`, `components/` and `lib/` no longer
+exist. Recover them from git history or the `build/repo-hub-mvp` branch if ever needed.
 
 > New session? Read this, then [`docs/PLAN.md`](./docs/PLAN.md) (where we are) and
 > [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) (what's next). ~3 pages, replaces
 > crawling the source tree.
 
-## Status at a glance (2026-06-01, after Wave 3)
+## Status at a glance (2026-08-21, after Wave 0 of the production-readiness push)
 
 | Phase                                                    | State                                                                                                                                                       |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0 Scaffold · 1 Feature parity · 2 Native shell           | ✅ functional — search, tag/group persistence, manual-group filter, fonts, spotlight/tray repo-open, real tray icon, dock badge                             |
 | 3 Deep integrations (process, launcher, **Claude**, git) | ✅ functional — 138 real Claude projects, real per-project usage trends, transcript viewer; embeddings wired (Ollama-gated). Deferred: MCP "running" status |
-| 4 Intelligence · 5 Distribution · 6 Cross-platform       | ⛔ not started (post-MVP)                                                                                                                                   |
+| **5 Distribution**                                       | 🔨 **in scope** — unsigned, no CI, updater unwired; promoted out of `FUTURE.md` into ATR-046…052                                                            |
+| 4 Intelligence · 6 Cross-platform                        | ⛔ not started (still post-MVP → [`docs/FUTURE.md`](./docs/FUTURE.md))                                                                                      |
 
-**Goal:** a daily-driver MVP. **22 of 26 ledger items closed across Waves 1–3.** Left over
-from the waves: legacy-stack retirement (ATR-013), test-ABI automation tail (ATR-016), and two
-env papercuts (ATR-024/025). A **2026-07-11 data-safety/scan/UX audit** then added **11 P1
-items (ATR-027…045)**; Wave 4 (2026-07-13) shipped its data-safety core (ATR-027/028/030 —
-moves no longer duplicate repos, ghosts are flagged/removable, last-opened is real), leaving
-**8 open**: scanner blind spots + catalog list UX. See [`docs/PLAN.md`](./docs/PLAN.md).
+**Goal (widened 2026-08-21): production ready** — a signed, notarized, CI-built,
+auto-updating app. The daily-driver MVP is the first half and is nearly done. Sequencing:
+[`docs/plans/2026-08-21-production-readiness-plan.md`](./docs/plans/2026-08-21-production-readiness-plan.md).
 
-**Build health:** `tsc --noEmit` ✅ · `vitest` **858 passed / 5 skipped / 0 failed** ·
-**Electron E2E 7/7**. Fonts (IBM Plex Sans) load at runtime.
+**Wave 0 (2026-08-21)** closed the foundation: `main` was **19 commits behind** the work
+branch and the repo had **no git remote at all** — both fixed, and it now lives on a private
+GitHub remote. The legacy stack is gone (ATR-013) and the native-ABI flip is automated
+(ATR-016), so `pnpm test` and `pnpm test:electron-e2e` no longer need a manual rebuild
+between them.
+
+**Next: Wave A** — the 8 open P1s (scanner blind spots ATR-033/037, catalog list UX
+ATR-038/040/041/042/043/045). Then **Wave B** — distribution, now tracked as ATR-046…052.
+
+**Build health (verified 2026-08-21):** `pnpm typecheck` ✅ **0 errors across all three
+tsconfigs** — it now covers `src/main`, `src/preload` and `src/renderer`, which the root
+config used to exclude. `vitest` **862 passed / 0 failed / 0 skipped** · **Electron E2E
+7/7**. Fonts (IBM Plex Sans) load at runtime.
+
+> ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
+> finishes booting. Known, measured, and filed — expect a slow first paint until it lands.
 
 ## Run it
 
@@ -39,7 +51,10 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
 
 ## Gotchas (this machine)
 
-- **`pnpm test` needs host-ABI natives.** Just launched the app? `pnpm rebuild better-sqlite3 find-git-repositories` first (ATR-016), or use `pnpm test:full`.
+- ~~**`pnpm test` needs host-ABI natives.**~~ **Fixed (ATR-016).** Every test script now
+  runs `scripts/ensure-native-abi.mjs` first and rebuilds only on a real mismatch, so the
+  suites can be run in any order. Only `better-sqlite3` actually flips —
+  `find-git-repositories` ships per-ABI builds and works under both runtimes.
 - **Bare `node`/`npx`/`npm` recurse** (broken nvm wrapper in the dotfiles). Use `~/.nvm/versions/node/v22.22.3/bin/node`, or fix the dotfile (ATR-024).
 - **Commits don't sign non-interactively** — 1Password SSH-agent signing fails headless; this session's commits used `--no-gpg-sign` (ATR-025).
 
@@ -52,6 +67,7 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
 | [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md)                 | **Tactical ledger** — open items, ID'd (`ATR-###`)      | ✅ canonical        |
 | [`docs/FUTURE.md`](./docs/FUTURE.md)                                 | **Frontier** — Phase 4/5/6, parked decisions            | ✅ canonical        |
 | [`NEW-PLAN.md`](./NEW-PLAN.md)                                       | 850-line architecture & feature design report           | 🔒 frozen reference |
+| [`docs/plans/`](./docs/plans/)                                       | Sequenced build plans (orchestrator-ready)              | ✅ current plan     |
 | [`docs/audits/`](./docs/audits/)                                     | Point-in-time audit reports (ledger sources)            | 🔒 frozen reference |
 | [`contracts/`](./contracts/)                                         | IPC / data-layer / schema contracts (v1 → v3b)          | 🔒 reference        |
 | [`README.md`](./README.md)                                           | Setup + architecture for humans                         | ✅ keep current     |
