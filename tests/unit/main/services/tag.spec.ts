@@ -1,36 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { makeTmpDir, cleanupTmp } from "../helpers/tmp-dir.js";
-import type { LanguageBytes, Tag } from "@/contracts/types";
+
+import { makeTmpDir, cleanupTmp } from "../../../helpers/tmp-dir.js";
+import { inferTags } from "@main/services/tag";
+import type { Tag } from "@shared/types";
 
 /**
- * Heuristic tagger contract (per contracts/README.md rule #5: tag source is
- * "heuristic" for parser-derived tags).
+ * Heuristic tagger contract (contracts/README.md rule #5: parser-derived
+ * tags carry `source: "heuristic"`).
  *
- * Backend exposes:
- *   heuristicTagsForRepo({fullPath, languages, readmeContent}): Tag[]
+ * Ported from the legacy `tests/tag/heuristic.test.ts` when the Next.js
+ * stack was retired (ATR-013). `src/main/services/tag.ts` is a direct port
+ * of `lib/tag/heuristic.ts`, so the assertions carry over unchanged — only
+ * the module under test moved. Kept because this is the only coverage of
+ * the live tagger, which every scan writes through.
  */
-
-interface HeuristicInput {
-  fullPath: string;
-  languages: LanguageBytes[];
-  readmeContent: string | null;
-}
-
-interface HeuristicModule {
-  heuristicTagsForRepo: (input: HeuristicInput) => Tag[];
-}
-
-async function loadHeuristic(): Promise<HeuristicModule> {
-  return (await import("@/lib/tag/heuristic")) as unknown as HeuristicModule;
-}
 
 function values(tags: Tag[]): string[] {
   return tags.map((t) => t.value);
 }
 
-describe("tag/heuristic — contracts/README.md rule #5 (heuristic tag source)", () => {
+describe("services/tag — heuristic inference", () => {
   let root: string | null = null;
 
   beforeEach(() => {
@@ -49,23 +40,12 @@ describe("tag/heuristic — contracts/README.md rule #5 (heuristic tag source)",
   }
 
   function call(): Tag[] {
-    // synchronous — load once per test via top-level dynamic import result
-    return (heuristicTagsForRepo as unknown as (
-      i: HeuristicInput,
-    ) => Tag[])({
+    return inferTags({
       fullPath: root!,
       languages: [],
       readmeContent: null,
     });
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let heuristicTagsForRepo: any;
-
-  beforeEach(async () => {
-    const mod = await loadHeuristic();
-    heuristicTagsForRepo = mod.heuristicTagsForRepo;
-  });
 
   it("package.json with next + react dependency tags both", () => {
     write(
@@ -121,5 +101,16 @@ describe("tag/heuristic — contracts/README.md rule #5 (heuristic tag source)",
     expect(Array.isArray(tags)).toBe(true);
     // Count is bounded per implementation cap.
     expect(tags.length).toBeLessThanOrEqual(12);
+  });
+
+  it("primary language is added as a lowercase tag", () => {
+    const tags = values(
+      inferTags({
+        fullPath: root!,
+        languages: [{ name: "TypeScript", bytes: 1000, color: "#3178c6" }],
+        readmeContent: null,
+      }),
+    );
+    expect(tags).toContain("typescript");
   });
 });

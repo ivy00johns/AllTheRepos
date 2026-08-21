@@ -5,7 +5,7 @@ import path from "node:path";
 const dataDir = process.env.ATR_DATA_DIR ?? path.join(os.homedir(), ".alltherepos");
 
 export default {
-  schema: "./lib/db/schema.ts",
+  schema: "./src/main/db/schema.ts",
   out: "./drizzle",
   dialect: "sqlite",
   dbCredentials: {

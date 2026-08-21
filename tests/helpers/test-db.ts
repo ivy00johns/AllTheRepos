@@ -87,7 +87,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS repos_fts USING fts5(
 
 CREATE TRIGGER IF NOT EXISTS repos_fts_insert AFTER INSERT ON repos BEGIN
   INSERT INTO repos_fts(slug, name, description, readme_content, tags_text)
-  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), '');
+  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), COALESCE(NEW.tags_json,''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS repos_fts_update AFTER UPDATE ON repos BEGIN
@@ -95,7 +95,7 @@ CREATE TRIGGER IF NOT EXISTS repos_fts_update AFTER UPDATE ON repos BEGIN
     name = NEW.name,
     description = COALESCE(NEW.description,''),
     readme_content = COALESCE(NEW.readme_content,''),
-    tags_text = NEW.tags_json
+    tags_text = COALESCE(NEW.tags_json,'')
   WHERE slug = NEW.slug;
 END;
 

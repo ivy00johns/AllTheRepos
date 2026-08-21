@@ -2,27 +2,19 @@ import { defineConfig } from "vitest/config";
 import path from "node:path";
 
 /**
- * Vitest config — multi-glob for the Phase 0 migration.
+ * Vitest config.
  *
- * The existing Next.js suite under `tests/<actions|contract|db|git|search|tag>`
- * keeps using `*.test.ts(x)` and the node-default environment. Phase 0 adds
- * Electron-side units under `tests/unit/**` (and, indirectly, `src/main/**`,
- * `src/preload/**`, `src/shared/**` if those ever ship co-located specs).
+ * Electron units live under `tests/unit/**` as `*.spec.ts`, plus any
+ * co-located specs under `src/<shared|main|preload>/**`. The legacy Next.js
+ * `*.test.ts` suite was removed with the stack in ATR-013.
  *
- * One config, one process. Two projects are intentionally avoided because
- * the existing setup is single-fork (better-sqlite3 + LanceDB don't like
- * worker isolation) and the new tests run fine under the same constraint.
+ * One config, one process. Projects are intentionally avoided because the
+ * setup is single-fork (better-sqlite3 + LanceDB don't like worker isolation).
  */
 export default defineConfig({
   test: {
     environment: "node",
     include: [
-      // Existing Next.js MVP suite (do not move — single source of regression
-      // signal for the legacy backend).
-      "tests/**/*.test.ts",
-      "tests/**/*.test.tsx",
-      // Phase 0 Electron units. `.spec.ts` is used so the new files are
-      // visually distinct from the legacy `.test.ts` ones and easy to grep.
       "tests/unit/**/*.spec.ts",
       "tests/unit/**/*.spec.tsx",
       "src/shared/**/*.spec.ts",
@@ -57,8 +49,11 @@ export default defineConfig({
     },
     coverage: {
       reporter: ["text", "json-summary"],
-      include: ["lib/**/*.ts", "src/shared/**/*.ts", "src/main/**/*.ts"],
-      exclude: ["lib/types.ts", "lib/db/migrate.ts"],
+      include: [
+        "src/shared/**/*.ts",
+        "src/main/**/*.ts",
+        "src/renderer/**/*.ts",
+      ],
     },
   },
   resolve: {

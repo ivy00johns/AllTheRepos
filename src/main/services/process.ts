@@ -273,12 +273,17 @@ class ProcessService {
     this.rebuildTrie();
     this.wireAppFocusEvents();
     // Prime an initial snapshot so `process:list` doesn't block on its
-    // first call. Errors here are non-fatal — the next tick recovers.
-    try {
-      await this.tick();
-    } catch (err) {
+    // first call — but do NOT await it. The prime is an `lsof` sweep that
+    // measured ~18s on a busy machine, and `boot()` is awaited before the
+    // main window is created, so awaiting it delayed the first paint by
+    // that entire amount (ATR-055). Nothing depends on the prime having
+    // finished: `list()` already triggers its own tick when the snapshot
+    // is still empty, so the worst case without priming is that the FIRST
+    // `process:list` call pays for one tick instead of startup paying for
+    // it. Errors are non-fatal — the next tick recovers.
+    void this.tick().catch((err: unknown) => {
       console.error("[backend] processService.boot prime tick failed", err);
-    }
+    });
   }
 
   /**
