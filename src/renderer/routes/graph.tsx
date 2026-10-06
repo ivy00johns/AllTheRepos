@@ -19,6 +19,7 @@ import type { GraphCluster, GraphSignal } from "@shared/types";
 
 import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
 import { MoveDialog } from "@renderer/components/catalog/move-dialog";
+import { RelatedRepos } from "@renderer/components/catalog/related-repos";
 import { useGraph } from "@renderer/hooks/use-graph";
 import { useRepos } from "@renderer/hooks/use-repos";
 import { useSettings } from "@renderer/hooks/use-settings";
@@ -266,6 +267,17 @@ function GraphPage() {
                 })
               )}
             </ul>
+          </section>
+        ) : null}
+
+        {selectedNode ? (
+          <section className="border-b border-border p-4">
+            <RelatedRepos
+              slug={selectedNode.slug}
+              repoName={selectedNode.name}
+              onOpenRepo={setSelectedSlug}
+              title="Curated links"
+            />
           </section>
         ) : null}
 

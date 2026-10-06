@@ -13,25 +13,17 @@ import {
   FolderGit2,
   GitBranch,
   Hash,
-  Link2,
   Plus,
   Tag,
   Trash2,
   X,
 } from "lucide-react";
 
-import type {
-  RemoveRepoLinkInput,
-  RepoDetail,
-  RepoRelation,
-} from "@shared/types";
+import type { RepoDetail } from "@shared/types";
 
-import { getAtr } from "@renderer/lib/atr";
 import { cn } from "@renderer/lib/cn";
 import { useDeleteRepo, useSetRepoTags } from "@renderer/hooks/use-repos";
 import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
-import { ipcErrorText } from "@renderer/lib/ipc-error";
-import { LINK_KIND_LABELS, linkSentence } from "@renderer/lib/repo-links";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -39,12 +31,8 @@ import { Separator } from "@renderer/components/ui/separator";
 import { ClaudeTab } from "@renderer/components/claude/claude-tab";
 
 import { useCover } from "@renderer/hooks/use-cover";
-import {
-  useRemoveRepoLink,
-  useRepoRelations,
-} from "@renderer/hooks/use-graph";
 import type { TaskRunState } from "@renderer/hooks/use-actions";
-import { CurateLinkDialog } from "./curate-link-dialog";
+import { RelatedRepos } from "./related-repos";
 import { FavoriteStar } from "./favorite-star";
 import { TaskRunner } from "./task-runner";
 import { cleanDescription } from "@renderer/lib/describe";
@@ -557,151 +545,6 @@ interface MetaProps {
   label: string;
   value: React.ReactNode;
   mono?: boolean;
-}
-
-/**
- * Which end of a link this repo is on, restated as (from, to).
- *
- * `direction` *is* that fact, so removal never has to guess: an incoming
- * row is one the other repository asserted about this one.
- */
-function linkEnds(rel: RepoRelation, selfSlug: string): RemoveRepoLinkInput {
-  return rel.direction === "outgoing"
-    ? { fromSlug: selfSlug, toSlug: rel.slug, kind: rel.kind }
-    : { fromSlug: rel.slug, toSlug: selfSlug, kind: rel.kind };
-}
-
-/**
- * Curated links touching this repo, every row a hop to the other end.
- *
- * This is the catalog's window onto `repo_links` — the table the MCP and
- * this panel both write. The whole point of asserting a relationship is
- * to act on it, and the only action a catalog offers is "open that one
- * instead", hence buttons rather than a read-only list. Empty is the
- * common case, so the empty state says how to fill it rather than
- * disappearing.
- */
-function RelatedRepos({
-  slug,
-  repoName,
-  onOpenRepo,
-}: {
-  slug: string;
-  repoName: string;
-  onOpenRepo?: (slug: string) => void;
-}) {
-  const relations = useRepoRelations(slug);
-  const items = relations.data?.relations ?? [];
-  const remove = useRemoveRepoLink();
-  const [curating, setCurating] = React.useState(false);
-  // Curating needs the bridge. In a browser-only QE run the list stays
-  // readable and the controls simply are not offered.
-  const canWrite = React.useMemo(() => Boolean(getAtr()), []);
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Related
-        </p>
-        {canWrite ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setCurating(true)}
-            className="h-6 px-1.5 text-[10px] uppercase tracking-widest"
-            aria-label={`Assert a relationship for ${repoName}`}
-          >
-            <Link2 className="h-3 w-3" aria-hidden />
-            Add
-          </Button>
-        ) : null}
-      </div>
-
-      {items.length === 0 ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          {relations.isPending
-            ? "Loading…"
-            : "No curated links yet. Add one here, or from a Claude Code session with the alltherepos MCP."}
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-0.5">
-          {items.map((rel) => {
-            const sentence = linkSentence({
-              kind: rel.kind,
-              direction: rel.direction,
-              selfName: repoName,
-              otherName: rel.name,
-            });
-            return (
-              <li
-                key={`${rel.direction}-${rel.kind}-${rel.slug}`}
-                className="group flex items-start gap-1 rounded-sm px-1 py-0.5 transition-colors duration-150 hover:bg-muted/50"
-              >
-                <button
-                  type="button"
-                  disabled={!onOpenRepo}
-                  onClick={() => onOpenRepo?.(rel.slug)}
-                  aria-label={`Open ${rel.name} — ${sentence}`}
-                  title={rel.why ? `${sentence} — ${rel.why}` : sentence}
-                  className="flex min-w-0 flex-1 items-start gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-                >
-                  <span
-                    aria-hidden
-                    className="font-mono text-[11px] text-accent"
-                  >
-                    {rel.direction === "outgoing" ? "→" : "←"}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-[11px] text-foreground group-hover:text-accent">
-                      {rel.name}
-                    </span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {LINK_KIND_LABELS[rel.kind]}
-                      {rel.why ? ` — ${rel.why}` : ""}
-                    </span>
-                  </span>
-                </button>
-
-                {canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => remove.mutate(linkEnds(rel, slug))}
-                    disabled={remove.isPending}
-                    aria-label={`Remove link — ${sentence}`}
-                    title={`Remove link — ${sentence}`}
-                    className="mt-0.5 shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-40"
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {remove.error ? (
-        <p
-          role="alert"
-          className="mt-1.5 flex items-start gap-1 text-[10px] text-destructive"
-        >
-          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
-          {ipcErrorText(remove.error)}
-        </p>
-      ) : null}
-
-      {canWrite ? (
-        <CurateLinkDialog
-          open={curating}
-          onOpenChange={setCurating}
-          fromSlug={slug}
-          fromName={repoName}
-          linkedSlugs={items.map((rel) => rel.slug)}
-        />
-      ) : null}
-    </div>
-  );
 }
 
 function Meta({ icon, label, value, mono }: MetaProps) {
