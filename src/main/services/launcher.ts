@@ -43,7 +43,6 @@ import type {
   OpenInEditorPhase3Input,
   OpenInTerminalInput,
   OpenSlugInput,
-  Settings,
   TerminalId,
 } from "@shared/types";
 
@@ -421,29 +420,25 @@ class LauncherService {
   }
 
   /**
-   * Resolve user-preferred defaults. Reads `Settings.defaultEditor` -
-   * Phase 3a is additive: when the legacy value happens to match a
-   * Phase 3a `EditorId` ("vscode" | "cursor"), we honor it; otherwise
-   * fall back to the first installed editor / terminal in enum order.
+   * Resolve user-preferred defaults. Reads `Settings.defaultEditor` — when
+   * the persisted choice names an editor that is actually installed we
+   * honour it, whatever it is (every id in `EDITOR_TABLE` is fair game now,
+   * not just `vscode` / `cursor`). An uninstalled or unset preference falls
+   * back to the first available editor in table order.
    *
-   * `defaultTerminal` is a Phase 3a-only setting; gracefully resolves
-   * to the first available terminal when absent.
+   * `Settings.defaultTerminal` is read the same way; it resolves to the
+   * first available terminal when absent.
    */
   private resolveDefaults(
     editors: DetectedEditor[],
     terminals: DetectedTerminal[],
   ): DetectLauncherResult["defaults"] {
-    // Phase 3a is additive over the v1 Settings schema; `defaultTerminal`
-    // is a Phase 3a-only key (added by the settings agent). Read both via
-    // an opaque record cast so we don't depend on the live Settings type
-    // having been extended yet.
-    const settings = getSettings() as Settings &
-      Partial<{ defaultEditor: unknown; defaultTerminal: unknown }>;
+    const settings = getSettings();
 
     let editor: EditorId | null = null;
-    const settingsEditor: unknown = settings.defaultEditor;
+    const settingsEditor = settings.defaultEditor;
     if (
-      typeof settingsEditor === "string" &&
+      settingsEditor !== "none" &&
       isEditorId(settingsEditor) &&
       editors.find((e) => e.id === settingsEditor && e.available)
     ) {
@@ -454,7 +449,7 @@ class LauncherService {
     }
 
     let terminal: TerminalId | null = null;
-    const settingsTerminal: unknown = settings.defaultTerminal;
+    const settingsTerminal = settings.defaultTerminal;
     if (
       typeof settingsTerminal === "string" &&
       isTerminalId(settingsTerminal) &&
@@ -741,6 +736,18 @@ function isEditorId(s: string): s is EditorId {
 
 function isTerminalId(s: string): s is TerminalId {
   return TERMINAL_ID_SET.has(s);
+}
+
+/**
+ * The URL scheme an editor id registers, or `null` when that editor has no
+ * scheme (Xcode) or the id is unknown.
+ *
+ * Exported so callers that need to build a URI themselves — `git:openInEditor`
+ * does — share one mapping with the dispatcher instead of growing a second
+ * editor switch that drifts out of sync the next time an editor is added.
+ */
+export function editorScheme(id: EditorId): string | null {
+  return EDITOR_TABLE.find((e) => e.id === id)?.scheme ?? null;
 }
 
 /**

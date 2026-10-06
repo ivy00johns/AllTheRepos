@@ -11,6 +11,33 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-06
+
+### Changed
+
+- keep the README screenshots from looking like a temp machine
+- rewrite the README around the desktop app
+- generate README screenshots from a demo library
+
+### Fixed
+
+- let the default editor be any editor we actually detected
+- make a released DMG look like the download it is
+- The default editor is now actually respected. `defaultEditor` was a closed three-value
+  enum (`vscode`/`cursor`/`none`), so picking any of the other twelve editors the launcher
+  detects — Devin, Zed, IntelliJ, … — was rejected by settings validation and never saved.
+  The enum now covers every `EditorId`, `git:openInEditor` builds a URL for all of them
+  instead of a `vscode`/`cursor` switch, and the duplicate hardcoded editor radio group in
+  Settings is gone in favour of the detected list (which also names the app on the repo
+  detail button).
+- `defaultTerminal` was being silently dropped by settings validation, so the "Default
+  terminal" picker persisted nothing.
+- The release body now opens with a named `.dmg` download link (and its SHA-256). The
+  asset list put `…-mac.zip` first, so a release that shipped a DMG read as a release that
+  shipped a zip — and the two source archives GitHub appends made it worse.
+- Release notes no longer begin with pnpm's `> script` banner, which was being captured
+  into the notes file and published as the first thing on the release page.
+
 ## [0.1.2] - 2026-10-06
 
 ### Fixed
@@ -92,7 +119,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.0

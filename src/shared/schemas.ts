@@ -21,6 +21,63 @@ import { z } from "zod";
 const IsoDateString = z.string().min(1);
 
 // ---------------------------------------------------------------------------
+// Launcher enums
+// ---------------------------------------------------------------------------
+//
+// Declared here rather than down in the Phase 3a block because
+// `SettingsSchema` — defined just below — persists `defaultEditor`, which is
+// one of these ids. `@main/services/launcher` holds the detection table that
+// is the runtime source of truth for the set; the unit suite pins the two
+// together, so adding an editor means adding it in both places.
+
+export const EDITOR_IDS = [
+  "vscode",
+  "cursor",
+  "zed",
+  "windsurf",
+  "devin",
+  "sublime",
+  "xcode",
+  "idea",
+  "webstorm",
+  "pycharm",
+  "rider",
+  "goland",
+  "clion",
+  "rubymine",
+] as const;
+
+export const EditorIdSchema = z.enum(EDITOR_IDS);
+export type EditorIdZ = z.infer<typeof EditorIdSchema>;
+
+export const TERMINAL_IDS = [
+  "terminal",
+  "iterm2",
+  "warp",
+  "ghostty",
+  "alacritty",
+  "kitty",
+  "hyper",
+] as const;
+
+export const TerminalIdSchema = z.enum(TERMINAL_IDS);
+export type TerminalIdZ = z.infer<typeof TerminalIdSchema>;
+
+/**
+ * The persisted `defaultEditor`.
+ *
+ * Wider than `EditorIdSchema` by exactly one value: `"none"` — the "no
+ * default, use whatever is installed" choice the Settings page offers, kept a
+ * first-class member of the union rather than an absent/empty value.
+ *
+ * Being a closed three-value enum (`vscode | cursor | none`) is what made
+ * every other editor the detection table had already found unwritable: the
+ * list offered Devin, Zod rejected it, and the choice was silently lost.
+ */
+export const DefaultEditorSchema = z.union([EditorIdSchema, z.literal("none")]);
+export type DefaultEditorZ = z.infer<typeof DefaultEditorSchema>;
+
+// ---------------------------------------------------------------------------
 // Entity schemas
 // ---------------------------------------------------------------------------
 
@@ -155,7 +212,17 @@ export const SettingsSchema = z.object({
   ollamaBaseUrl: z.string().min(1),
   ollamaEmbedModel: z.string().min(1),
   openaiEmbedModel: z.string().nullable(),
-  defaultEditor: z.enum(["vscode", "cursor", "none"]),
+  /**
+   * Any editor the launcher can detect, or `"none"`. Accepting the whole
+   * `EditorId` set (not just vscode/cursor) is what makes the detection list
+   * in Settings actually persist the choice it shows.
+   */
+  defaultEditor: DefaultEditorSchema,
+  /**
+   * Phase 3a — terminal the launcher opens a repo in. `null` means "first
+   * available". Optional so settings files written before 3a still parse.
+   */
+  defaultTerminal: TerminalIdSchema.nullable().default(null),
   /**
    * Git host handles that belong to the user. Drives the "is this mine?"
    * classification in the catalog. Defaults to an empty list, which the
@@ -508,7 +575,7 @@ export const GitBranchesResultSchema = z.array(GitBranchSchema);
 
 export const OpenInEditorInputSchema = z.object({
   slug: SlugSchema,
-  editor: z.enum(["vscode", "cursor", "none"]).optional(),
+  editor: DefaultEditorSchema.optional(),
 });
 
 export const OpenInEditorResultSchema = z.object({
@@ -1145,34 +1212,9 @@ export type ProcessUpdateEventZ = z.infer<typeof ProcessUpdateEventSchema>;
 // Launcher namespace
 // ---------------------------------------------------------------------------
 
-export const EditorIdSchema = z.enum([
-  "vscode",
-  "cursor",
-  "zed",
-  "windsurf",
-  "devin",
-  "sublime",
-  "xcode",
-  "idea",
-  "webstorm",
-  "pycharm",
-  "rider",
-  "goland",
-  "clion",
-  "rubymine",
-]);
-export type EditorIdZ = z.infer<typeof EditorIdSchema>;
-
-export const TerminalIdSchema = z.enum([
-  "terminal",
-  "iterm2",
-  "warp",
-  "ghostty",
-  "alacritty",
-  "kitty",
-  "hyper",
-]);
-export type TerminalIdZ = z.infer<typeof TerminalIdSchema>;
+// `EditorIdSchema` / `TerminalIdSchema` (and the `DefaultEditorSchema` union
+// built on them) are declared near the top of this file, ahead of
+// `SettingsSchema` — see the "Launcher enums" section.
 
 export const DetectedEditorSchema = z.object({
   id: EditorIdSchema,

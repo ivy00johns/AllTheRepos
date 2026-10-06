@@ -127,13 +127,56 @@ export interface SearchHit {
   snippet: string | null;
 }
 
-/** Settings */
+/**
+ * Editors the launcher can detect (Phase 3a). Mirrors `EDITOR_IDS` in
+ * `src/shared/schemas.ts`; the detection table in
+ * `src/main/services/launcher.ts` is the runtime source of truth.
+ */
+export type EditorId =
+  | "vscode"
+  | "cursor"
+  | "zed"
+  | "windsurf"
+  | "devin"
+  | "sublime"
+  | "xcode"
+  | "idea"
+  | "webstorm"
+  | "pycharm"
+  | "rider"
+  | "goland"
+  | "clion"
+  | "rubymine";
+
+/**
+ * The persisted editor choice. `"none"` is an explicit opt-out, not a
+ * missing value — which is why it is a member of the union rather than
+ * modelled as `null`. Widened in Phase 3a from `"vscode" | "cursor" |
+ * "none"`, a closed set that rejected every other detected editor.
+ */
+export type DefaultEditor = EditorId | "none";
+
+/** Terminals the launcher can detect (Phase 3a). */
+export type TerminalId =
+  | "terminal"
+  | "iterm2"
+  | "warp"
+  | "ghostty"
+  | "alacritty"
+  | "kitty"
+  | "hyper";
+
 export interface Settings {
   scanPaths: string[];
   ollamaBaseUrl: string;
   ollamaEmbedModel: string;
   openaiEmbedModel: string | null;
-  defaultEditor: "vscode" | "cursor" | "none";
+  defaultEditor: DefaultEditor;
+  /**
+   * Phase 3a — terminal the launcher opens a repo in; `null` = first
+   * available. Optional so pre-3a settings blobs still typecheck.
+   */
+  defaultTerminal?: TerminalId | null;
   /**
    * Git host handles that belong to the user (e.g. `["ivy00johns"]`).
    * Used to classify each repo as yours versus cloned. Empty means "not

@@ -37,9 +37,9 @@ import {
   usePickScanPath,
   useRescanPath,
 } from "@renderer/hooks/use-scan-roots";
+import { useLauncher } from "@renderer/hooks/use-launcher";
 import { useSearch as useCatalogSearch } from "@renderer/hooks/use-search";
 import { useSettings } from "@renderer/hooks/use-settings";
-import { requireAtr } from "@renderer/lib/atr";
 import { activityOf, lastTouched } from "@renderer/lib/activity";
 import {
   inferIdentities,
@@ -410,19 +410,18 @@ export function CatalogShell({
     };
   }, [querySlug, loadRepoDetail]);
 
+  const { openInEditor: launchInEditor } = useLauncher();
+
   const openInEditor = React.useCallback(
     (slug: string) => {
-      const repo = initialRepos.find((r) => r.slug === slug);
-      if (!repo) return;
-      try {
-        void requireAtr().git.openInEditor({ slug });
-      } catch {
-        // Bridge unavailable (browser-only QE run) — fall back to the
-        // editor URL scheme so the action still does something.
-        window.location.href = `vscode://file/${repo.fullPath}`;
-      }
+      // The launcher decides what opens — it consults the user's saved
+      // default editor, falls back when that editor is gone, and copes with
+      // editors that ship no URL scheme (Xcode). The old hardcoded
+      // `vscode://` fallback ignored all of that, and only ever ran in a
+      // run with no preload bridge, where there is nothing to launch.
+      void launchInEditor(slug);
     },
-    [initialRepos],
+    [launchInEditor],
   );
 
   /**

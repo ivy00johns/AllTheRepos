@@ -73,9 +73,14 @@ jobs:
       # version with no changelog section, fails here in seconds — before the
       # natives are rebuilt and before anything is uploaded. The notes land in
       # a file this job reuses at the end.
+      #
+      # `--silent` is load-bearing: without it pnpm writes its own `> script`
+      # banner to stdout, that banner is what gets captured into the file, and
+      # every published release then begins with a runner's absolute path
+      # instead of a changelog.
       - name: Guard the tag and collect the release notes
         run: |
-          pnpm release:check "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          pnpm --silent release:check "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
           echo "--- release notes ---"
           cat "$RUNNER_TEMP/notes.md"
 
@@ -113,22 +118,38 @@ jobs:
 
       # Publishing the draft is the last step, so the release appears complete:
       # assets up, notes on, then visible.
+      #
+      # The body leads with the DMG on purpose. GitHub orders the asset list by
+      # its own rules and then appends two source archives of its own, so a
+      # page whose first row is `…-mac.zip` reads as "this release is a zip" —
+      # which is exactly how the first published release was misread. A named,
+      # linked .dmg at the top removes the guesswork, and the paragraph under it
+      # says what the other three assets are and why they exist.
       - name: Attach the notes and publish the draft
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          # The unsigned-build caveat is part of the notes on purpose: it is
-          # the first thing a downloader hits, and the release page is the only
-          # place they can read it before the app itself.
+          DMG="AllTheRepos-${VERSION}-arm64.dmg"
           {
-            cat "$RUNNER_TEMP/notes.md"
+            echo "## 📦 Download"
+            echo
+            echo "**[${DMG}](https://github.com/${RELEASES_REPO}/releases/download/${GITHUB_REF_NAME}/${DMG})** — the macOS installer (Apple silicon, $(du -h "release/${DMG}" | cut -f1))."
+            echo
+            echo "Open the DMG, drag **AllTheRepos** into Applications, then right-click the app →"
+            echo "**Open** once. It is ad-hoc signed and **not notarised**, so the first launch has to"
+            echo "go through that menu; after that it opens normally."
+            echo
+            echo "The other three assets are the update feed, not alternative installers: the app"
+            echo "downloads the \`.zip\` because Squirrel.Mac cannot apply an update from a DMG, and"
+            echo "it reads \`latest-mac.yml\` to decide whether an update exists at all. Updates in this"
+            echo "build are **checks only** — with no Developer ID, the app cannot install them itself."
+            echo
+            echo "SHA-256: \`$(shasum -a 256 "release/${DMG}" | cut -d' ' -f1)\`"
             echo
             echo "---"
             echo
-            echo "macOS (Apple silicon), ad-hoc signed — not notarised. Download the DMG, then"
-            echo "right-click the app → **Open** once; after that it launches normally."
-            echo "Updates through the app are checks only: this build cannot install them itself."
+            cat "$RUNNER_TEMP/notes.md"
           } > "$RUNNER_TEMP/release-body.md"
           gh release edit "$GITHUB_REF_NAME" \
             --repo "$RELEASES_REPO" \

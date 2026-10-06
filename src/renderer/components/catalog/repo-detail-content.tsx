@@ -22,6 +22,7 @@ import {
 import type { RepoDetail } from "@shared/types";
 
 import { cn } from "@renderer/lib/cn";
+import { useLauncher, useLauncherDetect } from "@renderer/hooks/use-launcher";
 import { useDeleteRepo, useSetRepoTags } from "@renderer/hooks/use-repos";
 import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
 import { Badge } from "@renderer/components/ui/badge";
@@ -86,6 +87,26 @@ export function RepoDetailContent({
   const setRepoTags = useSetRepoTags();
   const deleteRepo = useDeleteRepo();
 
+  // "Open in editor" must launch whatever the launcher will actually
+  // launch — the resolved default, not a hardcoded scheme. Naming the app
+  // in the button makes the default visible where it is used.
+  const { openInEditor } = useLauncher();
+  const detect = useLauncherDetect();
+  const [openError, setOpenError] = React.useState<string | null>(null);
+  const defaultEditorName = React.useMemo(() => {
+    const id = detect.data?.defaults.editor;
+    if (!id) return null;
+    return detect.data?.editors.find((e) => e.id === id)?.name ?? null;
+  }, [detect.data]);
+  const openLabel = defaultEditorName
+    ? `Open in ${defaultEditorName}`
+    : "Open in editor";
+
+  const handleOpenInEditor = React.useCallback(async () => {
+    const result = await openInEditor(repo.slug);
+    setOpenError(result.ok ? null : (result.reason ?? "Could not open editor."));
+  }, [openInEditor, repo.slug]);
+
   const handleRemoveFromCatalog = () => {
     deleteRepo.mutate(
       { slug: repo.slug },
@@ -148,8 +169,6 @@ export function RepoDetailContent({
   };
 
   const heuristicTags = repo.tags.filter((t) => t.source !== "user");
-
-  const editorUrl = `vscode://file/${repo.fullPath}`;
 
   return (
     <div
@@ -512,29 +531,43 @@ export function RepoDetailContent({
         )}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-border p-3">
-        {repo.missing ? (
-          <Button
-            className="flex-1"
-            disabled
-            title="Folder not found on disk — nothing to open"
-          >
-            <ExternalLink className="h-4 w-4" aria-hidden />
-            Open in VS Code
-          </Button>
-        ) : (
-          <Button asChild className="flex-1">
-            <a href={editorUrl} aria-label={`Open ${repo.name} in VS Code`}>
+      <footer className="flex flex-col gap-1.5 border-t border-border p-3">
+        <div className="flex items-center gap-2">
+          {repo.missing ? (
+            <Button
+              className="flex-1"
+              disabled
+              title="Folder not found on disk — nothing to open"
+            >
               <ExternalLink className="h-4 w-4" aria-hidden />
-              Open in VS Code
-            </a>
+              {openLabel}
+            </Button>
+          ) : (
+            <Button
+              className="flex-1"
+              aria-label={`Open ${repo.name} with the default editor`}
+              title={openLabel}
+              onClick={() => void handleOpenInEditor()}
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              {openLabel}
+            </Button>
+          )}
+          <Button asChild variant="outline" aria-label="Open full detail page">
+            <Link to="/repos/$slug" params={{ slug: repo.slug }}>
+              <ArrowUpRight className="h-4 w-4" aria-hidden />
+            </Link>
           </Button>
-        )}
-        <Button asChild variant="outline" aria-label="Open full detail page">
-          <Link to="/repos/$slug" params={{ slug: repo.slug }}>
-            <ArrowUpRight className="h-4 w-4" aria-hidden />
-          </Link>
-        </Button>
+        </div>
+        {openError ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="font-mono text-[10px] text-destructive"
+          >
+            {openError}
+          </p>
+        ) : null}
       </footer>
     </div>
   );

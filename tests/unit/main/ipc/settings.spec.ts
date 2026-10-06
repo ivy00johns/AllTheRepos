@@ -18,14 +18,16 @@ vi.mock("@main/services/settings", () => ({
 
 import { getSettings, updateSettings } from "@main/services/settings";
 import { handleSettingsGet, handleSettingsUpdate } from "@main/ipc/settings";
+import type { Settings } from "@shared/types";
 
-const defaultSettings = {
+const defaultSettings: Settings = {
   scanPaths: ["/Users/foo/Projects"],
   ollamaBaseUrl: "http://127.0.0.1:11434",
   ollamaEmbedModel: "nomic-embed-text",
-  openaiEmbedModel: null as string | null,
-  defaultEditor: "vscode" as const,
-  identities: [] as string[],
+  openaiEmbedModel: null,
+  defaultEditor: "vscode",
+  defaultTerminal: null,
+  identities: [],
   schemaVersion: 1,
 };
 
@@ -71,6 +73,27 @@ describe("handleSettingsUpdate", () => {
     const out = await handleSettingsUpdate({ defaultEditor: "cursor" });
     expect(updateSettings).toHaveBeenCalledWith({ defaultEditor: "cursor" });
     expect(out.defaultEditor).toBe("cursor");
+  });
+
+  it("forwards a detected non-legacy editor verbatim", async () => {
+    // The regression that made "my default IDE is not respected": the
+    // enum only knew vscode | cursor | none, so patching in Devin threw
+    // before it ever reached the settings service.
+    const patched = { ...defaultSettings, defaultEditor: "devin" as const };
+    vi.mocked(updateSettings).mockReturnValue(patched);
+
+    const out = await handleSettingsUpdate({ defaultEditor: "devin" });
+    expect(updateSettings).toHaveBeenCalledWith({ defaultEditor: "devin" });
+    expect(out.defaultEditor).toBe("devin");
+  });
+
+  it("forwards a terminal choice, which used to be stripped silently", async () => {
+    const patched = { ...defaultSettings, defaultTerminal: "iterm2" as const };
+    vi.mocked(updateSettings).mockReturnValue(patched);
+
+    const out = await handleSettingsUpdate({ defaultTerminal: "iterm2" });
+    expect(updateSettings).toHaveBeenCalledWith({ defaultTerminal: "iterm2" });
+    expect(out.defaultTerminal).toBe("iterm2");
   });
 
   it("forwards a multi-key patch", async () => {

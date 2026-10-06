@@ -300,13 +300,9 @@ class ClaudeService {
     // Fall back to opening the repo directory when the scheme can't
     // carry a file target (Xcode, missing scheme).
     const detection = launcherService.detect();
-    const settings = getSettings() as ReturnType<typeof getSettings> & {
-      defaultEditor?: unknown;
-    };
+    const settings = getSettings();
     const preferred =
-      typeof settings.defaultEditor === "string"
-        ? settings.defaultEditor
-        : null;
+      settings.defaultEditor === "none" ? null : settings.defaultEditor;
     const editor =
       pickEditor(detection, preferred) ?? pickEditor(detection, null);
 
@@ -651,10 +647,15 @@ function pickEditor(
 }
 
 /**
- * Build a file-target URL for the given editor scheme. Mirrors
+ * Build a file-target URL for the given editor scheme. Same shapes as
  * launcher.ts's `buildEditorUrl` but for a single file path (not a
- * directory). Returns null for schemes that can't carry a file
- * target — the caller should fall back to opening the repo.
+ * directory). Returns null for schemes that can't carry a file target —
+ * the caller should fall back to opening the repo.
+ *
+ * Kept as its own copy rather than imported because `claude.spec` mocks
+ * `@main/services/launcher` wholesale. The two loops are duplicated in the
+ * spec suites too, deliberately: if an editor is added to `EDITOR_TABLE`,
+ * the enum-vs-table test in `launcher.spec` fails first and points here.
  */
 function buildEditorFileUrl(
   scheme: string,
@@ -669,6 +670,7 @@ function buildEditorFileUrl(
     case "cursor":
     case "zed":
     case "windsurf":
+    case "devin":
       return `${scheme}://file${ensureLeadingSlash(encodedPath)}`;
     case "subl":
       return `subl://open?url=file://${encodedFileParam}`;
