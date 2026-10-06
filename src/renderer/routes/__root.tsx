@@ -26,6 +26,7 @@ import { useDeepLinkBus } from "@renderer/actions/use-deep-link-bus";
 import { useMenuCommandBus } from "@renderer/actions/use-menu-command-bus";
 import { useTrayOpenRepoBus } from "@renderer/actions/use-tray-open-repo-bus";
 import { CommandPalette } from "@renderer/components/command-palette/command-palette";
+import { ActionNotice } from "@renderer/components/layout/action-notice";
 import { ScanStatusBar } from "@renderer/components/layout/scan-status-bar";
 import { TopBar } from "@renderer/components/layout/top-bar";
 
@@ -53,6 +54,7 @@ function RootLayout() {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <TopBar />
       <ScanStatusBar />
+      <ActionNotice />
       <main className="flex-1 overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (

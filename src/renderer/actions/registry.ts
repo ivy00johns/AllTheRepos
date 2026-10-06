@@ -96,6 +96,14 @@ export interface ActionContext {
   currentRepoSlug?: string | null;
   /** Absolute filesystem path of the currently-focused repo. */
   currentRepoFullPath?: string | null;
+  /**
+   * Surface a transient, user-visible message. Optional so the registry
+   * stays framework-free and unit-testable; consumers (menu / palette /
+   * deep-link buses) wire it to the UI store. Used by handlers that
+   * cannot run in the current context — a silently no-op'd menu item is
+   * indistinguishable from a broken one.
+   */
+  notify?: (message: string) => void;
 }
 
 export type ActionHandler = (ctx: ActionContext) => void | Promise<void>;
@@ -257,7 +265,10 @@ export const actions: RegisteredAction[] = [
     group: "Repo",
     icon: "clipboard",
     handler: async (ctx) => {
-      if (!ctx.currentRepoFullPath) return;
+      if (!ctx.currentRepoFullPath) {
+        ctx.notify?.("Select a repo first to copy its path.");
+        return;
+      }
       await copyToClipboard(ctx.currentRepoFullPath);
     },
   },
@@ -269,9 +280,12 @@ export const actions: RegisteredAction[] = [
     group: "Repo",
     icon: "external-link",
     handler: async (ctx) => {
-      // No focused repo → silently no-op (the action is still listed in
-      // the palette / menu, but there's nothing to launch).
-      if (!ctx.currentRepoSlug) return;
+      // No focused repo → nothing to launch. Say so rather than
+      // no-op'ing silently, which reads as a broken menu item.
+      if (!ctx.currentRepoSlug) {
+        ctx.notify?.("Select a repo first to open it in your editor.");
+        return;
+      }
       const atr = getAtr();
       if (!atr) return;
       // Delegates to LauncherService in main, which picks the user's
@@ -297,7 +311,10 @@ export const actions: RegisteredAction[] = [
     group: "Repo",
     icon: "folder-open",
     handler: async (ctx) => {
-      if (!ctx.currentRepoSlug) return;
+      if (!ctx.currentRepoSlug) {
+        ctx.notify?.("Select a repo first to reveal it in Finder.");
+        return;
+      }
       const atr = getAtr();
       if (!atr) return;
       const result = await atr.launcher.openInFinder({

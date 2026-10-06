@@ -64,6 +64,12 @@ interface TransientUiState {
    * closed every time.
    */
   paletteOpen: boolean;
+  /**
+   * Transient one-line message surfaced by an action that could not run
+   * (e.g. a repo-scoped menu item invoked with nothing selected). Never
+   * persisted; auto-dismissed by `<ActionNotice />`.
+   */
+  notice: string | null;
 }
 
 interface UiActions {
@@ -79,6 +85,10 @@ interface UiActions {
   closePalette(): void;
   /** Toggle the in-app command palette. */
   togglePalette(): void;
+  /** Show a transient notice; replaces any current one. */
+  pushNotice(message: string): void;
+  /** Clear the transient notice. */
+  dismissNotice(): void;
 }
 
 export type UiState = PersistedUiState & TransientUiState & UiActions;
@@ -93,6 +103,7 @@ export const useUiStore = create<UiState>()(
       activeFilter: DEFAULT_FILTER,
       activeRepoSlug: null,
       paletteOpen: false,
+      notice: null,
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       toggleSidebar: () =>
@@ -105,6 +116,8 @@ export const useUiStore = create<UiState>()(
       openPalette: () => set({ paletteOpen: true }),
       closePalette: () => set({ paletteOpen: false }),
       togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
+      pushNotice: (message) => set({ notice: message }),
+      dismissNotice: () => set({ notice: null }),
     }),
     {
       name: PERSIST_KEY,

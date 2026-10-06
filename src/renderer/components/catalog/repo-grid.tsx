@@ -33,6 +33,20 @@ import { useCatalogView, type GroupBy } from "@renderer/stores/catalog-view";
 import { RepoCard } from "./repo-card";
 import { RepoTable } from "./repo-table";
 
+/**
+ * Column tracks per density.
+ *
+ * Grid mode's minimum has to leave room for two columns *after* the
+ * fixed-width rail (256px) and the open detail panel (380px) have taken
+ * their share. At the default 1280px window that is 644px of content, so
+ * a 320px minimum left `auto-fill` with exactly one full-width column —
+ * the view read as a list of expanded rows rather than a grid. 240px
+ * keeps two (and often three) real columns at that width while still
+ * fitting a 44px cover plus a readable metadata column.
+ */
+const GRID_COLUMNS = "grid-cols-[repeat(auto-fill,minmax(240px,1fr))]";
+const GALLERY_COLUMNS = "grid-cols-[repeat(auto-fill,minmax(248px,1fr))]";
+
 export interface RepoGridProps {
   repos: Repo[];
   ownershipFor: (repo: Repo) => OwnershipInfo;
@@ -149,12 +163,7 @@ function GridSkeleton({ gallery }: { gallery: boolean }) {
     <div
       aria-busy="true"
       aria-live="polite"
-      className={cn(
-        "grid gap-3",
-        gallery
-          ? "grid-cols-[repeat(auto-fill,minmax(248px,1fr))]"
-          : "grid-cols-[repeat(auto-fill,minmax(320px,1fr))]",
-      )}
+      className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
     >
       {Array.from({ length: gallery ? 8 : 9 }).map((_, index) => (
         <div
@@ -232,12 +241,7 @@ export function RepoGrid({
           ) : (
             <div
               role="list"
-              className={cn(
-                "grid gap-3",
-                gallery
-                  ? "grid-cols-[repeat(auto-fill,minmax(248px,1fr))]"
-                  : "grid-cols-[repeat(auto-fill,minmax(320px,1fr))]",
-              )}
+              className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
             >
               {section.repos.map((repo) => (
                 <div key={repo.slug} role="listitem" className="contents">

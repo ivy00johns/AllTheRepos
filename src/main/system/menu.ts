@@ -75,6 +75,48 @@ export function broadcastMenuCommand(payload: MenuCommandPayload): void {
 }
 
 // ---------------------------------------------------------------------------
+// Accelerator conflict handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this a development bundle (electron-vite dev) rather than a built
+ * one? Read through a locally-typed view so this module still compiles
+ * under tsconfigs that don't pull in the `vite/client` ambient types —
+ * same pattern the renderer action registry uses.
+ */
+const isDevBuild: boolean =
+  (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
+
+/**
+ * Canonical form used to detect collisions. Electron treats
+ * `CmdOrCtrl` and `CommandOrControl` as the same modifier, and the
+ * registry uses the former, so fold them together and ignore case /
+ * whitespace.
+ */
+function normalizeAccelerator(value: string): string {
+  return value
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .replace(/cmdorctrl|commandorcontrol/g, "cmd");
+}
+
+/**
+ * Accelerators the standard (non-action) menus effectively claim, so an
+ * action item can never silently shadow, or be shadowed by, one of them.
+ *
+ * The Edit/Window/View roles bind their usual shortcuts by default; the
+ * only one that overlaps the renderer registry today is the dev-only
+ * `toggleDevTools` role (`CmdOrCtrl+Alt+I`). `Reload`/`Force Reload` are
+ * deliberately NOT part of the View menu: the app owns `Cmd+R` for
+ * "Refresh Catalog", and a monkey-patched reload would win it.
+ */
+function reservedAccelerators(dev: boolean): Set<string> {
+  const reserved = new Set<string>();
+  if (dev) reserved.add(normalizeAccelerator("CmdOrCtrl+Alt+I"));
+  return reserved;
+}
+
+// ---------------------------------------------------------------------------
 // Action → MenuItem mapping
 // ---------------------------------------------------------------------------
 
@@ -82,12 +124,18 @@ export function broadcastMenuCommand(payload: MenuCommandPayload): void {
  * Convert an `Action` to a MenuItemConstructorOptions. `click` wires
  * the broadcast back to the renderer.
  *
- * `accelerator` is set from `action.shortcut`. We do NOT try to
- * pre-validate the Accelerator string here — Electron rejects bad
- * accelerators at `buildFromTemplate` time, and the menu builder
- * counts failures into `skipped`.
+ * `accelerator` is set from `action.shortcut`, but only when that
+ * accelerator is not already claimed. Electron binds the FIRST matching
+ * accelerator in the template and silently drops the rest, which is how
+ * `Role Reload` used to eat `Cmd+R` from `catalog.refresh` and `Settings…`
+ * shadow `app.open-settings`. Dropping the later binding here keeps the
+ * menu item (still clickable) while guaranteeing the accelerator reaches
+ * the action that owns it — and leaves a log line, not a mystery.
  */
-function actionToMenuItem(action: Action): MenuItemConstructorOptions {
+function actionToMenuItem(
+  action: Action,
+  reserved: Set<string>,
+): MenuItemConstructorOptions {
   const item: MenuItemConstructorOptions = {
     label: action.label,
     click: () => {
@@ -95,7 +143,15 @@ function actionToMenuItem(action: Action): MenuItemConstructorOptions {
     },
   };
   if (action.shortcut) {
-    item.accelerator = action.shortcut;
+    const key = normalizeAccelerator(action.shortcut);
+    if (reserved.has(key)) {
+      console.warn(
+        `[menu] accelerator ${action.shortcut} for action "${action.id}" is already bound; the item stays clickable but keeps no shortcut.`,
+      );
+    } else {
+      reserved.add(key);
+      item.accelerator = action.shortcut;
+    }
   }
   return item;
 }
@@ -151,8 +207,10 @@ function buildAppMenu(): MenuItemConstructorOptions {
       { role: "about" },
       { type: "separator" },
       {
+        // No explicit accelerator: `app.open-settings` in the registry
+        // owns `CmdOrCtrl+,` so the two items can't fight over it. The
+        // App-menu entry stays for macOS convention and clicks.
         label: "Settings…",
-        accelerator: "CmdOrCtrl+,",
         click: () => {
           broadcastMenuCommand({ commandId: "app.open-settings" });
         },
@@ -186,21 +244,23 @@ function buildEditMenu(): MenuItemConstructorOptions {
   };
 }
 
-function buildViewMenu(): MenuItemConstructorOptions {
-  return {
-    label: "View",
-    submenu: [
-      { role: "reload" },
-      { role: "forceReload" },
-      { role: "toggleDevTools" },
-      { type: "separator" },
-      { role: "resetZoom" },
-      { role: "zoomIn" },
-      { role: "zoomOut" },
-      { type: "separator" },
-      { role: "togglefullscreen" },
-    ],
-  };
+function buildViewMenu(dev: boolean): MenuItemConstructorOptions {
+  const submenu: MenuItemConstructorOptions[] = [];
+  // Dev-only: the renderer registry provides "Toggle DevTools" and
+  // "Refresh Catalog" in a built app, and those own their accelerators.
+  // Reload/Force Reload are omitted in every mode so `Cmd+R` reaches the
+  // catalog refresh rather than reloading the window.
+  if (dev) {
+    submenu.push({ role: "toggleDevTools" }, { type: "separator" });
+  }
+  submenu.push(
+    { role: "resetZoom" },
+    { role: "zoomIn" },
+    { role: "zoomOut" },
+    { type: "separator" },
+    { role: "togglefullscreen" },
+  );
+  return { label: "View", submenu };
 }
 
 function buildWindowMenu(): MenuItemConstructorOptions {
@@ -231,22 +291,31 @@ function buildHelpMenu(): MenuItemConstructorOptions {
  * registry. Exported for tests; production callers should use
  * `installNativeMenu`.
  */
-export function buildMenuFromActions(actions: Action[]): Menu {
+export function buildMenuFromActions(
+  actions: Action[],
+  /** `dev` overrides the build-mode detection; tests use it. */
+  options?: { dev?: boolean },
+): Menu {
+  const dev = options?.dev ?? isDevBuild;
   const template: MenuItemConstructorOptions[] = [];
+
+  // Reservations accumulate in template order — standard menus claim
+  // their accelerators first, then each action item claims the rest.
+  const reserved = reservedAccelerators(dev);
 
   // macOS App menu first.
   if (process.platform === "darwin") {
     template.push(buildAppMenu());
   }
 
-  template.push(buildEditMenu(), buildViewMenu());
+  template.push(buildEditMenu(), buildViewMenu(dev));
 
   // Renderer-owned action groups go in the middle.
   const buckets = bucketActions(actions);
   for (const [groupName, groupActions] of buckets.entries()) {
     template.push({
       label: groupName,
-      submenu: groupActions.map(actionToMenuItem),
+      submenu: groupActions.map((action) => actionToMenuItem(action, reserved)),
     });
   }
 
