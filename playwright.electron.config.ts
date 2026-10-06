@@ -29,8 +29,10 @@ export default defineConfig({
   // Phase 2: palette-flow.spec.ts (in-app Cmd+K command palette);
   // Phase 3a: process-flow.spec.ts + launcher-flow.spec.ts;
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
-  // curated links: curate-link-flow.spec.ts — the only spec that seeds an
-  // isolated profile instead of reading the developer's library.
+  // curated links: curate-link-flow.spec.ts — builds its own profile and
+  // seeds its own git repos, because it needs to drive git-backed reads.
+  // Everything else shares the seeded template profile built in global setup
+  // (see tests/e2e/_global-setup.ts).
   // packaged-update-check.spec.ts also matches, but skips itself unless
   // ATR_PACKAGED_UPDATE_E2E is set and a packaged app exists (`pnpm
   // test:packaged-update`): it launches the real bundle and needs the network.

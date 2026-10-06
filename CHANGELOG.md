@@ -11,6 +11,16 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Changed
+
+- The Electron e2e suite runs against a seeded catalog instead of your own library. Global
+  setup migrates a throwaway profile, seeds three synthetic repos into it (each with a
+  `CLAUDE.md` and a skill) and every spec launch copies it, so specs that want a repo card
+  now click a real one rather than bailing to their empty-state branch. Doing this while
+  isolating each profile also surfaced a `claude-flow` assertion that could never have
+  passed — it looked for "install Claude Code" text this app does not render, which the
+  empty-catalog fallback had been hiding.
+
 ### Fixed
 
 - The Electron e2e suite no longer collides with a copy of the app you already have open.

@@ -79,10 +79,19 @@ test.describe("Phase 3b Claude flow", () => {
       await expect(appTitle).toBeVisible({ timeout: 15_000 });
 
       // ----- (2) Look for a repo card to click into. -----
-      // The catalog renders <article> cards per repo. If the DB is
-      // empty in this environment, fall back to the global /claude
-      // route assertion.
-      const repoCard = win.locator("article a[href^='/repos/']").first();
+      // The catalog's hit areas carry `data-repo-slug` in both views —
+      // <article> in the grid, <tr> in the table — so matching the union
+      // does not depend on which one a fresh profile defaults to. If the DB
+      // is empty in this environment, fall back to the global /claude route
+      // assertion.
+      //
+      // The settle matters: without it the count races the catalog query's
+      // first render and reads 0 even with rows in the database, which is how
+      // this spec kept taking its empty-state branch against a seeded profile.
+      await win.waitForTimeout(800);
+      const repoCard = win
+        .locator("article[data-repo-slug], tr[data-repo-slug]")
+        .first();
       const cardCount = await repoCard.count();
 
       if (cardCount === 0) {
@@ -134,7 +143,11 @@ test.describe("Phase 3b Claude flow", () => {
         const agentsHeading = win.locator("#claude-agents-heading");
         const mcpHeading = win.locator("#claude-mcp-heading");
         const sessionsHeading = win.locator("#claude-sessions-heading");
-        const emptyStateCue = win.getByText(/install claude code/i).first();
+        // `ClaudeEmptyState`'s own copy. It used to look for "install Claude
+        // Code", which is not text this app renders anywhere — the assertion
+        // could never have passed, and only went unnoticed because an empty
+        // catalog meant this branch never ran.
+        const emptyStateCue = win.getByText(/met Claude yet/i).first();
 
         // Wait briefly for either to surface.
         await Promise.race([
@@ -144,6 +157,19 @@ test.describe("Phase 3b Claude flow", () => {
 
         const launchVisible = await launchBtn.isVisible().catch(() => false);
         const emptyVisible = await emptyStateCue.isVisible().catch(() => false);
+
+        // Which state the tab rendered decides how much of this spec actually
+        // ran, so say it out loud rather than leaving a green run ambiguous.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[claude-flow] Claude tab state: ${
+            launchVisible
+              ? "populated (four sections + launch button)"
+              : emptyVisible
+                ? "empty state"
+                : "UNEXPECTED — neither state rendered"
+          }`,
+        );
 
         expect(launchVisible || emptyVisible).toBe(true);
 
