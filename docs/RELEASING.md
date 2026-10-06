@@ -188,6 +188,31 @@ Two consequences worth knowing:
 The releases repo also gets the changelog section as its release notes, so write
 those expecting them to be public.
 
+### Verifying the check from a real build
+
+Nothing in the ordinary suite can reach this path: `updater.check()` returns
+early when the app isn't packaged ("Update checks only run in a packaged
+build"), and every Electron spec runs from `out/`. So the feed is covered by an
+opt-in spec that launches the real bundle instead:
+
+```bash
+pnpm electron:pack          # the current build — the "up to date" branch
+pnpm electron:pack-older    # the same app at 0.0.1 — the "newer release" branch
+pnpm test:packaged-update   # launches both, against the live feed
+```
+
+It needs a **published release** and the **network**: it really does call the
+GitHub API, with no token in the child environment, which is the whole point of
+the assertion.
+
+The second build exists because the comparison cannot be faked from outside.
+`electron-updater` reads `app.getVersion()` once, when the updater is
+constructed, so by the time a test can reach into the running process the
+version is already cached — a spoofed version is simply never read.
+`-c.extraMetadata.version=0.0.1` makes `app.getVersion()` genuinely report it,
+which is what puts the app behind the feed and makes the update affordances
+appear.
+
 ---
 
 ## Turning on real auto-update
