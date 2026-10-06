@@ -25,6 +25,7 @@ const defaultSettings = {
   ollamaEmbedModel: "nomic-embed-text",
   openaiEmbedModel: null as string | null,
   defaultEditor: "vscode" as const,
+  identities: [] as string[],
   schemaVersion: 1,
 };
 
