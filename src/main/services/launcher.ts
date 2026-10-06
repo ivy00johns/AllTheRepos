@@ -123,6 +123,17 @@ const EDITOR_TABLE: ReadonlyArray<EditorEntry> = [
     cliName: "windsurf",
   },
   {
+    // Devin is a Windsurf fork and registers BOTH `devin:` and `windsurf:`.
+    // It is listed separately so the UI names the app you actually have —
+    // on a machine without Windsurf.app installed, the Windsurf entry was
+    // silently launching Devin under the wrong label.
+    id: "devin",
+    name: "Devin",
+    appNames: ["Devin.app"],
+    scheme: "devin",
+    cliName: "devin",
+  },
+  {
     id: "sublime",
     name: "Sublime Text",
     appNames: ["Sublime Text.app"],
@@ -751,6 +762,7 @@ export function buildEditorUrl(
     case "cursor":
     case "zed":
     case "windsurf":
+    case "devin":
       return `${scheme}://file${ensureLeadingSlash(encodedPath)}`;
     case "subl":
       return `subl://open?url=file://${encodedFileParam}`;

@@ -23,14 +23,18 @@ import {
   GitStatusSchema,
   OpenInEditorInputSchema,
   OpenInEditorResultSchema,
+  SyncInputSchema,
+  SyncResultSchema,
 } from "@shared/schemas";
 import type {
   GitBranchesResult,
   GitStatus,
   OpenInEditorResult,
+  SyncResult,
 } from "@shared/types";
 
 import { openExternalAllowlisted } from "@main/security/allowlist";
+import { gitSyncService } from "@main/services/git-sync";
 import { gitService } from "@main/services/git";
 
 import { assertRendererFrame } from "./_frame";
@@ -72,11 +76,31 @@ export async function handleGitOpenInEditor(raw: unknown): Promise<OpenInEditorR
 /**
  * Register every `git:*` handler. Idempotent.
  */
+
+/**
+ * Update remote refs without touching any working tree. Safe on every
+ * repo, so this is how the catalog refreshes ahead/behind in bulk.
+ */
+export async function handleGitFetch(raw: unknown): Promise<SyncResult> {
+  const input = SyncInputSchema.parse(raw);
+  const result = await gitSyncService.fetch(input.slugs);
+  return SyncResultSchema.parse(result);
+}
+
+/** Fast-forward each repo where that is unambiguously safe. */
+export async function handleGitPull(raw: unknown): Promise<SyncResult> {
+  const input = SyncInputSchema.parse(raw);
+  const result = await gitSyncService.pull(input.slugs);
+  return SyncResultSchema.parse(result);
+}
+
 export function registerGitHandlers(): void {
   const channels = [
     IPC.GIT.STATUS,
     IPC.GIT.BRANCHES,
     IPC.GIT.OPEN_IN_EDITOR,
+    IPC.GIT.FETCH,
+    IPC.GIT.PULL,
   ] as const;
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
@@ -103,6 +127,21 @@ export function registerGitHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<OpenInEditorResult> => {
       assertRendererFrame(event);
       return handleGitOpenInEditor(raw);
+    },
+  );
+  ipcMain.handle(
+    IPC.GIT.FETCH,
+    async (event: IpcMainInvokeEvent, raw): Promise<SyncResult> => {
+      assertRendererFrame(event);
+      return handleGitFetch(raw);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.GIT.PULL,
+    async (event: IpcMainInvokeEvent, raw): Promise<SyncResult> => {
+      assertRendererFrame(event);
+      return handleGitPull(raw);
     },
   );
 }

@@ -31,6 +31,7 @@ export const ALLOWED_EXTERNAL_SCHEMES: ReadonlyArray<string> = [
   "cursor:",
   "zed:",
   "windsurf:",
+  "devin:",
   "idea:",
   "webstorm:",
   "pycharm:",
