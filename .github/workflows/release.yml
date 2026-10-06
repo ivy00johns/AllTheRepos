@@ -1,0 +1,148 @@
+# Release — build the DMG + ZIP and publish them to the public releases repo.
+#
+# Triggered by pushing a `v*` tag, which is also the only way a release should
+# happen: the tag names the version, and the guard below refuses to build if
+# the tag and `package.json` disagree.
+#
+#     git tag v0.2.0 && git push origin v0.2.0
+#
+# The artifacts do NOT land in this repo. They are published to the public
+# releases-only repo named below — the same one `src/main/services/updater.ts`
+# reads — so anyone who installs the app can check for updates without a
+# credential, while the source stays private. `tests/unit/main/services/
+# updater-feed.spec.ts` fails if this name, electron-builder's `publish` block
+# and the updater's constants ever disagree.
+#
+# Publishing there needs a token that can write to *that* repo, which the
+# workflow's own GITHUB_TOKEN cannot do — hence the RELEASES_TOKEN secret. See
+# docs/RELEASING.md for how to mint it; the first step fails with instructions
+# rather than letting electron-builder fail with a bare auth error.
+#
+# Publishing is deliberately two-phase: electron-builder uploads the assets to
+# a DRAFT (EP_DRAFT=true), and the draft is published only once its notes are
+# attached. `releases/latest` ignores drafts, so a half-published release is
+# invisible to the updater instead of being offered as an empty one. It also
+# makes the job re-runnable: electron-builder happily reuses an existing draft,
+# while a release published more than two hours ago is silently left alone
+# (see the 2-hour rule in docs/RELEASING.md).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  # owner/repo, not a URL. The drift guard in tests/unit/main/services/
+  # updater-feed.spec.ts compares this against the other two mentions.
+  RELEASES_REPO: ivy00johns/alltherepos-releases
+
+# One release at a time, and never cancel a half-uploaded one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: macos-14
+    steps:
+      - name: Check the publishing credential
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::error::RELEASES_TOKEN is not set. Releases go to the public $RELEASES_REPO, which needs a token with 'contents: write' there — create one and add it as the repo secret RELEASES_TOKEN (docs/RELEASING.md)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      # Reads the pinned `packageManager` field (pnpm 9.15.0).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Guard first, deliberately: a tag that disagrees with package.json, or a
+      # version with no changelog section, fails here in seconds — before the
+      # natives are rebuilt and before anything is uploaded. The notes land in
+      # a file this job reuses at the end.
+      - name: Guard the tag and collect the release notes
+        run: |
+          pnpm release:check "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          echo "--- release notes ---"
+          cat "$RUNNER_TEMP/notes.md"
+
+      # Typecheck and the unit suite, because a tag can be pushed at a commit
+      # that no PR ever carried. The Electron suite is deliberately not
+      # repeated here: it is the push/PR gate, and it needs a GUI session, so
+      # making it a release prerequisite would let a flaky window launch block
+      # a DMG that is already correct.
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Rebuild natives for Electron and bundle the app
+        run: |
+          pnpm electron:rebuild
+          pnpm electron:build
+
+      # DMG for humans, ZIP for the updater (Squirrel.Mac cannot apply a DMG),
+      # plus latest-mac.yml, which is generated from the ZIP target and is what
+      # an update check reads. `publish always` is what lets this run outside a
+      # local tag push, where electron-builder would otherwise decline.
+      - name: Package and upload as a draft
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          EP_DRAFT: "true"
+        run: pnpm exec electron-builder --mac --publish always
+
+      # Read the draft back before it can be seen. An upload that dropped the
+      # ZIP, or wrote a manifest naming a version nobody built, fails the job
+      # while the release is still invisible — the whole reason the draft comes
+      # first. `--allow-draft` because a draft is expected at this point.
+      - name: Verify the draft has all three assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: pnpm release:verify --allow-draft
+
+      # Publishing the draft is the last step, so the release appears complete:
+      # assets up, notes on, then visible.
+      - name: Attach the notes and publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          # The unsigned-build caveat is part of the notes on purpose: it is
+          # the first thing a downloader hits, and the release page is the only
+          # place they can read it before the app itself.
+          {
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "---"
+            echo
+            echo "macOS (Apple silicon), ad-hoc signed — not notarised. Download the DMG, then"
+            echo "right-click the app → **Open** once; after that it launches normally."
+            echo "Updates through the app are checks only: this build cannot install them itself."
+          } > "$RUNNER_TEMP/release-body.md"
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$RELEASES_REPO" \
+            --title "$GITHUB_REF_NAME" \
+            --draft=false \
+            --notes-file "$RUNNER_TEMP/release-body.md"
+          gh release view "$GITHUB_REF_NAME" --repo "$RELEASES_REPO" \
+            --json tagName,isDraft,assets \
+            --jq '{tag: .tagName, draft: .isDraft, assets: [.assets[].name]}'
+
+      # ... and once more in the state users actually see. The draft check ran
+      # against a draft, where `releases/latest` does not apply; this is the
+      # release an update check will resolve, so it is the one worth failing on.
+      - name: Verify the published release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: pnpm release:verify

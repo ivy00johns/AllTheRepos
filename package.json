@@ -19,8 +19,11 @@
     "electron:preview": "electron-vite preview",
     "electron:pack": "pnpm electron:rebuild && electron-vite build && electron-builder --mac --dir",
     "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac",
+    "release:check": "node scripts/release-notes.mjs",
+    "release:next": "node scripts/next-release.mjs",
+    "release:verify": "node scripts/verify-release.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "release": "pnpm icons && pnpm electron:rebuild && electron-vite build && electron-builder --mac --publish always"
+    "release": "pnpm release:check && pnpm icons && pnpm electron:rebuild && electron-vite build && electron-builder --mac --publish always && pnpm release:verify"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.27.2",
