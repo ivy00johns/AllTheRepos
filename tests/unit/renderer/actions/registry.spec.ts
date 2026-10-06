@@ -57,6 +57,7 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     },
     currentRepoSlug: null,
     currentRepoFullPath: null,
+    notify: vi.fn(),
     ...overrides,
   };
 }
@@ -421,6 +422,17 @@ describe("repo.copy-path dispatch", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(writeText).not.toHaveBeenCalled();
   });
+
+  it("tells the user why nothing happened when no repo is focused", async () => {
+    const ctx = makeCtx({
+      currentRepoSlug: null,
+      currentRepoFullPath: null,
+    });
+    dispatchAction("repo.copy-path", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.notify).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(ctx.notify!).mock.calls[0]?.[0])).toMatch(/select a repo/i);
+  });
 });
 
 describe("repo launch action dispatch (open-in-editor / open-in-finder)", () => {
@@ -462,7 +474,7 @@ describe("repo launch action dispatch (open-in-editor / open-in-finder)", () => 
     expect(openInFinder).toHaveBeenCalledWith({ slug: "focused-repo" });
   });
 
-  it("no-ops the launch actions when no repo is focused", async () => {
+  it("no-ops the launch actions when no repo is focused, but not silently", async () => {
     const openInEditor = vi.fn(() => Promise.resolve({ ok: true }));
     const openInFinder = vi.fn(() => Promise.resolve({ ok: true }));
     vi.mocked(getAtr).mockReturnValue({
@@ -474,6 +486,7 @@ describe("repo launch action dispatch (open-in-editor / open-in-finder)", () => 
     await new Promise((r) => setTimeout(r, 0));
     expect(openInEditor).not.toHaveBeenCalled();
     expect(openInFinder).not.toHaveBeenCalled();
+    expect(ctx.notify).toHaveBeenCalledTimes(2);
   });
 
   it("no-ops safely when the preload bridge is unavailable", async () => {

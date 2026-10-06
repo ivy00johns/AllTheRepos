@@ -95,6 +95,7 @@ export function CommandPalette() {
   const openPalette = useUiStore((s) => s.openPalette);
   const closePalette = useUiStore((s) => s.closePalette);
   const togglePalette = useUiStore((s) => s.togglePalette);
+  const pushNotice = useUiStore((s) => s.pushNotice);
 
   // The base context (navigate + store actions) is stable; the focused
   // repo is resolved fresh at dispatch time inside `onSelect` so the
@@ -104,8 +105,16 @@ export function CommandPalette() {
     () => ({
       navigate,
       ui: { toggleSidebar, openPalette, closePalette, togglePalette },
+      notify: pushNotice,
     }),
-    [navigate, toggleSidebar, openPalette, closePalette, togglePalette],
+    [
+      navigate,
+      toggleSidebar,
+      openPalette,
+      closePalette,
+      togglePalette,
+      pushNotice,
+    ],
   );
 
   const scope = scopeForPath(location.pathname);

@@ -37,6 +37,7 @@ export function useMenuCommandBus(): void {
   const openPalette = useUiStore((s) => s.openPalette);
   const closePalette = useUiStore((s) => s.closePalette);
   const togglePalette = useUiStore((s) => s.togglePalette);
+  const pushNotice = useUiStore((s) => s.pushNotice);
 
   // Keep the context fresh via a ref so the listener registered below
   // always sees the latest `navigate`/store actions without needing to
@@ -45,13 +46,22 @@ export function useMenuCommandBus(): void {
   const ctxRef = React.useRef<ActionContext>({
     navigate,
     ui: { toggleSidebar, openPalette, closePalette, togglePalette },
+    notify: pushNotice,
   });
   React.useEffect(() => {
     ctxRef.current = {
       navigate,
       ui: { toggleSidebar, openPalette, closePalette, togglePalette },
+      notify: pushNotice,
     };
-  }, [navigate, toggleSidebar, openPalette, closePalette, togglePalette]);
+  }, [
+    navigate,
+    toggleSidebar,
+    openPalette,
+    closePalette,
+    togglePalette,
+    pushNotice,
+  ]);
 
   React.useEffect(() => {
     const atr = getAtr();

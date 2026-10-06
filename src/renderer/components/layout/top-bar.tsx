@@ -26,8 +26,23 @@ import {
 import { Button } from "@renderer/components/ui/button";
 import { SearchBar } from "@renderer/components/search/search-bar";
 import { useProcessCount } from "@renderer/hooks/use-processes";
+import { cn } from "@renderer/lib/cn";
 import { useUiStore } from "@renderer/stores/ui";
 import { useUpdate } from "@renderer/hooks/use-update";
+
+/**
+ * The main window uses `titleBarStyle: "hiddenInset"` on macOS, which
+ * overlays the traffic-light buttons on top of the web content in the
+ * top-left ~76px. Without reserved space the sidebar toggle (and, at
+ * narrower widths, the title) sits *under* the OS window controls, so
+ * clicks land on the close/minimise/zoom buttons instead of the app.
+ *
+ * Reserve that strip on darwin only — other platforms have a normal
+ * title bar above the content and need the full width.
+ */
+const MAC_TRAFFIC_LIGHT_INSET = "pl-[76px]";
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
 
 /**
  * Top-level destinations.
@@ -87,7 +102,12 @@ export function TopBar() {
   );
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
+    <header
+      className={cn(
+        "flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3",
+        IS_MAC && MAC_TRAFFIC_LIGHT_INSET,
+      )}
+    >
       <Button
         variant="ghost"
         size="sm"
