@@ -35,6 +35,49 @@
 import type {
   CancelScanInput,
   CancelScanResult,
+  CatalogChangeEvent,
+  GraphBuildInput,
+  GraphResult,
+  UpdateStatus,
+  UpdateCheckInput,
+  UpdateStatusInput,
+  OpenReleaseInput,
+  OpenReleaseResult,
+  SetFavoriteInput,
+  SetFavoriteResult,
+  SyncInput,
+  SyncResult,
+  TaskListInput,
+  TaskListResult,
+  TaskStartInput,
+  TaskStartResult,
+  TaskStopInput,
+  TaskStopResult,
+  TaskActiveInput,
+  TaskActiveResult,
+  TaskOutputEvent,
+  CoverInput,
+  CoverResult,
+  MoveInput,
+  MoveCheckResult,
+  MoveResult,
+  MoveUndoInput,
+  MoveLastInput,
+  MoveLastResult,
+  FolderCheckInput,
+  FolderCheckResult,
+  FolderRenameInput,
+  FolderMoveInput,
+  FolderCreateInput,
+  FolderOpResult,
+  PickScanPathInput,
+  PickScanPathResult,
+  AddScanPathInput,
+  AddScanPathResult,
+  RemoveScanPathInput,
+  RemoveScanPathResult,
+  CountUnderInput,
+  CountUnderResult,
   ClaudeGlobalUsageInput,
   ClaudeGlobalUsageResult,
   ClaudeIndexResult,
@@ -128,6 +171,28 @@ export interface AtrBridge {
     /** ATR-028: drop one catalog row; the repo on disk is untouched. */
     delete(input: DeleteRepoInput): Promise<DeleteRepoResult>;
     smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
+    /** Resolve a repo's own cover artwork; `src: null` when it has none. */
+    cover(input: CoverInput): Promise<CoverResult>;
+    /** Preflight a relocation — reads only, nothing is moved. */
+    moveCheck(input: MoveInput): Promise<MoveCheckResult>;
+    /** Relocate repos on disk and update their catalog rows. */
+    move(input: MoveInput): Promise<MoveResult>;
+    /** Reverse a journaled move batch; defaults to the most recent. */
+    moveUndo(input: MoveUndoInput): Promise<MoveResult>;
+    /** Describe the most recent move batch, for the undo affordance. */
+    moveLast(input: MoveLastInput): Promise<MoveLastResult>;
+    /** Subscribe to live catalog changes; returns an unsubscribe lambda. */
+    onChanged(callback: (event: CatalogChangeEvent) => void): () => void;
+    /** Pin or unpin a repo. */
+    setFavorite(input: SetFavoriteInput): Promise<SetFavoriteResult>;
+    /** Preflight a folder rename/move — reads only. */
+    folderCheck(input: FolderCheckInput): Promise<FolderCheckResult>;
+    /** Rename a folder in place. */
+    folderRename(input: FolderRenameInput): Promise<FolderOpResult>;
+    /** Move a folder into a different parent. */
+    folderMove(input: FolderMoveInput): Promise<FolderOpResult>;
+    /** Create an empty folder inside a scan root. */
+    folderCreate(input: FolderCreateInput): Promise<FolderOpResult>;
   };
   scan: {
     start(input: StartScanInput): Promise<StartScanResult>;
@@ -140,13 +205,54 @@ export interface AtrBridge {
     onProgress(cb: (event: ScanEvent) => void): () => void;
   };
   git: {
+    /** Update remote refs for one or many repos. Never touches the tree. */
+    fetch(input: SyncInput): Promise<SyncResult>;
+    /** Fast-forward one or many repos to their upstream where safe. */
+    pull(input: SyncInput): Promise<SyncResult>;
     status(input: GitStatusInput): Promise<GitStatus>;
     branches(input: GitBranchesInput): Promise<GitBranchesResult>;
     openInEditor(input: OpenInEditorInput): Promise<OpenInEditorResult>;
   };
+  tasks: {
+    /** The runnable commands a project declares. */
+    list(input: TaskListInput): Promise<TaskListResult>;
+    /** Start a task by id; output arrives on `onOutput`. */
+    start(input: TaskStartInput): Promise<TaskStartResult>;
+    /** Stop a run and everything it spawned. */
+    stop(input: TaskStopInput): Promise<TaskStopResult>;
+    /** Runs currently in flight. */
+    active(input: TaskActiveInput): Promise<TaskActiveResult>;
+    /** Subscribe to task output; returns an unsubscribe lambda. */
+    onOutput(callback: (event: TaskOutputEvent) => void): () => void;
+  };
+
+  graph: {
+    /** Build the relationship graph. */
+    build(input: GraphBuildInput): Promise<GraphResult>;
+  };
+
+  update: {
+    /** Ask GitHub whether a newer release exists. */
+    check(input: UpdateCheckInput): Promise<UpdateStatus>;
+    /** Last known status — no network. */
+    status(input: UpdateStatusInput): Promise<UpdateStatus>;
+    /** Open the pending release's page in the browser. */
+    openRelease(input: OpenReleaseInput): Promise<OpenReleaseResult>;
+    /** Subscribe to status changes; returns an unsubscribe lambda. */
+    onStatus(callback: (status: UpdateStatus) => void): () => void;
+  };
+
   settings: {
     get(): Promise<GetSettingsResult>;
     update(input: UpdateSettingsInput): Promise<UpdateSettingsResult>;
+    /** Open the native folder picker; returns a path without saving it. */
+    pickScanPath(input: PickScanPathInput): Promise<PickScanPathResult>;
+    /** Add a directory to the scan roots. */
+    addScanPath(input: AddScanPathInput): Promise<AddScanPathResult>;
+    /** Remove a scan root, optionally forgetting its catalog rows. */
+    removeScanPath(input: RemoveScanPathInput): Promise<RemoveScanPathResult>;
+    /** Catalog rows under a path — powers the remove confirmation. */
+    countUnder(input: CountUnderInput): Promise<CountUnderResult>;
   };
   groups: {
     list(): Promise<ListGroupsResult>;

@@ -26,6 +26,9 @@ import { registerProcessHandlers } from "./process";
 import { registerScanHandlers } from "./scan";
 import { registerSettingsHandlers } from "./settings";
 import { registerSystemHandlers } from "./system";
+import { registerTaskHandlers } from "./tasks";
+import { registerUpdateHandlers } from "./update";
+import { registerGraphHandlers } from "./graph";
 
 /**
  * Idempotently register every IPC handler the app exposes.
@@ -43,6 +46,9 @@ export function registerIpcHandlers(): void {
   registerGroupsHandlers();
   registerAppHandlers();
   registerProcessHandlers();
+  registerTaskHandlers();
+  registerUpdateHandlers();
+  registerGraphHandlers();
   registerLauncherHandlers();
   registerClaudeHandlers();
 }

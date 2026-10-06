@@ -28,6 +28,7 @@ import { Route as RootRoute } from "@renderer/routes/__root";
 import { Route as IndexRoute } from "@renderer/routes/index";
 import { Route as ClaudeRoute } from "@renderer/routes/claude";
 import { Route as DebugRoute } from "@renderer/routes/debug";
+import { Route as GraphRoute } from "@renderer/routes/graph";
 import { Route as ProcessesRoute } from "@renderer/routes/processes";
 import { Route as RepoRoute } from "@renderer/routes/repos.$slug";
 import { Route as SettingsRoute } from "@renderer/routes/settings";
@@ -40,6 +41,7 @@ const routeTree = RootRoute.addChildren([
   ProcessesRoute,
   RepoRoute,
   SettingsRoute,
+  GraphRoute,
 ]);
 
 /**

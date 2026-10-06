@@ -29,6 +29,49 @@ import { IPC } from "@shared/ipc";
 import type {
   CancelScanInput,
   CancelScanResult,
+  CatalogChangeEvent,
+  GraphBuildInput,
+  GraphResult,
+  UpdateStatus,
+  UpdateCheckInput,
+  UpdateStatusInput,
+  OpenReleaseInput,
+  OpenReleaseResult,
+  SetFavoriteInput,
+  SetFavoriteResult,
+  SyncInput,
+  SyncResult,
+  TaskListInput,
+  TaskListResult,
+  TaskStartInput,
+  TaskStartResult,
+  TaskStopInput,
+  TaskStopResult,
+  TaskActiveInput,
+  TaskActiveResult,
+  TaskOutputEvent,
+  CoverInput,
+  CoverResult,
+  MoveInput,
+  MoveCheckResult,
+  MoveResult,
+  MoveUndoInput,
+  MoveLastInput,
+  MoveLastResult,
+  FolderCheckInput,
+  FolderCheckResult,
+  FolderRenameInput,
+  FolderMoveInput,
+  FolderCreateInput,
+  FolderOpResult,
+  PickScanPathInput,
+  PickScanPathResult,
+  AddScanPathInput,
+  AddScanPathResult,
+  RemoveScanPathInput,
+  RemoveScanPathResult,
+  CountUnderInput,
+  CountUnderResult,
   CreateGroupInput,
   CreateGroupResult,
   DeepLinkPayload,
@@ -146,6 +189,69 @@ export const api = {
         IPC.CATALOG.SMART_FILTER,
         input,
       ) as Promise<SmartFilterResult>,
+    cover: (input: CoverInput): Promise<CoverResult> =>
+      ipcRenderer.invoke(IPC.CATALOG.COVER, input) as Promise<CoverResult>,
+    moveCheck: (input: MoveInput): Promise<MoveCheckResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.MOVE_CHECK,
+        input,
+      ) as Promise<MoveCheckResult>,
+    move: (input: MoveInput): Promise<MoveResult> =>
+      ipcRenderer.invoke(IPC.CATALOG.MOVE, input) as Promise<MoveResult>,
+    moveUndo: (input: MoveUndoInput): Promise<MoveResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.MOVE_UNDO,
+        input,
+      ) as Promise<MoveResult>,
+    moveLast: (input: MoveLastInput): Promise<MoveLastResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.MOVE_LAST,
+        input,
+      ) as Promise<MoveLastResult>,
+    /**
+     * Subscribe to live catalog changes from the filesystem watcher.
+     * Returns an unsubscribe lambda; callers MUST invoke it on cleanup
+     * so hot-reload doesn't stack listeners.
+     */
+    onChanged: (
+      callback: (event: CatalogChangeEvent) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: CatalogChangeEvent,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.CATALOG.ON_CHANGED, handler);
+      return () => {
+        ipcRenderer.off(IPC.CATALOG.ON_CHANGED, handler);
+      };
+    },
+    setFavorite: (input: SetFavoriteInput): Promise<SetFavoriteResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.SET_FAVORITE,
+        input,
+      ) as Promise<SetFavoriteResult>,
+    folderCheck: (input: FolderCheckInput): Promise<FolderCheckResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.FOLDER_CHECK,
+        input,
+      ) as Promise<FolderCheckResult>,
+    folderRename: (input: FolderRenameInput): Promise<FolderOpResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.FOLDER_RENAME,
+        input,
+      ) as Promise<FolderOpResult>,
+    folderMove: (input: FolderMoveInput): Promise<FolderOpResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.FOLDER_MOVE,
+        input,
+      ) as Promise<FolderOpResult>,
+    folderCreate: (input: FolderCreateInput): Promise<FolderOpResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.FOLDER_CREATE,
+        input,
+      ) as Promise<FolderOpResult>,
   },
 
   scan: {
@@ -175,6 +281,10 @@ export const api = {
   },
 
   git: {
+    fetch: (input: SyncInput): Promise<SyncResult> =>
+      ipcRenderer.invoke(IPC.GIT.FETCH, input) as Promise<SyncResult>,
+    pull: (input: SyncInput): Promise<SyncResult> =>
+      ipcRenderer.invoke(IPC.GIT.PULL, input) as Promise<SyncResult>,
     status: (input: GitStatusInput): Promise<GitStatus> =>
       ipcRenderer.invoke(IPC.GIT.STATUS, input) as Promise<GitStatus>,
     branches: (input: GitBranchesInput): Promise<GitBranchesResult> =>
@@ -186,6 +296,62 @@ export const api = {
       ) as Promise<OpenInEditorResult>,
   },
 
+  tasks: {
+    list: (input: TaskListInput): Promise<TaskListResult> =>
+      ipcRenderer.invoke(IPC.TASKS.LIST, input) as Promise<TaskListResult>,
+    start: (input: TaskStartInput): Promise<TaskStartResult> =>
+      ipcRenderer.invoke(IPC.TASKS.START, input) as Promise<TaskStartResult>,
+    stop: (input: TaskStopInput): Promise<TaskStopResult> =>
+      ipcRenderer.invoke(IPC.TASKS.STOP, input) as Promise<TaskStopResult>,
+    active: (input: TaskActiveInput): Promise<TaskActiveResult> =>
+      ipcRenderer.invoke(IPC.TASKS.ACTIVE, input) as Promise<TaskActiveResult>,
+    /**
+     * Subscribe to task stdout/stderr and lifecycle. Returns an
+     * unsubscribe lambda the renderer MUST call on cleanup.
+     */
+    onOutput: (
+      callback: (event: TaskOutputEvent) => void,
+    ): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: TaskOutputEvent) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.TASKS.ON_OUTPUT, handler);
+      return () => {
+        ipcRenderer.off(IPC.TASKS.ON_OUTPUT, handler);
+      };
+    },
+  },
+
+  graph: {
+    /** Build the relationship graph. Reads from disk — call on demand. */
+    build: (input: GraphBuildInput): Promise<GraphResult> =>
+      ipcRenderer.invoke(IPC.GRAPH.BUILD, input) as Promise<GraphResult>,
+  },
+
+  update: {
+    /** Ask GitHub whether a newer release exists. Network round-trip. */
+    check: (input: UpdateCheckInput): Promise<UpdateStatus> =>
+      ipcRenderer.invoke(IPC.UPDATE.CHECK, input) as Promise<UpdateStatus>,
+    /** Last known status — cheap, no network. */
+    status: (input: UpdateStatusInput): Promise<UpdateStatus> =>
+      ipcRenderer.invoke(IPC.UPDATE.STATUS, input) as Promise<UpdateStatus>,
+    openRelease: (input: OpenReleaseInput): Promise<OpenReleaseResult> =>
+      ipcRenderer.invoke(
+        IPC.UPDATE.OPEN_RELEASE,
+        input,
+      ) as Promise<OpenReleaseResult>,
+    /** Subscribe to status changes; returns an unsubscribe lambda. */
+    onStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: UpdateStatus) => {
+        callback(payload);
+      };
+      ipcRenderer.on(IPC.UPDATE.ON_STATUS, handler);
+      return () => {
+        ipcRenderer.off(IPC.UPDATE.ON_STATUS, handler);
+      };
+    },
+  },
+
   settings: {
     get: (): Promise<GetSettingsResult> =>
       ipcRenderer.invoke(IPC.SETTINGS.GET, {}) as Promise<GetSettingsResult>,
@@ -194,6 +360,28 @@ export const api = {
         IPC.SETTINGS.UPDATE,
         input,
       ) as Promise<UpdateSettingsResult>,
+    pickScanPath: (input: PickScanPathInput): Promise<PickScanPathResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.PICK_SCAN_PATH,
+        input,
+      ) as Promise<PickScanPathResult>,
+    addScanPath: (input: AddScanPathInput): Promise<AddScanPathResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.ADD_SCAN_PATH,
+        input,
+      ) as Promise<AddScanPathResult>,
+    removeScanPath: (
+      input: RemoveScanPathInput,
+    ): Promise<RemoveScanPathResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.REMOVE_SCAN_PATH,
+        input,
+      ) as Promise<RemoveScanPathResult>,
+    countUnder: (input: CountUnderInput): Promise<CountUnderResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.COUNT_UNDER,
+        input,
+      ) as Promise<CountUnderResult>,
   },
 
   groups: {

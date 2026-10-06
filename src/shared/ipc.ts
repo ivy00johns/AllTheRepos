@@ -51,6 +51,36 @@ export const IPC = {
     SET_TAGS: "catalog:setTags",
     /** LLM-tagged smart filter (Phase 4 feature, contract locked now). */
     SMART_FILTER: "catalog:smartFilter",
+    /**
+     * Resolve a repo's own cover artwork (README hero or a conventional
+     * image path on disk). Returns `null` when the project ships none —
+     * the renderer then draws deterministic generated art.
+     */
+    COVER: "catalog:cover",
+    /** Preflight a relocation: per-repo verdict, nothing touched. */
+    MOVE_CHECK: "catalog:moveCheck",
+    /** Execute a relocation on disk and update the catalog. */
+    MOVE: "catalog:move",
+    /** Reverse a journaled move batch. */
+    MOVE_UNDO: "catalog:moveUndo",
+    /** Describe the most recent move batch, for the undo affordance. */
+    MOVE_LAST: "catalog:moveLast",
+    /**
+     * Push-style stream from main → renderer. Fired when the filesystem
+     * watcher notices repos appearing, moving or disappearing under a
+     * scan root. Payload conforms to `CatalogChangeEventSchema`.
+     */
+    ON_CHANGED: "catalog:on:changed",
+    /** Pin / unpin a repo. */
+    SET_FAVORITE: "catalog:setFavorite",
+    /** Preflight a folder rename/move: which repos travel, what blocks it. */
+    FOLDER_CHECK: "catalog:folderCheck",
+    /** Rename a folder in place. */
+    FOLDER_RENAME: "catalog:folderRename",
+    /** Move a folder into a different parent. */
+    FOLDER_MOVE: "catalog:folderMove",
+    /** Create an empty folder inside a scan root. */
+    FOLDER_CREATE: "catalog:folderCreate",
   },
 
   /** Scan namespace — scanner job lifecycle + progress stream. */
@@ -76,6 +106,56 @@ export const IPC = {
     BRANCHES: "git:branches",
     /** Launch editor via shell.openExternal allowlist (deepened in Phase 2). */
     OPEN_IN_EDITOR: "git:openInEditor",
+    /** Update remote refs for one or many repos. Never touches the tree. */
+    FETCH: "git:fetch",
+    /** Fast-forward one or many repos to their upstream. */
+    PULL: "git:pull",
+  },
+
+  /**
+   * Tasks namespace — the runnable commands a project declares
+   * (npm scripts, Makefile targets, compose services, …) and their
+   * execution.
+   */
+  TASKS: {
+    /** Discover the tasks a repo declares. */
+    LIST: "tasks:list",
+    /** Start a task; output arrives on `TASKS.ON_OUTPUT`. */
+    START: "tasks:start",
+    /** Stop a running task and everything it spawned. */
+    STOP: "tasks:stop",
+    /** Runs currently in flight, so the UI can restore state on mount. */
+    ACTIVE: "tasks:active",
+    /** Push-style stdout/stderr/lifecycle stream. */
+    ON_OUTPUT: "tasks:on:output",
+  },
+
+  /**
+   * Graph namespace — how projects relate to each other, and which
+   * clusters are scattered across folders.
+   */
+  GRAPH: {
+    /** Build the relationship graph from the catalog + on-disk reads. */
+    BUILD: "graph:build",
+  },
+
+  /**
+   * Update namespace — checks whether a newer release exists.
+   * Installing stays manual while the app ships unsigned; see
+   * `services/updater.ts`.
+   */
+  UPDATE: {
+    /** Ask GitHub whether there's a newer release. */
+    CHECK: "update:check",
+    /** Read the last known status without triggering a check. */
+    STATUS: "update:status",
+    /** Push-style status stream (checking / available / current / error). */
+    ON_STATUS: "update:on:status",
+    /**
+     * Open the release page for the available update. The URL is held
+     * main-side so the renderer can't ask to open an arbitrary address.
+     */
+    OPEN_RELEASE: "update:openRelease",
   },
 
   /** Settings namespace — persisted via electron-store, NOT SQLite. */
@@ -84,6 +164,14 @@ export const IPC = {
     GET: "settings:get",
     /** Partial update — only provided keys are applied. */
     UPDATE: "settings:update",
+    /** Open the native folder picker. Returns a path without saving it. */
+    PICK_SCAN_PATH: "settings:pickScanPath",
+    /** Add a directory to the scan roots. */
+    ADD_SCAN_PATH: "settings:addScanPath",
+    /** Remove a scan root, optionally forgetting its catalog rows. */
+    REMOVE_SCAN_PATH: "settings:removeScanPath",
+    /** How many catalog rows live under a path — powers the remove confirm. */
+    COUNT_UNDER: "settings:countUnder",
   },
 
   /** Groups namespace — CRUD + membership. */
