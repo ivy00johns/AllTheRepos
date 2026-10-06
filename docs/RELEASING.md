@@ -56,7 +56,17 @@ git tag v0.2.0 && git push origin v0.2.0
    job if the DMG, the ZIP or `latest-mac.yml` is missing, or if the manifest disagrees with
    what was uploaded. The release is still invisible at this point, which is the whole
    reason the check runs here first.
-5. **Attaches the changelog and publishes the draft** with `gh release edit`.
+5. **Attaches the changelog and publishes the draft** with `gh release edit`. The body it
+   writes opens with a **download link for the DMG** — its name, a human-readable size, the
+   SHA-256, and the first-launch instructions — then says what the other assets are for, and
+   only then prints the changelog. That order is deliberate: GitHub orders the asset list by
+   rules of its own and appends two source archives of its own, so the page led with
+   `…-mac.zip` on the first releases and read as "this release is a zip" rather than "this
+   release is a DMG".
+
+   > The notes are captured with `pnpm --silent`. Without it, the banner pnpm prints for the
+   > script it is running (`> alltherepos@0.1.2 release:check …` plus the runner's absolute
+   > path) is captured into the notes file and published as the first line of the release.
 6. **Verifies the published release** — `pnpm release:verify`, the same check in the state
    users actually see: `releases/latest` resolves, and the feed the updater reads is the
    thing being asserted on.

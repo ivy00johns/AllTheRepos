@@ -52,7 +52,7 @@ Most repository tools answer *"what is in this repo?"*. AllTheRepos answers the 
 
 **Status:** the desktop app boots, the type-safe IPC layer works end to end, and the catalog runs against a migrated SQLite + LanceDB store. Phases 0–2 are structurally complete and Phase 3 (deep integrations) is wired; several Phase 1–3 surfaces are still stubbed, and [`docs/PLAN.md`](./docs/PLAN.md) keeps the honest, verified phase-by-phase list rather than this paragraph. This is **alpha software that touches your entire repository collection** — read the disclosure above before pointing it at your machine.
 
-The current release is [`v0.1.2`](https://github.com/ivy00johns/alltherepos-releases/releases). It is ad-hoc signed and not notarised, and its updater **checks** for new versions but cannot install them: see [Releasing](#-releasing).
+The current release is [`v0.1.2`](https://github.com/ivy00johns/alltherepos-releases/releases) — download the **`.dmg`**; the `.zip`, `.blockmap` and `latest-mac.yml` beside it are the update feed, not another installer. It is ad-hoc signed and not notarised, and its updater **checks** for new versions but cannot install them: see [Releasing](#-releasing).
 
 ---
 

@@ -11,6 +11,14 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Fixed
+
+- The release body now opens with a named `.dmg` download link (and its SHA-256). The
+  asset list put `…-mac.zip` first, so a release that shipped a DMG read as a release that
+  shipped a zip — and the two source archives GitHub appends made it worse.
+- Release notes no longer begin with pnpm's `> script` banner, which was being captured
+  into the notes file and published as the first thing on the release page.
+
 ## [0.1.2] - 2026-10-06
 
 ### Fixed
