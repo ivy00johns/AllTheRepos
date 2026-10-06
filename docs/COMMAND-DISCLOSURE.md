@@ -118,15 +118,15 @@ argument is a PID, Zod-validated as a positive integer
 | Command | Purpose | Source |
 | --- | --- | --- |
 | `/bin/zsh -ilc "command -v <cli>"` | Locate an editor CLI on your interactive PATH | `launcher.ts:278` |
-| `gh auth token` | Read a GitHub token for the update check | `updater.ts:74` |
 
 `<cli>` is drawn from a hardcoded table of thirteen editors
 (`launcher.ts:96-188`); it is never user input. The probe is spawned
 with an argv array and killed after 1.5s.
 
-`gh auth token` is called only to read an existing credential. The app
-ships no token of its own and never writes one. If `gh` is absent or
-logged out, the update check reports "unavailable" and stops.
+The editor probe is the only external command this section runs. The update
+check used to reach for `gh auth token` too; as of 2026-10-06 it does not —
+releases are published to a public repo, so the feed is read anonymously and
+the app holds no credential (§8).
 
 ### 3.3 Project tasks — **you initiate, the project defines**
 
@@ -337,10 +337,12 @@ ships without an Apple Developer certificate. Rather than fail silently
 after a large download, the app tells you a release exists and links to
 it. Downloading and installing are manual and remain your decision.
 
-The release feed lives on a private repository. No token is embedded in
-the shipped application; one is read at runtime from `GH_TOKEN`,
-`GITHUB_TOKEN`, or `gh auth token` (`updater.ts:64-83`). With no token,
-the check reports unavailable and explains why.
+The release feed is a **public** repository
+(`ivy00johns/alltherepos-releases`), so a check is one anonymous request to the
+GitHub API: the app stores no credential, reads none from your environment, and
+asks you for nothing (`services/updater.ts`). Nothing published yet, no network,
+and being rate-limited each report as their own state rather than as one generic
+failure.
 
 ---
 
@@ -484,8 +486,8 @@ The data directory is `~/Library/Application Support/alltherepos`
 
 ### The app writes the same table
 
-Curating a relationship is not MCP-only. The repo detail panel asserts and
-removes links directly, over `graph:link` / `graph:unlink`
+Curating a relationship is not MCP-only. The repo detail panel and the
+`/graph` map's inspector assert and remove links directly, over `graph:link` / `graph:unlink`
 (`src/main/ipc/graph.ts`), calling the same `createLink` / `removeLink`
 listed in the table above. Rows written there are stamped `source: "ui"`
 (`src/main/ipc/graph.ts`), so the map can still tell a person's assertion
@@ -534,8 +536,8 @@ the app is open is safe.
 **Curated links do not appear on the map until the graph is rebuilt.**
 `graphService.build()` (`services/graph.ts:307`) recomputes from scratch
 on demand and does not watch the database, and the Map view caches its
-result for five minutes (`hooks/use-graph.ts`). Asserting a link *from the
-catalog panel* is the one path that refreshes itself: the mutation
+result for five minutes (`hooks/use-graph.ts`). Asserting a link *from the app*
+(the catalog panel or the map) is the one path that refreshes itself: the mutation
 invalidates the map and both repos' relation lists
 (`hooks/use-graph.ts`, `invalidateLinks`). After an **MCP** session
 asserts links — an external process the app cannot hear — press refresh on

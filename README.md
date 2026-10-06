@@ -44,6 +44,10 @@ pnpm electron:dev                  # dev — rebuilds natives, then launches
 pnpm electron:build                # produces out/{main,preload,renderer}
 pnpm electron:pack                 # DMG output (unsigned, local dev)
 pnpm electron:dist                 # DMG output (release config)
+pnpm release:next                  # derive the next version + changelog from the commits
+pnpm release:check                 # guard the tag/version and changelog before releasing
+pnpm release                       # build DMG + ZIP, publish to GitHub Releases
+pnpm release:verify                # check a published release has all three assets
 pnpm electron:rebuild              # force-rebuild natives for Electron's ABI
 ```
 

@@ -26,8 +26,12 @@ The "make the app opinionated" phase. None of this exists yet (correctly — it'
 - Multi-theme support (OLED, Slate, Light, High-contrast) + density modes + custom keymaps.
 - Snapshots / export-import.
 - **Code signing + notarization** — `scripts/notarize.mjs` is currently a no-op; `electron-builder.yml` is unsigned (`identity: null`, `hardenedRuntime: false`).
-- **GitHub Actions** signing/notarization on tag push — no `.github/` directory exists yet.
-- **Auto-update** — `electron-updater` is a dependency but imported nowhere; needs a GitHub Releases feed.
+- **Signing/notarization in CI** — `.github/workflows/` now checks every push/PR and
+  builds + publishes on a `v*` tag; what is missing is a Developer ID certificate, so the
+  published artifact is still ad-hoc signed (see [`RELEASING.md`](./RELEASING.md)).
+- **Installing an update in-app** — `electron-updater` checks the GitHub Releases feed and
+  reports, but Squirrel.Mac refuses to apply an unsigned update, so installing stays manual
+  until notarization lands.
 - First-run onboarding window (scan-path selection, default editor/terminal, hotkey).
 - Branded DMG background + custom installer layout.
 
