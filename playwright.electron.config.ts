@@ -30,8 +30,11 @@ export default defineConfig({
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
   // curated links: curate-link-flow.spec.ts — the only spec that seeds an
   // isolated profile instead of reading the developer's library.
+  // packaged-update-check.spec.ts also matches, but skips itself unless
+  // ATR_PACKAGED_UPDATE_E2E is set and a packaged app exists (`pnpm
+  // test:packaged-update`): it launches the real bundle and needs the network.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|packaged-update-check)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
