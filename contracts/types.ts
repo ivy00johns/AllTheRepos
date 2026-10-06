@@ -46,6 +46,10 @@ export interface Repo {
   sizeBytes: number | null;
   lastScannedAt: string | null;
   lastOpenedAt: string | null;
+  /** Pinned by the user — favourites sort and filter to the top. */
+  isFavorite: boolean;
+  /** When it was pinned, so favourites can be ordered by recency. */
+  favoritedAt: string | null;
   createdAt: string;
   updatedAt: string;
   source: "manual" | "filesystem_scan";
@@ -130,6 +134,12 @@ export interface Settings {
   ollamaEmbedModel: string;
   openaiEmbedModel: string | null;
   defaultEditor: "vscode" | "cursor" | "none";
+  /**
+   * Git host handles that belong to the user (e.g. `["ivy00johns"]`).
+   * Used to classify each repo as yours versus cloned. Empty means "not
+   * configured" — the renderer then infers it from the catalog.
+   */
+  identities: string[];
   schemaVersion: number;
 }
 

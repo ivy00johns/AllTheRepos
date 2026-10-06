@@ -30,38 +30,148 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 > Next.js stack retired (ATR-013), and the native-ABI flip automated (ATR-016). Phase 5
 > distribution was promoted out of `FUTURE.md` into **ATR-046…052**; ATR-053/054 record
 > fallout from the retirement. The 8 Wave-A P1s are unchanged and next.
+>
+> **Wave 5 — catalog v2 + MCP (2026-08-24–25; committed 2026-10-06):** a large wave was
+> built in one session and left uncommitted for six weeks. It is now 7 commits on
+> `feat/alltherepos-mcp` (`bfbe3ab..9c295ce`), pushed to origin but **not merged to `main`**.
+> It **closed ATR-037/038/040/045/049**, left **ATR-041/048/052 partly done**, and added
+> **ATR-056/057/058**. `ATR-033/042/043/046/047/050/051/053/054/055` are unchanged.
 
 ---
 
 ## Open / remaining
 
-| ID      | P   | Area        | Summary                                                                                                                                                                                                                                                                                                                                                                                                                          | Status    |
-| ------- | --- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| ATR-033 | P1  | scanner     | **Discovery: root-is-a-repo / nested repos** — the native walker prunes a subtree at the first `.git`, so a scan root that is itself a git repo indexes 1 repo and hides everything beneath it. Pre-expand roots / keep queuing subdirs after a repo hit. [SC-1]                                                                                                                                                                 | open      |
-| ATR-037 | P1  | scan        | **Auto-detect new projects** — no watcher on `scanPaths` and no scan-on-launch (`scanService.boot()` is a no-op); new repos are invisible until a manual "Scan now". Debounced chokidar watcher (mirror the Claude watcher) → incremental scan. [SC-6]                                                                                                                                                                           | open      |
-| ATR-038 | P1  | ux          | **First-run flow** — fresh install shows "No repos match / adjust your filters" with no scan CTA; the only trigger is buried in Settings. Distinguish unconfigured-empty from filtered-empty; folder-picker CTA + first scan. [SC-7/UX-3]                                                                                                                                                                                        | open      |
-| ATR-040 | P1  | ui          | **Sort control + last-opened surfacing** — `sort:"lastOpened"` exists in the store, schema, and query layer but no main-window UI exposes it, and `lastOpenedAt` is never rendered outside the tray. Header sort dropdown → `useRepos`; last-opened on card + detail with exact-date hover. Pairs with ATR-030. [UX-1/UX-2]                                                                                                      | open      |
-| ATR-041 | P1  | ui          | **Surface description + key details** — the detail view never renders `repo.description`; `lastCommitMsg` and `sizeBytes` are rendered nowhere. Description paragraph in detail; commit-message + size chip on the card. [UX-4/UX-7]                                                                                                                                                                                             | open      |
-| ATR-042 | P1  | ui          | **Lift the silent 200-repo cap** — `useRepos({limit:200})` + a non-virtualized grid mounting a live card per repo; repos 201+ are invisible and the count reads "200 of 200". Pagination or virtualization + true counts. [UX-5]                                                                                                                                                                                                 | open      |
-| ATR-043 | P1  | ui          | **Group-membership UI** — `useSetGroupMembers` and the `groups.setMembers` preload bridge have zero callers; manual groups can be created/renamed/deleted but never populated. Add-to-group affordance on detail + card context action. [UX-6]                                                                                                                                                                                   | open      |
-| ATR-045 | P1  | ui          | **List/table view toggle** — card grid only today; wrong primitive for triaging hundreds of repos. Compact sortable table (name/description/last-opened/size) toggleable with cards. Pairs with ATR-040/042. [UX-8]                                                                                                                                                                                                              | open      |
-| ATR-046 | P1  | dist        | **Code signing + notarization** — `electron-builder.yml` ships `identity: null` + `hardenedRuntime: false`, and `scripts/notarize.mjs` is an explicit no-op placeholder. Needs a Developer ID Application cert + App Store Connect API key (see D2 in the plan). Blocked on an Apple Developer Program membership.                                     | open      |
-| ATR-047 | P1  | dist        | **CI on GitHub Actions** — no `.github/` exists. Run `typecheck` (all three tsconfigs) + `vitest` + Electron E2E on push/PR. Unblocked by ATR-016: CI can no longer be defeated by the native-ABI flip.                                                                                                                                             | open      |
-| ATR-048 | P1  | dist        | **Release workflow** — tag push → signed, notarized DMG published to GitHub Releases. Depends on ATR-046 + ATR-047.                                                                                                                                                                                                                                 | open      |
-| ATR-049 | P1  | dist        | **Auto-update** — `electron-updater` is a dependency but imported nowhere in `src/`. Wire the GitHub Releases feed + a user-visible update affordance. Depends on ATR-048.                                                                                                                                                                          | open      |
-| ATR-055 | P1  | perf        | **~22s cold start — the window is gated on service boot.** `app.whenReady()` awaits `processService.boot()` → `launcherService.boot()` → `claudeService.boot()` *before* creating the main window, so nothing paints until every service finishes. Measured on 2026-08-21: process **18.4s**, claude **5.6s**, launcher **1.5s** (~26s to first paint). Making the process prime-tick fire-and-forget cut it to ~22s, but the concurrent `lsof` sweep still saturates the main thread while the other services boot. Real fix: register IPC handlers, create the window, THEN boot services in the background with each handler awaiting its service's `ready` promise. Also why Electron E2E is flaky — `firstWindow()` defaults to a 30s timeout. | open      |
-| ATR-050 | P2  | dist        | **First-run onboarding window** — scan-path selection, default editor/terminal, hotkey. May be redundant once ATR-038 ships its in-app first-run CTA; decide at the Wave A gate (D3 in the plan).                                                                                                                                                   | open      |
-| ATR-051 | P2  | dist        | **Branded DMG** — background image + custom installer layout.                                                                                                                                                                                                                                                                                      | open      |
-| ATR-052 | P2  | dist        | **Release discipline** — versioning, changelog, and release docs (`package.json` is still `0.1.0` / `private: true`).                                                                                                                                                                                                                               | open      |
-| ATR-053 | P2  | test        | **Hybrid-search coverage gap** — retiring the legacy stack (ATR-013) deleted `tests/search/hybrid.test.ts`, which was the only coverage of hybrid FTS+vector search. It was wired to `lib/db` / `lib/embed` / `lib/search`, so porting is a rewrite against `src/main/services/search.ts`, not a move. `services/tag.ts` coverage WAS ported.        | open      |
-| ATR-054 | P2  | build       | **No lint at all** — `lint` was `next lint` and went with the Next stack; there is no `eslint.config.*` in the repo and never was. Add a flat ESLint config covering `src/`, `tests/`, `scripts/`, and wire it into ATR-047's CI.                                                                                                                    | open      |
-| ATR-024 | P2  | build       | nvm shell wrapper recurses on bare `node`/`npx`/`npm` (broken dotfile `_load_nvm`). Workaround: absolute binary. Fix in the user's `~/.zshrc`/profile (outside the repo — needs the user, or explicit OK to edit dotfiles).                                                                                                                                                                                                      | open      |
-| ATR-025 | P2  | build       | Commit signing fails non-interactively (1Password SSH agent) → this session's commits used `--no-gpg-sign`. Re-sign on a real terminal (approve the 1Password prompt) or relax signing for agent sessions.                                                                                                                                                                                                                       | open      |
-| —       | P2  | claude      | MCP server **"running"** status (PID-matching) — explicitly **deferred** out of ATR-021 (not faked; `mergeMcpServers` emits `configured`/`unavailable` only). Promote to a numbered item if/when it's wanted.                                                                                                                                                                                                                    | deferred  |
+| ID      | P   | Area        | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Status    |
+| ------- | --- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| ATR-033 | P1  | scanner     | **Discovery: root-is-a-repo / nested repos** — the native walker prunes a subtree at the first `.git`, so a scan root that is itself a git repo indexes 1 repo and hides everything beneath it. Pre-expand roots / keep queuing subdirs after a repo hit. [SC-1]                                                                                                                                                                                                                                                                                           | open      |
+| ATR-041 | P1  | ui          | **Surface description + key details** — ◐ partly done in Wave 5: the **detail** view now renders `description` (via `cleanDescription`) and `relativeTime(lastCommitDate)`; `sizeBytes` shows in the table view. Remaining: `lastCommitMsg` on the card, a size chip on the card, and `lastOpenedAt` as its own field.                                                                                                                                                                                                                                     | ◐ partial |
+| ATR-042 | P1  | ui          | **Lift the silent 200-repo cap** — `useRepos({limit:200})` + a non-virtualized grid mounting a live card per repo; repos 201+ are invisible and the count reads "200 of 200". Pagination or virtualization + true counts. [UX-5]                                                                                                                                                                                                                                                                                                                           | open      |
+| ATR-043 | P1  | ui          | **Group-membership UI** — `useSetGroupMembers` and the `groups.setMembers` preload bridge have zero callers; manual groups can be created/renamed/deleted but never populated. Add-to-group affordance on detail + card context action. [UX-6]                                                                                                                                                                                                                                                                                                             | open      |
+| ATR-046 | P1  | dist        | **Code signing + notarization** — improved to **ad-hoc** signing (`identity: "-"` + entitlements, so the arm64 bundle launches and `codesign --verify` passes), with a ZIP target for the updater. Real Developer ID signing + notarization still need an Apple Developer Program membership (D2); a downloaded DMG still needs right-click → Open.                                                                                                                                                                                                        | open      |
+| ATR-047 | P1  | dist        | **CI on GitHub Actions** — ◐ `.github/workflows/ci.yml` landed **2026-10-06**: a `check` job (`typecheck` + `vitest`) and a separate `e2e` job (the Electron suite — separate because it flips the native ABI), both `macos-14` / Node 22, on every push and PR. The same sequence is green locally, and all 8 specs also pass against a fresh `CFFIXED_USER_HOME` (empty catalog), which is what a runner looks like. **2026-10-06 — verified green on a runner** via PR #1: `typecheck` + **49 files / 1055 tests, 0 failed**, and the Electron suite **8 passed / 2 skipped** on `macos-14` (`Running 10 tests`, including the seeded-profile spec, so the GUI session a runner offers is enough). One subtlety learned the hard way: a **branch** push evaluates the workflow at the pushed ref, but a **tag** push does not — `v0.1.0` produced *no run at all* while `main` lacked `.github/` (`actions/workflows` → 0), so the release workflow can only fire once this reaches `main`. Lint still waits on ATR-054.                                                                                                                                                                                                                                                                                                                                                    | ◐ partial |
+| ATR-048 | P1  | dist        | **Release workflow** — ◐ `pnpm release` builds and publishes an ad-hoc-signed DMG + ZIP + `latest-mac.yml` to GitHub Releases (`docs/RELEASING.md`), and as of **2026-10-06** a pushed `v*` tag does the same in CI: `.github/workflows/release.yml` guards the tag against `package.json` + the changelog, runs `typecheck`/unit, uploads as a draft, then attaches the notes and publishes it. Artifacts go to the **public** `alltherepos-releases` repo (the app reads that feed anonymously, so update checks work for any install; the source stays private). A `release:verify` step reads the upload back **before** it is published and again afterwards, so a missing DMG / ZIP / manifest fails the job while the release is still invisible. Still open: a **notarized** artifact (ATR-046) — until then the published app needs right-click → Open and cannot install its own updates.                                                                                                                                                                                                                                                                                              | ◐ partial |
+| ATR-055 | P1  | perf        | **~22s cold start — the window is gated on service boot.** `app.whenReady()` awaits `processService.boot()` → `launcherService.boot()` → `claudeService.boot()` *before* creating the main window. **Still present 2026-10-06:** `src/main/index.ts` boots every service at `:226`–`:255` and only calls `createMainWindow()` at `:289`. Real fix: register IPC handlers, create the window, THEN boot services in the background with each handler awaiting its service's `ready` promise. Also why Electron E2E is slower than it should be.             | open      |
+| ATR-057 | P1  | build       | **Native ABI flips are broken on this machine** — the Command Line Tools update on **2026-09-22** installed SDK 27.0 (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21 rejects (`unknown architecture … arm64e.x1-macos`, `tapi error: malformed file`). Any `node-gyp` rebuild fails, so `pnpm test` / `test:full` fail whenever the tree sits in the other ABI. Workaround: `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`. Fix the SDK, or make `scripts/ensure-native-abi.mjs` resolve a valid SDK itself.               | open      |
+| ATR-050 | P2  | dist        | **First-run onboarding window** — scan-path selection, default editor/terminal, hotkey. May be redundant once ATR-038 ships its in-app first-run CTA; decide at the Wave A gate (D3 in the plan).                                                                                                                                                                                                                                                                                                                                                          | open      |
+| ATR-051 | P2  | dist        | **Branded DMG** — background image + custom installer layout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | open      |
+| ATR-052 | P2  | dist        | **Release discipline** — ◐ the procedure landed in `docs/RELEASING.md`, and **2026-10-06** added the enforcement: `CHANGELOG.md` (Keep a Changelog), and `scripts/release-notes.mjs`, which fails a release whose tag disagrees with `package.json` or whose version has no non-empty changelog section — wired into `pnpm release` as `release:check` and into CI as the first release step. The same day also made the bump **derived instead of typed**: `scripts/next-release.mjs` (`release:next`) reads the commits since the last `v*` tag, picks the level by conventional-commit rules, writes the version and changelog section, and commits + tags only with `--write --tag`, after the plan is read. Still open: `package.json` is still `0.1.0` / `private: true` and nothing has ever been tagged, so the first real bump has not been exercised — and `release:next` deliberately refuses to invent one while there is no baseline.                                                                                                                                                                                                                                                                                                                                                   | ◐ partial |
+| ATR-053 | P2  | test        | **Hybrid-search coverage gap** — retiring the legacy stack (ATR-013) deleted `tests/search/hybrid.test.ts`, which was the only coverage of hybrid FTS+vector search. It was wired to `lib/db` / `lib/embed` / `lib/search`, so porting is a rewrite against `src/main/services/search.ts`, not a move. `services/tag.ts` coverage WAS ported.                                                                                                                                                                                                              | open      |
+| ATR-054 | P2  | build       | **No lint at all** — `lint` was `next lint` and went with the Next stack; there is no `eslint.config.*` in the repo and never was. Add a flat ESLint config covering `src/`, `tests/`, `scripts/`, and wire it into ATR-047's CI.                                                                                                                                                                                                                                                                                                                          | open      |
+| ATR-024 | P2  | build       | nvm shell wrapper recurses on bare `node`/`npx`/`npm` (broken dotfile `_load_nvm`). Workaround: absolute binary. Fix in the user's `~/.zshrc`/profile (outside the repo — needs the user, or explicit OK to edit dotfiles).                                                                                                                                                                                                                                                                                                                                | open      |
+| ATR-025 | P2  | build       | Commit signing fails non-interactively (1Password SSH agent) → this session's commits used `--no-gpg-sign`. Re-sign on a real terminal (approve the 1Password prompt) or relax signing for agent sessions.                                                                                                                                                                                                                                                                                                                                                 | open      |
+| ATR-056 | P2  | build       | **Literal NUL bytes committed as binary** — `src/main/services/graph.ts` (2 NULs inside `pairKey`) and `tests/unit/shared/folder-name.spec.ts` are stored by git as **binary**, so their diffs never render and `grep` silently skips them without `-a`. `scripts/fix-nul-bytes.mjs` swaps them for `\u0000` escapes. Previously blocked because the file had no recovery path — **now safe, both files are committed**.                                                                                                                                   | open      |
+| ATR-058 | P2  | docs        | **Unsound probe in the MCP plan** — Task 7 Step 4 of `docs/superpowers/plans/2026-08-24-alltherepos-mcp.md` verifies a round trip by piping a single `printf` of four requests into `node dist/index.js` — initialize + `link` (id 2) + `list_links` (id 3) piped into stdin **all at once**. The SDK dispatches them concurrently, so the ordering-dependent pair can interleave: on 2026-08-24 an `unlink` ran before its `link` and returned `removed:false`, leaving a junk `repo_links` row in the live catalog. Rewrite it as a sequential request/response driver. | open      |
+| —       | P2  | claude      | MCP server **"running"** status (PID-matching) — explicitly **deferred** out of ATR-021 (not faked; `mergeMcpServers` emits `configured`/`unavailable` only). Promote to a numbered item if/when it's wanted.                                                                                                                                                                                                                                                                                                                                              | deferred  |
 
 ---
 
 ## Done / closed
+
+**Wave 5 — catalog v2 + MCP (built 2026-08-24–25, committed 2026-10-06 as `bfbe3ab..9c295ce`
+on `feat/alltherepos-mcp`, pushed):** the largest wave so far, built in a single session and
+left uncommitted for six weeks. It **closed five P1s** and left three **◐ partly done** — the closures, individually:
+
+- **ATR-037** — auto-detect new projects: a debounced `fs.watch` watcher on `scanPaths` with a reconcile
+  pass and a shared `indexer.ts`. Mechanism differs from the row: `fs.watch`, not chokidar (v5 dropped its
+  fsevents backend). `scanService.boot()` is still a no-op.
+- **ATR-038** — first-run flow: configured scan roots always render in the rail, so "empty" is
+  distinguishable from "not configured", with an "Add folder to scan" affordance + `ScanRootDialog`,
+  first-run auto-expansion, and empty states that separate search / folder-scope / archived.
+- **ATR-040** — sort control + last-opened surfacing: the toolbar's sort control; last-opened is folded
+  into the `SortKey` "Last touched" (`lib/activity.ts`). No literal `sort:"lastOpened"` option, though
+  that enum still exists in the schema.
+- **ATR-045** — list/table view: `repo-table.tsx` plus the `catalog-view` store's view modes.
+- **ATR-049** — auto-update: `electron-updater` imported and wired to the GitHub-Releases feed, with an
+  "Update to X" affordance; installing is deliberately manual (see `docs/RELEASING.md`).
+
+It also shipped a great deal the ledger had no ID for:
+
+- **MCP server** (`mcp/`, its own dependency tree): 6 tools — `find_repos`, `get_repo`,
+  `get_map`, `link`, `unlink`, `list_links` — over a new `repo_links` table. Its entire write
+  surface is `repo_links`; `docs/COMMAND-DISCLOSURE.md` documents the guarantee and
+  `docs/superpowers/` holds the plan + spec.
+- **Curated relationship graph** — `repo_links` merges into the derived graph as a sixth
+  signal weighted above the rest, with a `/graph` route and canvas.
+- **Live filesystem watching** — `fs.watch` (not chokidar: v5 dropped its fsevents backend),
+  debounced, with a reconcile pass and a shared `indexer.ts` so the scanner and watcher agree
+  on what "index this repo" means.
+- **Scan-root management** — add/remove watched roots from the rail; `add`/`remove` verbs,
+  optional "forget the rows underneath" on removal, never touching disk.
+- **Folders, repo moves + a relocation journal, and git-sync** — repos grouped on disk, and a
+  move that survives so tags and identity are not stranded.
+- **Project tasks** (per-repo runner), **repo covers**, **favorites/marks**.
+- **Catalog toolbar + table view + directory rail** — sort/group/view modes, bulk actions.
+- **Distribution** — ad-hoc signing, real app icons (`pnpm icons`), the GitHub-Releases
+  publish feed, `electron-updater` wired with a user-visible affordance, `docs/RELEASING.md`.
+
+Gate, re-verified 2026-10-06 on the committed tree: `typecheck` **0 errors** across all three
+tsconfigs · `vitest` **44 files / 991 tests, 0 failed** · Electron E2E **7/7**. Not merged to
+`main`.
+
+**Release pipeline (2026-10-06)** — a build now reaches someone by pushing a tag,
+not by running a documented command on one machine:
+
+- **`.github/workflows/release.yml`** — on `v*`: guard the tag, run `typecheck` + unit,
+  build the DMG + ZIP with electron-builder, upload them to a **draft** release, attach the
+  notes, then publish with `gh release edit`. Two phases on purpose — `releases/latest`
+  ignores drafts, so a job that dies mid-publish leaves something invisible rather than an
+  empty release the updater offers.
+- **`CHANGELOG.md`** (Keep a Changelog) — the release's notes come from it, and
+  `scripts/release-notes.mjs` refuses to let out a release whose tag disagrees with
+  `package.json` or whose version has no non-empty section. 8 unit tests in
+  `tests/unit/scripts/release-notes.spec.ts` pin those refusals.
+- Corrections found on the way: `publish.releaseType: release` means electron-builder
+  publishes **immediately** (`EP_DRAFT=true` is what produces a draft — `RELEASING.md` had
+  the draft flow backwards), and electron-builder silently declines to upload to a release
+  published more than **two hours** ago unless `EP_GH_IGNORE_TIME=true`.
+- **`scripts/next-release.mjs`** (`release:next`) — the bump, derived rather than typed:
+  commits since the last `v*` tag → level (breaking / `feat` / anything else) → version +
+  changelog section (Added / Changed / Fixed), merging hand-written `[Unreleased]` bullets
+  instead of replacing them. Writes only with `--write`; commits and tags only with `--tag`;
+  pushes only with `--push`. 22 unit tests, most of them driving the CLI against real scratch
+  repositories — which is how two silent failures were caught: the entry-point guard no-op'd
+  under a symlinked temp path, and the changelog link references lost their `https://` prefix.
+- **`scripts/verify-release.mjs`** (`release:verify`) — reads a published release back and
+  fails loudly on: a draft, a tag that disagrees with `package.json`, a missing DMG / ZIP /
+  `latest-mac.yml`, a manifest naming another version or an unattached file, or a manifest size
+  that disagrees with the asset actually uploaded. CI runs it on the draft and again after
+  publishing. 15 tests.
+- The feed is **public** (`alltherepos-releases`): the app checks anonymously, so updates
+  work for anyone who installs it, and the workflow publishes there with a `RELEASES_TOKEN`
+  secret. One address, three mentions — `electron-builder.yml`, `FEED_OWNER`/`FEED_REPO`,
+  and `RELEASES_REPO` — pinned by `tests/unit/main/services/updater-feed.spec.ts`.
+- Still open: **notarization** (ATR-046). That, not the pipeline, is what blocks in-app
+  updates.
+- **True of the world as of 2026-10-06:** `alltherepos-releases` exists, `v0.1.0` is published
+  with the DMG, the ZIP and `latest-mac.yml`, `release:verify` passes against it, and the
+  packaged app's anonymous check was verified from the real bundle — it reports *You're on the
+  latest release*, and against an older build it offers the update
+  (`tests/e2e/packaged-update-check.spec.ts`).
+- **CI now genuinely runs on a runner** (PR #1, both jobs green): `typecheck` + 49 files /
+  1055 tests, and the Electron suite 8 passed / 2 skipped on `macos-14`. **The release workflow
+  is still unverified**, and not merely for lack of a tag: a tag push does not evaluate the
+  workflow at the tagged commit, so `.github/workflows/` has to be on the default branch before
+  a `v*` tag can start it. Until then, releases are cut from one machine with `pnpm release`,
+  which verifies itself.
+
+**Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
+first-class part of the app, and then the app was handed the pen as well:
+
+- **Curated relations in the catalog** — the repo detail panel lists the links touching a repo in
+  both directions, each row a hop to the other end (`graph:links`), off one indexed query per
+  selection rather than a full graph rebuild.
+- **Writing from the app** — `graph:link` / `graph:unlink` let the UI assert and remove links,
+  stamped `source: "ui"`, keeping the MCP's rules intact: both ends must resolve, a repo cannot
+  link to itself, and a human has to supply the reason. The catalog panel and the `/graph` map's
+  inspector share one widget (`components/catalog/related-repos.tsx`).
+- **Coverage** — `tests/unit/main/ipc/graph.spec.ts` (11) and +2 in `db/links.spec.ts`; and the
+  first E2E spec that seeds its own isolated profile (`tests/e2e/curate-link-flow.spec.ts`), so it
+  asserts a populated catalog even where the real library is empty.
+- **29 curated links** asserted in the live catalog through the MCP, each citing README/config
+  evidence (16 structural + 13 duplicate-upstream pairs).
+
+Gate: `typecheck` 0 errors · `vitest` 45 files / 1004 tests / 0 failed · Electron E2E **8/8**, and
+**8/8 again against a fresh, empty home**.
 
 **Wave 0 (2026-08-21)** — production-readiness foundation:
 

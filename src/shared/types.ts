@@ -182,6 +182,190 @@ export interface DeleteRepoResult {
   deleted: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// catalog:cover / catalog:move*
+// ---------------------------------------------------------------------------
+
+import type {
+  CoverInputSchema,
+  CoverResultSchema,
+  MoveBlockerSchema,
+  MoveCheckEntrySchema,
+  MoveCheckResultSchema,
+  MoveEntryResultSchema,
+  MoveInputSchema,
+  MoveLastResultSchema,
+  MoveResultSchema,
+  MoveUndoInputSchema,
+  FolderBlockerSchema,
+  FolderCheckInputSchema,
+  AffectedRepoSchema,
+  FolderCheckResultSchema,
+  FolderRenameInputSchema,
+  FolderMoveInputSchema,
+  FolderCreateInputSchema,
+  FolderOpResultSchema,
+  PickScanPathResultSchema,
+  AddScanPathInputSchema,
+  AddScanPathResultSchema,
+  RemoveScanPathInputSchema,
+  RemoveScanPathResultSchema,
+  CountUnderInputSchema,
+  CountUnderResultSchema,
+  CatalogChangeEventSchema,
+  UpdateStatusSchema,
+  RepoLinkKindSchema,
+  RepoLinkSchema,
+  GraphSignalSchema,
+  GraphNodeSchema,
+  GraphEdgeSchema,
+  GraphClusterSchema,
+  GraphResultSchema,
+  RepoRelationSchema,
+  RepoRelationsInputSchema,
+  RepoRelationsResultSchema,
+  AssertRepoLinkInputSchema,
+  AssertRepoLinkResultSchema,
+  RemoveRepoLinkInputSchema,
+  RemoveRepoLinkResultSchema,
+  OpenReleaseResultSchema,
+  SetFavoriteInputSchema,
+  SetFavoriteResultSchema,
+  SyncOutcomeSchema,
+  SyncInputSchema,
+  SyncEntrySchema,
+  SyncResultSchema,
+  RepoTaskSchema,
+  TaskListInputSchema,
+  TaskListResultSchema,
+  TaskStartInputSchema,
+  TaskStartResultSchema,
+  TaskStopInputSchema,
+  TaskStopResultSchema,
+  TaskActiveResultSchema,
+  TaskOutputEventSchema,
+} from "./schemas";
+
+export type CoverInput = import("zod").infer<typeof CoverInputSchema>;
+export type CoverResult = import("zod").infer<typeof CoverResultSchema>;
+export type MoveBlocker = import("zod").infer<typeof MoveBlockerSchema>;
+export type MoveInput = import("zod").infer<typeof MoveInputSchema>;
+export type MoveCheckEntry = import("zod").infer<typeof MoveCheckEntrySchema>;
+export type MoveCheckResult = import("zod").infer<typeof MoveCheckResultSchema>;
+export type MoveEntryResult = import("zod").infer<typeof MoveEntryResultSchema>;
+export type MoveResult = import("zod").infer<typeof MoveResultSchema>;
+export type MoveUndoInput = import("zod").infer<typeof MoveUndoInputSchema>;
+export type MoveLastInput = Record<string, never>;
+export type MoveLastResult = import("zod").infer<typeof MoveLastResultSchema>;
+
+export type FolderBlocker = import("zod").infer<typeof FolderBlockerSchema>;
+export type FolderCheckInput = import("zod").infer<
+  typeof FolderCheckInputSchema
+>;
+export type AffectedRepo = import("zod").infer<typeof AffectedRepoSchema>;
+export type FolderCheckResult = import("zod").infer<
+  typeof FolderCheckResultSchema
+>;
+export type FolderRenameInput = import("zod").infer<
+  typeof FolderRenameInputSchema
+>;
+export type FolderMoveInput = import("zod").infer<typeof FolderMoveInputSchema>;
+export type FolderCreateInput = import("zod").infer<
+  typeof FolderCreateInputSchema
+>;
+export type FolderOpResult = import("zod").infer<typeof FolderOpResultSchema>;
+
+export type CatalogChangeEvent = import("zod").infer<
+  typeof CatalogChangeEventSchema
+>;
+
+export type SetFavoriteInput = import("zod").infer<
+  typeof SetFavoriteInputSchema
+>;
+export type SetFavoriteResult = import("zod").infer<
+  typeof SetFavoriteResultSchema
+>;
+
+export type SyncOutcome = import("zod").infer<typeof SyncOutcomeSchema>;
+export type SyncInput = import("zod").infer<typeof SyncInputSchema>;
+export type SyncEntry = import("zod").infer<typeof SyncEntrySchema>;
+export type SyncResult = import("zod").infer<typeof SyncResultSchema>;
+
+export type RepoTask = import("zod").infer<typeof RepoTaskSchema>;
+export type TaskListInput = import("zod").infer<typeof TaskListInputSchema>;
+export type TaskListResult = import("zod").infer<typeof TaskListResultSchema>;
+export type TaskStartInput = import("zod").infer<typeof TaskStartInputSchema>;
+export type TaskStartResult = import("zod").infer<typeof TaskStartResultSchema>;
+export type TaskStopInput = import("zod").infer<typeof TaskStopInputSchema>;
+export type TaskStopResult = import("zod").infer<typeof TaskStopResultSchema>;
+export type TaskActiveInput = Record<string, never>;
+export type TaskActiveResult = import("zod").infer<
+  typeof TaskActiveResultSchema
+>;
+export type TaskOutputEvent = import("zod").infer<
+  typeof TaskOutputEventSchema
+>;
+
+export type RepoLinkKind = import("zod").infer<typeof RepoLinkKindSchema>;
+export type RepoLink = import("zod").infer<typeof RepoLinkSchema>;
+
+export type GraphSignal = import("zod").infer<typeof GraphSignalSchema>;
+export type GraphNode = import("zod").infer<typeof GraphNodeSchema>;
+export type GraphEdge = import("zod").infer<typeof GraphEdgeSchema>;
+export type GraphCluster = import("zod").infer<typeof GraphClusterSchema>;
+export type GraphBuildInput = Record<string, never>;
+export type GraphResult = import("zod").infer<typeof GraphResultSchema>;
+
+export type RepoRelation = import("zod").infer<typeof RepoRelationSchema>;
+export type RepoRelationsInput = import("zod").infer<
+  typeof RepoRelationsInputSchema
+>;
+export type RepoRelationsResult = import("zod").infer<
+  typeof RepoRelationsResultSchema
+>;
+
+export type AssertRepoLinkInput = import("zod").infer<
+  typeof AssertRepoLinkInputSchema
+>;
+export type AssertRepoLinkResult = import("zod").infer<
+  typeof AssertRepoLinkResultSchema
+>;
+export type RemoveRepoLinkInput = import("zod").infer<
+  typeof RemoveRepoLinkInputSchema
+>;
+export type RemoveRepoLinkResult = import("zod").infer<
+  typeof RemoveRepoLinkResultSchema
+>;
+
+export type UpdateStatus = import("zod").infer<typeof UpdateStatusSchema>;
+export type UpdateCheckInput = Record<string, never>;
+export type UpdateStatusInput = Record<string, never>;
+export type OpenReleaseInput = Record<string, never>;
+export type OpenReleaseResult = import("zod").infer<
+  typeof OpenReleaseResultSchema
+>;
+
+export type PickScanPathInput = Record<string, never>;
+export type PickScanPathResult = import("zod").infer<
+  typeof PickScanPathResultSchema
+>;
+export type AddScanPathInput = import("zod").infer<
+  typeof AddScanPathInputSchema
+>;
+export type AddScanPathResult = import("zod").infer<
+  typeof AddScanPathResultSchema
+>;
+export type RemoveScanPathInput = import("zod").infer<
+  typeof RemoveScanPathInputSchema
+>;
+export type RemoveScanPathResult = import("zod").infer<
+  typeof RemoveScanPathResultSchema
+>;
+export type CountUnderInput = import("zod").infer<typeof CountUnderInputSchema>;
+export type CountUnderResult = import("zod").infer<
+  typeof CountUnderResultSchema
+>;
+
 /**
  * Input for `catalog:smartFilter` — Phase 4 feature, contract locked in
  * Phase 1 so the renderer can wire the UI affordance early.

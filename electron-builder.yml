@@ -6,6 +6,12 @@ directories:
 files:
   - out/**/*
   - package.json
+  # Runtime assets the app reads by path at run time. `buildResources`
+  # above only tells electron-builder where to find BUILD inputs (icon,
+  # entitlements) — it does not put anything in the bundle. Without this
+  # line `resources/tray/*.png` is absent from the asar and the menu-bar
+  # icon silently disappears in a packaged build.
+  - resources/**/*
 asar: true
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
@@ -13,16 +19,49 @@ asarUnpack:
   - "**/node_modules/@lancedb/**/*.dylib"
   - "**/node_modules/fsevents/**"
 npmRebuild: true
+
+# Update feed. Artifacts are published to a PUBLIC releases-only repo while
+# the source stays private, so a shipped copy can read the feed with an
+# anonymous request — no token, and no reason to embed one. The app names the
+# same repo in `src/main/services/updater.ts` (`FEED_OWNER`/`FEED_REPO`);
+# `tests/unit/main/services/updater-feed.spec.ts` fails if they drift apart.
+#
+# Publishing there needs a token that can write to that repo — see the
+# `RELEASES_TOKEN` secret in docs/RELEASING.md.
+publish:
+  provider: github
+  owner: ivy00johns
+  repo: alltherepos-releases
+  releaseType: release
+
 mac:
   category: public.app-category.developer-tools
-  # Phase 0: unsigned local dev builds. Hardened runtime + notarize are wired up in Phase 5.
+  icon: resources/icon.icns
+  # Ad-hoc signing ("-"), not `null`.
+  #
+  # Apple Silicon refuses to execute an arm64 binary with no signature at
+  # all, and `identity: null` skips signing entirely — leaving only the
+  # linker's stub, which fails `codesign --verify` and leaves the bundle's
+  # resources unsealed. Ad-hoc costs nothing, needs no Apple account, and
+  # produces a bundle that launches and verifies locally.
+  #
+  # It is NOT notarised: a copy downloaded from the internet still carries
+  # a quarantine flag and needs one right-click → Open. Real signing +
+  # notarisation (and with them, true auto-update) require an Apple
+  # Developer certificate — see docs/RELEASING.md.
+  identity: "-"
   hardenedRuntime: false
   gatekeeperAssess: false
-  identity: null
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   target:
+    # DMG is what a human installs. The ZIP is what electron-updater
+    # consumes — Squirrel.Mac cannot apply an update from a DMG, so
+    # shipping it now means enabling auto-update later is a code change
+    # rather than a release-format change.
     - target: dmg
+      arch: [arm64]
+    - target: zip
       arch: [arm64]
   protocols:
     - name: alltherepos

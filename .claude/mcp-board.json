@@ -1,0 +1,214 @@
+{
+  "board": "alltherepos-mcp",
+  "plan": "docs/superpowers/plans/2026-08-24-alltherepos-mcp.md",
+  "branch": "feat/alltherepos-mcp",
+  "runtime": "degraded-subagent",
+  "runtimeNote": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 is set but no TeammateTool / shared task list is exposed in this session. Running the orchestrator subagent path with the same proof discipline.",
+  "sandbox": "none",
+  "sandboxNote": "src/main/services/graph.ts and src/renderer/routes/graph.tsx are UNTRACKED, so a worktree from origin/main would not contain the files Tasks 3-4 modify. Runs attended in the live checkout.",
+  "caps": {
+    "maxPasses": 12,
+    "circuitBreakerFailures": 3,
+    "maxParallelImplementers": 2,
+    "maxConcurrentBuilds": 1
+  },
+  "passes": 8,
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "repo_links table",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [],
+      "priority": 1,
+      "gateCmd": "pnpm vitest run tests/unit/main/db/links.spec.ts",
+      "attempts": 1,
+      "gateEvidence": "links.spec 4/4; full suite 43 files / 978 tests pass"
+    },
+    {
+      "id": "T2",
+      "title": "Link queries and path resolution",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T1"
+      ],
+      "priority": 2,
+      "gateCmd": "pnpm vitest run tests/unit/main/db/links.spec.ts",
+      "attempts": 1,
+      "gateEvidence": "links.spec 13/13; full suite 43 files / 987 tests; tsc clean"
+    },
+    {
+      "id": "T3",
+      "title": "Merge curated links into the graph",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T2"
+      ],
+      "priority": 3,
+      "gateCmd": "pnpm vitest run tests/unit/main/services/graph-curated.spec.ts tests/unit/main/services/graph.spec.ts",
+      "attempts": 1,
+      "gateEvidence": "14/14 (4 new + 10 existing graph); 44 files / 991 tests; exactly 1 expected tsc error; MIN_EDGE_WEIGHT still 0.25, curated:4, bypass present, edges still undirected"
+    },
+    {
+      "id": "T4",
+      "title": "Show curated links in the UI",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T3"
+      ],
+      "priority": 5,
+      "gateCmd": "pnpm typecheck && pnpm test",
+      "attempts": 1,
+      "gateEvidence": "pnpm typecheck clean all 3 passes (TS2741 resolved); 44 files / 991 tests; only graph.tsx touched",
+      "gateCaveat": "visual check deferred - see openGaps"
+    },
+    {
+      "id": "T5",
+      "title": "MCP package scaffold",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [],
+      "priority": 1,
+      "gateCmd": "cd mcp && npm run typecheck && npm run build && node -e \"process.exit(0)\"",
+      "attempts": 1,
+      "gateNote": "Held until T1 lands; gate reads app-side files T1 is editing.",
+      "extraFile": "mcp/package-lock.json (agent-reported, not in plan's git add list)",
+      "gateEvidence": "mcp typecheck clean; build wrote dist/index.js; stdio probe returned serverInfo name=alltherepos"
+    },
+    {
+      "id": "T6",
+      "title": "Read tools",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T5",
+        "T3"
+      ],
+      "priority": 4,
+      "gateCmd": "cd mcp && npm run typecheck && npm run build",
+      "attempts": 1,
+      "gateEvidence": "mcp typecheck+build clean; tools/list = find_repos,get_repo,get_map; zero write constructs in read.ts; live probe 263 repos / 1119 edges / 29 clusters"
+    },
+    {
+      "id": "T7",
+      "title": "Write tools",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T6"
+      ],
+      "priority": 6,
+      "gateCmd": "cd mcp && npm run typecheck && npm run build",
+      "attempts": 1,
+      "gateEvidence": "mcp typecheck+build clean; tools/list=6; write surface = repo_links only; real catalog verified clean (repo_links 0, repos 263)"
+    },
+    {
+      "id": "T8",
+      "title": "Disclosure and documentation",
+      "state": "completed",
+      "gate": "PASS",
+      "blockedBy": [
+        "T7",
+        "T4"
+      ],
+      "priority": 7,
+      "gateCmd": "pnpm test && pnpm typecheck",
+      "attempts": 1,
+      "gateEvidence": "44 files / 991 tests; pnpm typecheck 0 errors; only COMMAND-DISCLOSURE.md + README.md touched"
+    }
+  ],
+  "couplingNote": "CORRECTION to wave packing: mcp/tsconfig.json includes ../src/main/db/**/*.ts and ../src/shared/**/*.ts, and mcp/src/catalog.ts imports @main/db/client. Every mcp/ task (T5,T6,T7) therefore typechecks and bundles app-side files. NEVER gate an mcp/ task while an app-side task (T1,T2,T3) is in flight - the verdict would read half-finished state. Serialize instead.",
+  "sideEffects": [
+    "T5's live sanity check opened the production catalog, which ran the additive DDL. repo_links now exists in ~/Library/Application Support/alltherepos/alltherepos.db, 0 rows. repos still 263, untouched. Additive and benign - the app would do the same on next launch."
+  ],
+  "checkpointPolicy": {
+    "state": "BLOCKED-awaiting-user",
+    "why": "T1's 4 files carry 675 added lines of pre-existing uncommitted work; only ~19 are T1's. Committing them per the plan would commit changes the assistant did not make. git add -p unavailable.",
+    "effect": "No checkpoint commits. Undo trail unavailable. Run stays ATTENDED; must not be promoted to unattended."
+  },
+  "planCorrections": [
+    {
+      "task": "T2",
+      "what": "Move-survival test assertion `toSlug === 'hive-bbbbbb'` was unsatisfiable.",
+      "why": "queries.ts rebind UPDATE has no `slug` in its SET list; upsert-moved-repo.spec.ts:143 pins 'original slug kept'. VERIFIED independently by orchestrator.",
+      "action": "Agent re-pointed the assertion at row identity + full_path. Spec section 3.3 rewritten: repo_id keying is justified by the UN-REBOUND case (ghost row), not by slug churn."
+    },
+    {
+      "task": "T2",
+      "what": "Ambiguity test hit UNIQUE constraint.",
+      "why": "repos.slug is notNull().unique() (schema.ts:24) and makeRepo hardcodes `${name}-aaaaaa`.",
+      "action": "Agent added makeRepoWithSlug helper rather than mutating the shared one."
+    },
+    {
+      "task": "T3",
+      "what": "`npx tsc --noEmit` is a FALSE GATE for src/main and src/renderer.",
+      "why": "root tsconfig.json include = tests/**, contracts/**, src/shared/** + 3 config files. VERIFIED. It reports success without ever reading the changed file. Real gate is `pnpm typecheck` (3 passes; tsconfig.web.json covers src/renderer, tsconfig.node.json covers src/main).",
+      "action": "Board gateCmd for T4 and T8 changed to `pnpm typecheck`. Earlier T1/T2 tsc-clean results were incidental transitive coverage via the specs, not deliberate checking."
+    },
+    {
+      "task": "T4",
+      "what": "Task 4 Step 2's JSX code block in the plan is not valid JSX.",
+      "why": "The markdown was run through a formatter that treated the fragment as statements - conditional wrapped in a block with a trailing semicolon. Pasted literally it is a syntax error.",
+      "action": "Agent implemented the evident intent as proper JSX children. Plan snippet should be fixed if reused."
+    },
+    {
+      "task": "T6",
+      "what": "Plan writes `await graphService.build()`; build() is synchronous.",
+      "why": "graph.ts declares `build(): GraphResult`. Awaiting a non-promise works but falsely implies async.",
+      "action": "Agent dropped the await in get_repo and get_map."
+    },
+    {
+      "task": "T7",
+      "what": "Task 7 Step 4's probe command is UNSOUND and mutates the real DB.",
+      "why": "Piping all JSON-RPC requests into stdin at once makes the SDK dispatch them CONCURRENTLY. unlink completed before link did, so unlink returned removed:false and the probe row SURVIVED in the user's live catalog. Agent caught it by querying the DB directly and re-ran sequentially.",
+      "impact": "Anyone copy-pasting the plan's probe verbatim leaves junk in their catalog. Same latent race in Task 6's probes, harmless there because they are read-only.",
+      "action": "Plan Step 4 must be rewritten to use a sequential request/response driver. NOT YET FIXED in the plan."
+    },
+    {
+      "task": "T7",
+      "what": "resolvePair in the plan calls resolveRepo twice per side and has an unreachable branch.",
+      "why": "Label loop resolves, then the code resolves again, then checks `if (!a.ok || !b.ok)` with a dead 'resolution failed' message. Doubles SQLite queries.",
+      "action": "Agent rewrote to resolve once per side; error strings identical."
+    },
+    {
+      "task": "T8",
+      "what": "Orchestrator handed T8 the fact 'WAL at client.ts:200'. It was WRONG - now :232.",
+      "why": "T1's ADDITIVE_TABLES insertion shifted client.ts lines. The agent re-verified rather than trusting the orchestrator, and used the correct line.",
+      "action": "Also fixed two stale citations the loop's own edits broke: client.ts:197->229, schemas.ts:1018->1034."
+    },
+    {
+      "task": "T8",
+      "what": "'Writes rows in repo_links and nothing else' would have been FALSE as written.",
+      "why": "openCatalog() -> getDb() (catalog.ts:37) runs migrate() (client.ts:240) and ensureAdditiveColumns (client.ts:251) on the app's DB. The server performs SCHEMA setup, not just row writes.",
+      "action": "T8 disclosed it as schema-not-data rather than omitting it. Data-write surface is still exactly repo_links."
+    }
+  ],
+  "openGaps": [
+    "T4 Step 4 (visual check of the Curated toggle in the running app) NOT run - pnpm electron:dev would flip the native ABI to Electron and break pnpm test for T7/T8. Deferred to end of loop via Playwright. The toggle is currently verified at type/code level only."
+  ],
+  "findings": [
+    {
+      "severity": "low-but-real",
+      "file": "src/main/services/graph.ts:223",
+      "what": "Two LITERAL NUL bytes embedded in the source (offsets 6777, 6791), inside pairKey(): return a < b ? `${a}<NUL>${b}` : `${b}<NUL>${a}`;",
+      "impact": "`file` reports 'data'; grep silently exits 1 and returns NOTHING without -a. Cost the orchestrator two failed searches this session and misled a subagent (which reported 'no NULs' - wrong).",
+      "fix": "Replace the literal NUL with the escape \\u0000 in the template literal. Byte-identical runtime string; file becomes normal text. Provable by the 14 existing graph tests.",
+      "applied": false,
+      "whyNotApplied": "Out of plan scope; graph.ts is untracked with no git recovery path. Surfaced for user decision."
+    },
+    {
+      "severity": "fixed",
+      "file": "docs/COMMAND-DISCLOSURE.md section 10",
+      "what": "Reader-runnable greps over src/main silently skipped graph.ts (NUL bytes -> binary).",
+      "impact": "A reader running the documented verification would get a clean result that never read the file. Proven: grep without -a returns 0 matches, with -a returns 2.",
+      "fix": "Section 10 greps changed to `grep -arn` plus an explanation of why.",
+      "applied": true
+    }
+  ],
+  "verifiedGuarantees": [
+    "MCP write surface is mechanically exactly two statements: INSERT INTO repo_links, DELETE FROM repo_links (src/main/db/links.ts). mcp/src imports exactly one service: @main/services/graph. Real catalog after T7 round-trip: repo_links=0 rows, repos=263, all tables intact."
+  ]
+}

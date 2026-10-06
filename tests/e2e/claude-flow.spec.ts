@@ -107,7 +107,10 @@ test.describe("Phase 3b Claude flow", () => {
         console.warn(
           "[claude-flow] no repo cards in catalog — falling back to /claude global usage assertion",
         );
-        const claudeNav = win.getByRole("link", { name: /^claude usage$/i });
+        // The top-bar nav shows a visible text label now, so the link's
+        // accessible name is the label itself ("Claude") rather than the
+        // old icon-only `aria-label` ("Claude usage").
+        const claudeNav = win.getByRole("link", { name: /^claude$/i });
         await expect(claudeNav).toBeVisible({ timeout: 10_000 });
         await claudeNav.click();
 

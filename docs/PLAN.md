@@ -14,21 +14,27 @@ and is nearly complete. Sequencing lives in
 
 ## Where we actually are
 
-After three build waves, the app **builds, boots, and works on real data**, and is close to
+After six build waves (1–5, plus the Wave 0 foundation), the app **builds, boots, and works on real
+data**, and is close to
 a complete daily-driver MVP:
 
 - **Catalog** — real FTS+vector search, tag/group persistence, manual-group filtering, design fonts.
 - **Native shell** — spotlight/tray open repos, real template tray icon, dock badge tracks running servers.
 - **Claude tab** — 138 real projects, real per-project usage trends, a transcript viewer.
 - **Data** — embeddings now written on scan (degrade to FTS-only when Ollama is down); FTS tag-search fixed + self-healing.
-- **Quality** — `tsc` clean, unit **858/0/5**, **Electron E2E 7/7**, frame-origin + shell-injection hardened.
+- **Graph + MCP** — a curated relationship map (`repo_links` merged into the derived graph) and a standalone
+  **MCP server** a Claude Code session can read and write; live watching, folders, repo moves and per-repo
+  tasks round out the catalog (all Wave 5).
+- **Quality** — `tsc` clean, unit **1004/0/0** (45 files), **Electron E2E 7/7**, frame-origin + shell-injection hardened.
 
-What's left falls in two buckets: the original **cleanup** (legacy-stack retirement, the
-test-ABI tail, two environment papercuts) and the **2026-07-11 audit intake** — 11 P1
-data-safety/catalog-UX items (moved-repo identity, stale-row lifecycle, scanner blind
-spots, last-opened accuracy, list-view gaps). All in [`REMAINING-WORK.md`](./REMAINING-WORK.md).
+**Wave 5 (2026-08-24–25)** then closed most of the catalog-UX intake and added a great deal
+more. What remains is the tail: scanner discovery (ATR-033), the silent 200-repo cap (ATR-042),
+group-membership UI (ATR-043), cold start (ATR-055), the distribution items
+(ATR-046/047/048/050/051/052), two environment papercuts (ATR-024/025) and the new
+ATR-056/057/058. All in [`REMAINING-WORK.md`](./REMAINING-WORK.md).
 
 Baseline verified 2026-05-31 — see the [ground-truth audit](./audits/2026-05-31-ground-truth-audit.md).
+Re-verified **2026-10-06** on the Wave 5 tree: `typecheck` 0 errors, `vitest` 991/0/0, Electron E2E 7/7.
 
 ## Phase status
 
@@ -39,7 +45,7 @@ Baseline verified 2026-05-31 — see the [ground-truth audit](./audits/2026-05-3
 | **2 — Native shell**          | Tray, hotkey, spotlight, menu, notifications, deep-link, dock badge | ✅ Functional — spotlight/tray open repos, real tray icon, dock badge auto-driven.                                                                                                                                                                      |
 | **3 — Deep integrations**     | Process detection, launcher, Claude integration, git deep view      | ✅ **Functional.** Claude tab real (138 projects, real per-project trends, transcript viewer); process/launcher run; embeddings wired (Ollama-gated); E2E 7/7. Deferred: MCP "running" status; semantic search only produces vectors when Ollama is up. |
 | **4 — Intelligence**          | Deps, OSV, health score, smart suggestions, LLM tagging, activity   | ⛔ Not started (post-MVP). → [`FUTURE.md`](./FUTURE.md)                                                                                                                                                                                                 |
-| **5 — Polish & distribution** | Themes, signing, notarization, CI, auto-update, onboarding, DMG     | ⛔ Not started. Unsigned build, no CI/updater. → [`FUTURE.md`](./FUTURE.md)                                                                                                                                                                             |
+| **5 — Polish & distribution** | Themes, signing, notarization, CI, auto-update, onboarding, DMG     | 🔨 **Partly landed (Wave 5).** Ad-hoc-signed build (`identity: "-"`), a GitHub-Releases publish feed, `electron-updater` wired with an "Update to X" affordance, `docs/RELEASING.md`, and real app icons. Still open: Developer ID signing + notarization (ATR-046/D2), the first CI run (ATR-047), a notarized release (ATR-048 — CI now builds and publishes the ad-hoc-signed artifacts on a tag), branded DMG (ATR-051), onboarding window (ATR-050), the first real version bump (ATR-052 — changelog + release guard landed). |
 | **6 — Cross-platform**        | Linux/Windows, worktrees, plugin API, sync                          | ⛔ Not started (intended). → [`FUTURE.md`](./FUTURE.md)                                                                                                                                                                                                 |
 
 ## What's left for the daily-driver MVP
@@ -51,13 +57,17 @@ green typecheck, de-flaked test, **Electron E2E 7/7**.
 
 Remaining (full detail in [`REMAINING-WORK.md`](./REMAINING-WORK.md)):
 
-1. **Retire the legacy Next.js stack** (ATR-013) — its own focused pass (touches deps/lockfile/build-config).
-2. **Test-ABI automation tail** (ATR-016) — the `install-app-deps` fallback + test-db helper alignment.
+1. ~~Retire the legacy Next.js stack (ATR-013)~~ — **done in Wave 0 (2026-08-21).**
+2. ~~Test-ABI automation tail (ATR-016)~~ — **done in Wave 0.** Note the flip mechanism it automated is itself
+   broken on this machine by a bad Command Line Tools SDK — see **ATR-057**.
 3. **Environment papercuts** — nvm dotfile (ATR-024), commit signing for agent sessions (ATR-025).
 4. **2026-07-11 audit intake — 11 P1 items** ([audit](./audits/2026-07-11-data-safety-scan-ux-audit.md)):
    - _Data safety:_ ✅ **shipped in Wave 4 (2026-07-13)** — moved-repo identity matching (ATR-027), stale-repo lifecycle + delete (ATR-028), last-opened stamped on every open (ATR-030).
-   - _Scanner:_ nested/root-is-a-repo discovery (ATR-033), auto-detect new projects via watcher (ATR-037).
-   - _Catalog UX:_ first-run flow (ATR-038), sort + last-opened surfacing (ATR-040), description/details on card+detail (ATR-041), lift the 200 cap (ATR-042), group-membership UI (ATR-043), list/table view (ATR-045).
+   - _Scanner:_ ✅ **Wave 5** shipped auto-detect via a live watcher (ATR-037); still open is nested/root-is-a-repo
+     discovery (**ATR-033**).
+   - _Catalog UX:_ ✅ **Wave 5** closed first-run flow (ATR-038), sort + last-opened surfacing (ATR-040) and the
+     list/table view (ATR-045). ◐ **ATR-041** partly done (description + commit date on detail; `lastCommitMsg` and
+     a size chip on the card still missing). Still open: **ATR-042** (200 cap) and **ATR-043** (group-membership UI).
    - The audit's 8 P2 findings + 4 speculative directions were not intaken (P1-only approval) and remain in the audit doc.
 
 After that: Phase 4 (intelligence: deps/health/LLM tagging) and Phase 5 (signed, notarized,
@@ -74,6 +84,7 @@ auto-updating DMG) per [`FUTURE.md`](./FUTURE.md).
 
 | Date       | What shipped                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Refs                                                      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| 2026-10-06 | **Wave 5 — catalog v2 + MCP** — committed six weeks of uncommitted work as 7 coherent commits on `feat/alltherepos-mcp` (`bfbe3ab..9c295ce`) and pushed (it had sat on one disk, uncommitted). Closed **ATR-037/038/040/045/049**; ◐ **ATR-041/048/052**. Shipped with no prior ledger ID: the MCP server (`mcp/`, 6 tools over a new `repo_links` table), the curated relationship graph + `/graph` route, scan-root management, a live `fs.watch` watcher + `indexer.ts`, folders, repo moves + a relocation journal, git-sync, project tasks, repo covers, favorites, and the catalog toolbar + table view. Gate: `typecheck` 0 errors; `vitest` 44 files / 991 tests / 0 failed; Electron E2E 7/7. Added ATR-056/057/058. **Not merged to `main`.**                                                                                                                                                                                                                                                                                                                                                           | commits `bfbe3ab..9c295ce`                                |
 | 2026-08-21 | **Wave 0 — production-readiness foundation** — `main` fast-forwarded past 19 unmerged commits and pushed to a new private GitHub remote (the project had **no remote at all**: one disk, no backup). **ATR-013** legacy Next.js stack retired (`app/`, `components/`, `lib/`, `e2e/`, 6 legacy test dirs, and the `next`/`@octokit`/`eslint-config-next`/`jsdom`/`tsx` deps), keeping `drizzle/`, `postcss.config.mjs` and `@leeoniya/ufuzzy` which only *looked* legacy; tag coverage ported to `src/`. **ATR-016** native-ABI flip automated via `scripts/ensure-native-abi.mjs`, plus the `test-db.ts` FTS-trigger alignment. `typecheck` now covers the Electron app for the first time (root tsconfig had excluded `src/main`/`preload`/`renderer`). Also found and filed **ATR-055**: a ~26s cold start (the window waits on `processService` 18.4s + `claudeService` 5.6s + `launcherService` 1.5s); un-awaiting the `lsof` prime tick cut it to ~22s and took Electron E2E from 0/7 to **7/7**. Gate: tsc 0 across all three configs; vitest **862 passed / 0 failed / 0 skipped**; Electron E2E **7/7**. | commits on `chore/retire-legacy-next` |
 | 2026-07-13 | **Wave 4 — data-safety core** — moved-repo identity rebind (ATR-027: moves no longer duplicate; tags/groups/last-opened survive); stale-repo lifecycle (ATR-028: `missing` flag + ghost badge/banner + `catalog:delete` clearing FTS/memberships/vector, guarded remove, disk never touched); `last_opened_at` stamped by every launcher open verb (ATR-030). Gate: tsc 0, vitest 878 passed / 5 skipped (+19 new); 1 failure = pre-existing legacy GPG scanner flake (ATR-013/025). | commit `4124c39`                                          |
 | 2026-07-11 | **Audit intake** — data-safety/scanner/UX harsh review (3 parallel review agents, 2 findings hand-verified) → audit doc + 11 approved P1 ledger entries (ATR-027/028/030/033/037/038/040–043/045). Headline: no purge path exists, but moved repos duplicate + strand metadata; scanner prunes nested repos; last-opened mostly unstamped.                                                                                                                                           | [audit](./audits/2026-07-11-data-safety-scan-ux-audit.md) |

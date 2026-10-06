@@ -157,6 +157,71 @@ function migrationsFolder(): string {
   return path.join(process.cwd(), "drizzle");
 }
 
+/**
+ * Columns introduced after the initial migration.
+ *
+ * `ALTER TABLE ... ADD COLUMN` is idempotent here because we check the
+ * live table info first; SQLite has no `ADD COLUMN IF NOT EXISTS`.
+ */
+const ADDITIVE_COLUMNS: Array<{ table: string; column: string; ddl: string }> =
+  [
+    {
+      table: "repos",
+      column: "is_favorite",
+      ddl: "ALTER TABLE repos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0",
+    },
+    {
+      table: "repos",
+      column: "favorited_at",
+      ddl: "ALTER TABLE repos ADD COLUMN favorited_at TEXT",
+    },
+  ];
+
+/**
+ * Tables introduced after the initial migration.
+ *
+ * Applied here rather than as a generated migration for the same reason
+ * as the columns above: `drizzle/meta/` carries no snapshot, so
+ * `drizzle-kit generate` has nothing to diff and emits a full CREATE for
+ * every table — which fails against any existing catalog.
+ */
+const ADDITIVE_TABLES: string[] = [
+  `CREATE TABLE IF NOT EXISTS repo_links (
+     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+     from_repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+     to_repo_id   INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+     kind         TEXT    NOT NULL,
+     why          TEXT,
+     source       TEXT    NOT NULL DEFAULT 'mcp',
+     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS repo_links_unique
+     ON repo_links (from_repo_id, to_repo_id, kind)`,
+  `CREATE INDEX IF NOT EXISTS repo_links_from_idx ON repo_links (from_repo_id)`,
+  `CREATE INDEX IF NOT EXISTS repo_links_to_idx   ON repo_links (to_repo_id)`,
+];
+
+function ensureAdditiveColumns(sqlite: Database.Database): void {
+  for (const { table, column, ddl } of ADDITIVE_COLUMNS) {
+    try {
+      const columns = sqlite
+        .prepare(`PRAGMA table_info(${table})`)
+        .all() as Array<{ name: string }>;
+      if (columns.some((c) => c.name === column)) continue;
+      sqlite.exec(ddl);
+    } catch (err) {
+      console.error(`[backend] add column ${table}.${column} failed`, err);
+    }
+  }
+  for (const ddl of ADDITIVE_TABLES) {
+    try {
+      sqlite.exec(ddl);
+    } catch (err) {
+      console.error("[backend] additive table failed", err);
+    }
+  }
+}
+
 export function getDb(): Db {
   if (cached) return cached.db;
 
@@ -177,6 +242,13 @@ export function getDb(): Db {
   } catch (err) {
     console.error("[backend] migrate error", err);
   }
+
+  // Additive columns added after `0000_initial.sql` shipped. Applied
+  // here rather than as generated migrations because they are pure
+  // `ADD COLUMN` with defaults — safe to re-run, safe on a fresh DB, and
+  // they keep an existing catalog (with its tags and groups) working
+  // without a regenerate-and-reset cycle.
+  ensureAdditiveColumns(sqlite);
 
   try {
     sqlite.exec(FTS_SQL);

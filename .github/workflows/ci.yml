@@ -1,0 +1,71 @@
+# CI — the three gates, on every push and pull request (ATR-047).
+#
+# macOS on Apple silicon only. The app is macOS-only (`electron-builder
+# --mac`, `identity: "-"`, an arm64 bundle) and its native modules
+# (better-sqlite3, find-git-repositories) are rebuilt per architecture, so a
+# Linux runner would be testing a build nobody ships — and the Electron suite
+# launches a real window, which the specs assume is possible.
+#
+# The steps are the same commands a developer runs, in the same order, so any
+# red run reproduces locally without translation:
+#   pnpm typecheck · pnpm test · pnpm test:electron-e2e
+#
+# A lint step belongs here once ATR-054 adds a config; there is no linter in
+# the repo today, so the workflow does not pretend to run one.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Typecheck and the unit suite are host-ABI work: one install, no native
+  # rebuild, and the fast signal — so they share a job and gate the slow one.
+  check:
+    name: typecheck + unit
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      # Reads the pinned `packageManager` field (pnpm 9.15.0).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  # Separate job on purpose: this one flips the native ABI to Electron's and
+  # builds the bundle, which is exactly the state the check job must not be in
+  # while it runs. It also fails for reasons the unit suite never sees.
+  #
+  # The catalog on a fresh runner is empty, so the specs assert their
+  # empty-state branches (documented per spec) — the suite is written to
+  # tolerate that, and a scanned library is not available on CI.
+  e2e:
+    name: electron e2e
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:electron-e2e
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore

@@ -19,15 +19,35 @@ import {
   Menu,
   Settings as SettingsIcon,
   Terminal,
+  ArrowDownToLine,
+  Network,
 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { SearchBar } from "@renderer/components/search/search-bar";
 import { useProcessCount } from "@renderer/hooks/use-processes";
 import { useUiStore } from "@renderer/stores/ui";
+import { useUpdate } from "@renderer/hooks/use-update";
+
+/**
+ * Top-level destinations.
+ *
+ * Labels are shown alongside the icons from `lg` up. Icon-only
+ * navigation is a discoverability trap — nobody guesses that a brain
+ * glyph means "Claude usage" — so the label is the default and only
+ * collapses away when the window is genuinely too narrow for it.
+ */
+const NAV_ITEMS = [
+  { to: "/processes", label: "Running", Icon: Activity, badge: "processes" },
+  { to: "/graph", label: "Map", Icon: Network, badge: null },
+  { to: "/claude", label: "Claude", Icon: Brain, badge: null },
+  { to: "/settings", label: "Settings", Icon: SettingsIcon, badge: null },
+  { to: "/debug", label: "Debug", Icon: Terminal, badge: null },
+] as const;
 
 export function TopBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const update = useUpdate();
   const processCount = useProcessCount();
 
   // ATR-012-search: ONE search source of truth. The catalog reads its
@@ -92,40 +112,55 @@ export function TopBar() {
         />
       </div>
 
-      <nav className="flex items-center gap-1">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/debug" aria-label="Debug">
-            <Terminal className="h-4 w-4" aria-hidden />
-          </Link>
-        </Button>
-        <Button asChild variant="ghost" size="sm" className="relative">
-          <Link to="/processes" aria-label="Running processes">
-            <Activity className="h-4 w-4" aria-hidden />
-            {processCount > 0 ? (
-              <span
-                aria-hidden
-                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9px] font-semibold leading-none text-accent-foreground"
-              >
-                {processCount}
-              </span>
-            ) : null}
-            <span className="sr-only">
-              {processCount > 0
-                ? `${processCount} running ${processCount === 1 ? "process" : "processes"}`
-                : "No running processes"}
-            </span>
-          </Link>
-        </Button>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/claude" aria-label="Claude usage">
-            <Brain className="h-4 w-4" aria-hidden />
-          </Link>
-        </Button>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/settings" aria-label="Settings">
-            <SettingsIcon className="h-4 w-4" aria-hidden />
-          </Link>
-        </Button>
+      {/*
+        Only shown when there is genuinely something to act on. An
+        always-present "you're up to date" chip is pure noise.
+      */}
+      {update.status.state === "available" ? (
+        <button
+          type="button"
+          onClick={update.openRelease}
+          title={`Version ${update.status.newVersion} is available — opens the release page`}
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-accent/15 px-2 py-1 text-xs text-accent transition-colors duration-150 hover:bg-accent/25"
+        >
+          <ArrowDownToLine className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden lg:inline">
+            Update to {update.status.newVersion}
+          </span>
+          <span className="lg:hidden">Update</span>
+        </button>
+      ) : null}
+
+      <nav className="flex items-center gap-0.5">
+        {NAV_ITEMS.map(({ to, label, Icon, badge }) => (
+          <Button
+            key={to}
+            asChild
+            variant="ghost"
+            size="sm"
+            className="relative gap-1.5 px-2"
+          >
+            <Link to={to}>
+              <Icon className="h-4 w-4" aria-hidden />
+              <span className="hidden text-xs lg:inline">{label}</span>
+              {badge === "processes" && processCount > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9px] font-semibold leading-none text-accent-foreground"
+                >
+                  {processCount}
+                </span>
+              ) : null}
+              {badge === "processes" ? (
+                <span className="sr-only">
+                  {processCount > 0
+                    ? `${processCount} running ${processCount === 1 ? "process" : "processes"}`
+                    : "No running processes"}
+                </span>
+              ) : null}
+            </Link>
+          </Button>
+        ))}
       </nav>
     </header>
   );

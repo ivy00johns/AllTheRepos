@@ -90,6 +90,8 @@ export function mapRawRepoRow(raw: Record<string, unknown>): RepoRow {
     sizeBytes: (raw.size_bytes as number | null) ?? null,
     lastScannedAt: (raw.last_scanned_at as string | null) ?? null,
     lastOpenedAt: (raw.last_opened_at as string | null) ?? null,
+    isFavorite: Boolean(raw.is_favorite),
+    favoritedAt: (raw.favorited_at as string | null) ?? null,
     createdAt: raw.created_at as string,
     updatedAt: raw.updated_at as string,
     source: (raw.source as RepoRow["source"]) ?? "filesystem_scan",
@@ -118,6 +120,8 @@ export function rowToRepo(row: RepoRow): Repo {
     sizeBytes: row.sizeBytes,
     lastScannedAt: row.lastScannedAt,
     lastOpenedAt: row.lastOpenedAt,
+    isFavorite: !!row.isFavorite,
+    favoritedAt: row.favoritedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     source: (row.source as "manual" | "filesystem_scan") ?? "filesystem_scan",
@@ -297,6 +301,27 @@ export async function listGroups(): Promise<Group[]> {
  * migration from SQLite → electron-store. Runtime reads/writes go through
  * `services/settings.ts`. Returns `null` if no legacy row exists.
  */
+/**
+ * Pin or unpin a repo.
+ *
+ * `favorited_at` is stamped so favourites can be ordered by when they
+ * were pinned rather than alphabetically — the ones you starred today
+ * are usually the ones you want on top.
+ */
+export function setRepoFavorite(slug: string, favorite: boolean): Repo | null {
+  const sqlite = getSqlite();
+  const now = new Date().toISOString();
+  sqlite
+    .prepare(
+      "UPDATE repos SET is_favorite = ?, favorited_at = ?, updated_at = ? WHERE slug = ?",
+    )
+    .run(favorite ? 1 : 0, favorite ? now : null, now, slug);
+  const raw = sqlite
+    .prepare("SELECT * FROM repos WHERE slug = ?")
+    .get(slug) as Record<string, unknown> | undefined;
+  return raw ? rowToRepo(mapRawRepoRow(raw)) : null;
+}
+
 export function getSettingsFromTable(): Settings | null {
   const sqlite = getSqlite();
   const row = sqlite
@@ -317,6 +342,7 @@ export function getSettingsFromTable(): Settings | null {
     openaiEmbedModel: parsed.openaiEmbedModel ?? null,
     defaultEditor: (parsed.defaultEditor ??
       "vscode") as Settings["defaultEditor"],
+    identities: parsed.identities ?? [],
     schemaVersion: parsed.schemaVersion ?? row.schema_version ?? 1,
   };
 }

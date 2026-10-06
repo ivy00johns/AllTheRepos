@@ -255,6 +255,8 @@ describe("ScanEventSchema", () => {
       sizeBytes: null,
       lastScannedAt: null,
       lastOpenedAt: null,
+      isFavorite: false,
+      favoritedAt: null,
       createdAt: "2026-05-13T00:00:00.000Z",
       updatedAt: "2026-05-13T00:00:00.000Z",
       source: "filesystem_scan" as const,
@@ -433,11 +435,17 @@ describe("SettingsSchema", () => {
     ollamaEmbedModel: "nomic-embed-text",
     openaiEmbedModel: null,
     defaultEditor: "vscode" as const,
+    identities: ["ivy00johns"],
     schemaVersion: 1,
   };
 
   it("accepts a fully-populated settings blob", () => {
     expect(SettingsSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("defaults `identities` so pre-existing settings files still parse", () => {
+    const { identities: _omitted, ...withoutIdentities } = valid;
+    expect(SettingsSchema.parse(withoutIdentities).identities).toEqual([]);
   });
 
   it("accepts each editor enum value", () => {
@@ -615,6 +623,8 @@ describe("RepoDetailSchema", () => {
     sizeBytes: null,
     lastScannedAt: null,
     lastOpenedAt: null,
+    isFavorite: false,
+    favoritedAt: null,
     createdAt: "2026-05-13T00:00:00.000Z",
     updatedAt: "2026-05-13T00:00:00.000Z",
     source: "filesystem_scan" as const,
@@ -721,6 +731,8 @@ describe("SearchHitSchema", () => {
     sizeBytes: null,
     lastScannedAt: null,
     lastOpenedAt: null,
+    isFavorite: false,
+    favoritedAt: null,
     createdAt: "2026-05-13T00:00:00.000Z",
     updatedAt: "2026-05-13T00:00:00.000Z",
     source: "filesystem_scan" as const,

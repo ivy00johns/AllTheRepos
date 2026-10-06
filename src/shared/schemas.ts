@@ -58,6 +58,8 @@ export const RepoSchema = z.object({
   sizeBytes: z.number().int().nonnegative().nullable(),
   lastScannedAt: IsoDateString.nullable(),
   lastOpenedAt: IsoDateString.nullable(),
+  isFavorite: z.boolean(),
+  favoritedAt: IsoDateString.nullable(),
   createdAt: IsoDateString,
   updatedAt: IsoDateString,
   source: z.enum(["manual", "filesystem_scan"]),
@@ -154,6 +156,13 @@ export const SettingsSchema = z.object({
   ollamaEmbedModel: z.string().min(1),
   openaiEmbedModel: z.string().nullable(),
   defaultEditor: z.enum(["vscode", "cursor", "none"]),
+  /**
+   * Git host handles that belong to the user. Drives the "is this mine?"
+   * classification in the catalog. Defaults to an empty list, which the
+   * renderer bootstraps by inferring the dominant remote owner — so the
+   * feature works before the user ever opens Settings.
+   */
+  identities: z.array(z.string().min(1)).default([]),
   schemaVersion: z.number().int().nonnegative(),
 });
 
@@ -278,6 +287,158 @@ export const SmartFilterInputSchema = z.object({
 export const SmartFilterResultSchema = z.array(SearchHitSchema);
 
 // ---------------------------------------------------------------------------
+// catalog:cover — project artwork resolution
+// ---------------------------------------------------------------------------
+
+export const CoverInputSchema = z.object({ slug: z.string().min(1) });
+
+export const CoverResultSchema = z.object({
+  /** Data URL, or null when the project ships no usable artwork. */
+  src: z.string().nullable(),
+  source: z.enum(["readme", "file"]).nullable(),
+  relativePath: z.string().nullable(),
+});
+
+// ---------------------------------------------------------------------------
+// catalog:move* — relocation on disk
+// ---------------------------------------------------------------------------
+
+export const MoveBlockerSchema = z.enum([
+  "missing",
+  "dirty",
+  "running-process",
+  "destination-exists",
+  "target-outside-roots",
+  "target-inside-source",
+  "same-location",
+  "cross-device",
+  "unknown-repo",
+]);
+
+/**
+ * Batch size is capped so a runaway selection can't ask the main process
+ * to stat and rename thousands of directories in one synchronous-feeling
+ * IPC call.
+ */
+export const MoveInputSchema = z.object({
+  slugs: z.array(z.string().min(1)).min(1).max(500),
+  targetDir: z.string().min(1),
+});
+
+export const MoveCheckEntrySchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  fromPath: z.string(),
+  toPath: z.string(),
+  ok: z.boolean(),
+  blockers: z.array(MoveBlockerSchema),
+});
+
+export const MoveCheckResultSchema = z.object({
+  targetDir: z.string(),
+  entries: z.array(MoveCheckEntrySchema),
+  movableCount: z.number().int().nonnegative(),
+  blockedCount: z.number().int().nonnegative(),
+});
+
+export const MoveEntryResultSchema = z.object({
+  slug: z.string(),
+  moved: z.boolean(),
+  fromPath: z.string(),
+  toPath: z.string(),
+  error: z.string().nullable(),
+});
+
+export const MoveResultSchema = z.object({
+  targetDir: z.string(),
+  entries: z.array(MoveEntryResultSchema),
+  movedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  batchId: z.string().nullable(),
+});
+
+export const MoveUndoInputSchema = z.object({
+  batchId: z.string().min(1).optional(),
+});
+
+export const MoveLastInputSchema = z.object({});
+
+export const MoveLastResultSchema = z
+  .object({
+    batchId: z.string(),
+    at: z.string(),
+    count: z.number().int().nonnegative(),
+    /** What sort of operation it was, so undo can be described honestly. */
+    kind: z.enum(["repos", "folder", "create"]),
+    /** Ready-made summary for the undo affordance, e.g. "moved 3 repos". */
+    label: z.string(),
+  })
+  .nullable();
+
+// ---------------------------------------------------------------------------
+// catalog:folder* — restructuring directories, not just repos
+// ---------------------------------------------------------------------------
+
+export const FolderBlockerSchema = z.enum([
+  "missing",
+  "not-a-directory",
+  "invalid-name",
+  "destination-exists",
+  "target-outside-roots",
+  "target-inside-source",
+  "same-location",
+  "is-scan-root",
+  "dirty-repos",
+  "running-processes",
+]);
+
+export const FolderCheckInputSchema = z.object({
+  fromPath: z.string().min(1),
+  toPath: z.string().min(1),
+});
+
+export const AffectedRepoSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  fromPath: z.string(),
+  toPath: z.string(),
+  isDirty: z.boolean(),
+  hasProcess: z.boolean(),
+});
+
+export const FolderCheckResultSchema = z.object({
+  fromPath: z.string(),
+  toPath: z.string(),
+  affected: z.array(AffectedRepoSchema),
+  blockers: z.array(FolderBlockerSchema),
+  ok: z.boolean(),
+});
+
+export const FolderRenameInputSchema = z.object({
+  fromPath: z.string().min(1),
+  newName: z.string().min(1).max(255),
+});
+
+export const FolderMoveInputSchema = z.object({
+  fromPath: z.string().min(1),
+  parentPath: z.string().min(1),
+});
+
+export const FolderCreateInputSchema = z.object({
+  parentPath: z.string().min(1),
+  name: z.string().min(1).max(255),
+});
+
+export const FolderOpResultSchema = z.object({
+  ok: z.boolean(),
+  fromPath: z.string(),
+  toPath: z.string(),
+  movedRepos: z.number().int().nonnegative(),
+  batchId: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+// ---------------------------------------------------------------------------
 // scan:start / scan:status / scan:cancel
 // ---------------------------------------------------------------------------
 
@@ -368,6 +529,338 @@ export const GetSettingsResultSchema = SettingsSchema;
  */
 export const UpdateSettingsInputSchema = SettingsSchema.partial();
 export const UpdateSettingsResultSchema = SettingsSchema;
+
+// --- scan-root management (driven from the rail) ---------------------------
+
+export const PickScanPathInputSchema = z.object({});
+export const PickScanPathResultSchema = z.object({
+  /** `null` when the picker was cancelled. */
+  path: z.string().nullable(),
+});
+
+export const AddScanPathInputSchema = z.object({ path: z.string().min(1) });
+export const AddScanPathResultSchema = z.object({
+  settings: SettingsSchema,
+  added: z.boolean(),
+  reason: z.string().nullable(),
+});
+
+export const RemoveScanPathInputSchema = z.object({
+  path: z.string().min(1),
+  /** Drop the catalog rows found there. Never touches files on disk. */
+  forgetRepos: z.boolean(),
+});
+export const RemoveScanPathResultSchema = z.object({
+  settings: SettingsSchema,
+  removed: z.boolean(),
+  forgotten: z.number().int().nonnegative(),
+  reason: z.string().nullable(),
+});
+
+/**
+ * Live catalog change, pushed when the watcher reconciles a batch of
+ * filesystem events. `vanished` repos are reported, never deleted.
+ */
+export const CatalogChangeEventSchema = z.object({
+  added: z.array(z.string()),
+  updated: z.array(z.string()),
+  vanished: z.array(z.string()),
+  at: z.string(),
+});
+
+export const SetFavoriteInputSchema = z.object({
+  slug: z.string().min(1),
+  favorite: z.boolean(),
+});
+export const SetFavoriteResultSchema = RepoSchema.nullable();
+
+// ---------------------------------------------------------------------------
+// git:fetch / git:pull
+// ---------------------------------------------------------------------------
+
+export const SyncOutcomeSchema = z.enum([
+  "updated",
+  "already-current",
+  "fetched",
+  "no-remote",
+  "no-upstream",
+  "dirty",
+  "diverged",
+  "missing",
+  "failed",
+]);
+
+export const SyncInputSchema = z.object({
+  slugs: z.array(z.string().min(1)).min(1).max(500),
+});
+
+export const SyncEntrySchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  outcome: SyncOutcomeSchema,
+  received: z.number().int().nonnegative(),
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
+  currentBranch: z.string().nullable(),
+  message: z.string().nullable(),
+});
+
+export const SyncResultSchema = z.object({
+  entries: z.array(SyncEntrySchema),
+  updated: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+
+// ---------------------------------------------------------------------------
+// tasks:*
+// ---------------------------------------------------------------------------
+
+export const RepoTaskSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  source: z.string(),
+  command: z.string(),
+  detail: z.string().nullable(),
+});
+
+export const TaskListInputSchema = z.object({ slug: z.string().min(1) });
+export const TaskListResultSchema = z.object({
+  tasks: z.array(RepoTaskSchema),
+});
+
+export const TaskStartInputSchema = z.object({
+  slug: z.string().min(1),
+  taskId: z.string().min(1),
+});
+export const TaskStartResultSchema = z.object({
+  runId: z.string().nullable(),
+  started: z.boolean(),
+  reason: z.string().nullable(),
+});
+
+export const TaskStopInputSchema = z.object({ runId: z.string().min(1) });
+export const TaskStopResultSchema = z.object({ stopped: z.boolean() });
+
+export const TaskActiveInputSchema = z.object({});
+export const TaskActiveResultSchema = z.object({
+  runs: z.array(
+    z.object({
+      runId: z.string(),
+      slug: z.string(),
+      taskId: z.string(),
+      command: z.string(),
+      startedAt: z.string(),
+    }),
+  ),
+});
+
+export const TaskOutputEventSchema = z.object({
+  runId: z.string(),
+  slug: z.string(),
+  kind: z.enum(["started", "stdout", "stderr", "exited"]),
+  chunk: z.string().nullable(),
+  exitCode: z.number().int().nullable(),
+  at: z.string(),
+});
+
+/**
+ * Update status.
+ *
+ * `unavailable` is distinct from `error`: it means we deliberately
+ * didn't check (running from source, no token), not that checking broke.
+ */
+export const UpdateStatusSchema = z.object({
+  state: z.enum([
+    "idle",
+    "checking",
+    "available",
+    "current",
+    "error",
+    "unavailable",
+  ]),
+  currentVersion: z.string(),
+  newVersion: z.string().nullable(),
+  releaseUrl: z.string().nullable(),
+  message: z.string().nullable(),
+  checkedAt: z.string().nullable(),
+});
+
+export const UpdateCheckInputSchema = z.object({});
+export const OpenReleaseInputSchema = z.object({});
+export const OpenReleaseResultSchema = z.object({
+  opened: z.boolean(),
+  reason: z.string().nullable(),
+});
+export const UpdateStatusInputSchema = z.object({});
+
+// ---------------------------------------------------------------------------
+// graph:build
+// ---------------------------------------------------------------------------
+
+/**
+ * How one repo relates to another, as asserted by a human or an agent.
+ *
+ * `part-of` is the load-bearing one: it claims the source belongs under
+ * the target, which is what makes a curated link actionable for reorg.
+ */
+export const RepoLinkKindSchema = z.enum([
+  "part-of",
+  "depends-on",
+  "supersedes",
+  "forked-from",
+  "related",
+]);
+
+export const RepoLinkSchema = z.object({
+  id: z.number().int().positive(),
+  fromSlug: z.string(),
+  toSlug: z.string(),
+  kind: RepoLinkKindSchema,
+  why: z.string().nullable(),
+  source: z.enum(["mcp", "ui"]),
+  createdAt: z.string(),
+});
+
+/** Why two repos are connected. */
+export const GraphSignalSchema = z.enum([
+  "dependency",
+  "reference",
+  "submodule",
+  "owner",
+  "naming",
+  "curated",
+]);
+
+export const GraphNodeSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  folder: z.string(),
+  language: z.string().nullable(),
+  isFavorite: z.boolean(),
+  lastCommitDate: z.string().nullable(),
+  cluster: z.number().int().nonnegative(),
+  degree: z.number().int().nonnegative(),
+});
+
+export const GraphEdgeSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  weight: z.number(),
+  signals: z.array(GraphSignalSchema),
+  /** Short human reasons, e.g. the shared library names. */
+  why: z.array(z.string()),
+  /**
+   * Directed detail for curated links on this edge.
+   *
+   * The edge itself stays undirected — the force layout and cluster
+   * detection both depend on that — so direction rides along as
+   * metadata the UI renders.
+   */
+  curated: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        kind: RepoLinkKindSchema,
+        why: z.string().nullable(),
+      }),
+    )
+    .optional(),
+});
+
+export const GraphClusterSchema = z.object({
+  id: z.number().int().nonnegative(),
+  label: z.string(),
+  size: z.number().int().nonnegative(),
+  slugs: z.array(z.string()),
+  folders: z.array(
+    z.object({ folder: z.string(), count: z.number().int().nonnegative() }),
+  ),
+  /** How many distinct folders the cluster is spread across. */
+  folderSpread: z.number().int().nonnegative(),
+  dominantFolder: z.string(),
+  /** Members living outside the dominant folder — the reorg candidates. */
+  strays: z.array(z.string()),
+});
+
+export const GraphBuildInputSchema = z.object({});
+export const GraphResultSchema = z.object({
+  nodes: z.array(GraphNodeSchema),
+  edges: z.array(GraphEdgeSchema),
+  clusters: z.array(GraphClusterSchema),
+  builtAt: z.string(),
+});
+
+/**
+ * Curated links touching one repo, resolved to the *other* side.
+ *
+ * The graph page asks for the whole map at once and pays for it; the
+ * catalog wants one repo's assertions on selection, which is a single
+ * indexed read. Hence a shape of its own rather than a `GraphEdge` reuse.
+ */
+export const RepoRelationsInputSchema = z.object({ slug: z.string().min(1) });
+
+export const RepoRelationSchema = z.object({
+  /** The repo on the other end of the link. */
+  slug: z.string(),
+  name: z.string(),
+  kind: RepoLinkKindSchema,
+  /**
+   * `outgoing` when the selected repo asserts the link, `incoming` when
+   * another repo asserts it about this one. Direction is kept because
+   * `part-of` reads very differently each way.
+   */
+  direction: z.enum(["outgoing", "incoming"]),
+  why: z.string().nullable(),
+  source: z.enum(["mcp", "ui"]),
+  createdAt: z.string(),
+});
+
+export const RepoRelationsResultSchema = z.object({
+  relations: z.array(RepoRelationSchema),
+});
+
+/**
+ * Assert a curated link, from the catalog itself.
+ *
+ * Mirrors the MCP's `link` tool with one difference: both ends are named
+ * by slug. The renderer never holds a path — the panel has the slug of the
+ * repo on screen and the picker hands back another — so the main process
+ * resolves slugs to ids and the path-addressing rule (`db/links.ts`) stays
+ * where it is enforced.
+ */
+export const AssertRepoLinkInputSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+  /**
+   * Required, exactly as it is for the MCP. A curated link outranks every
+   * derived signal on the map, so an unexplained one is worse than none.
+   */
+  why: z.string().trim().min(1).max(500),
+});
+
+export const AssertRepoLinkResultSchema = z.object({ link: RepoLinkSchema });
+
+/**
+ * Remove a curated link.
+ *
+ * Both ends are named so nothing is guessed: `RepoRelation.direction`
+ * tells the panel which side it is looking at, and it can therefore say
+ * which end is `from` without a second round trip.
+ */
+export const RemoveRepoLinkInputSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+});
+
+export const RemoveRepoLinkResultSchema = z.object({ removed: z.boolean() });
+
+export const CountUnderInputSchema = z.object({ path: z.string().min(1) });
+export const CountUnderResultSchema = z.object({
+  count: z.number().int().nonnegative(),
+});
 
 // ---------------------------------------------------------------------------
 // groups:*
@@ -657,6 +1150,7 @@ export const EditorIdSchema = z.enum([
   "cursor",
   "zed",
   "windsurf",
+  "devin",
   "sublime",
   "xcode",
   "idea",

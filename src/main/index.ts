@@ -39,6 +39,9 @@ import { installContentSecurityPolicy } from "./security/csp";
 import { claudeService } from "./services/claude";
 import { launcherService } from "./services/launcher";
 import { processService } from "./services/process";
+import { repoWatchService } from "./services/watch";
+import { taskService } from "./services/tasks";
+import { updaterService } from "./services/updater";
 import { scanService } from "./services/scan";
 import {
   registerGlobalHotkeys,
@@ -49,6 +52,23 @@ import { notifyScanComplete } from "./system/notification";
 import { registerProtocolHandler } from "./system/protocol";
 import { createTray } from "./system/tray";
 import { createMainWindow } from "./window/main-window";
+
+/**
+ * Pin the application name BEFORE anything reads `app.getPath('userData')`.
+ *
+ * Electron derives the user-data directory from `app.getName()`, which for
+ * an unpackaged app is whatever it can infer from the launch context. That
+ * inference is not stable: `pnpm electron:dev` resolved to "alltherepos"
+ * while launching the built entry directly resolved to "Electron" — two
+ * different directories, so the app silently kept TWO separate catalogs
+ * with different scan roots, and work done in one was invisible in the
+ * other. Worse, "Electron" is the default for every unpackaged Electron
+ * app on the machine, so that directory is shared with unrelated tools.
+ *
+ * Setting the name explicitly makes every launch path — dev, built entry,
+ * packaged bundle — agree on exactly one location.
+ */
+app.setName("alltherepos");
 
 // Module-scoped reference prevents the BrowserWindow from being GC'd.
 let mainWindow: BrowserWindow | null = null;
@@ -65,6 +85,44 @@ function broadcastScanEvent(event: ScanEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
     win.webContents.send(IPC.SCAN.ON_PROGRESS, event);
+  }
+}
+
+/** Fan update status out to every active BrowserWindow. */
+function broadcastUpdateStatus(
+  payload: import("@shared/types").UpdateStatus,
+): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send(IPC.UPDATE.ON_STATUS, payload);
+  }
+}
+
+/**
+ * Fan a task's stdout/stderr out to every active BrowserWindow.
+ *
+ * Broadcast rather than targeted: a task started in one window should be
+ * visible in any other, and there is normally exactly one window.
+ */
+function broadcastTaskOutput(
+  payload: import("@shared/types").TaskOutputEvent,
+): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send(IPC.TASKS.ON_OUTPUT, payload);
+  }
+}
+
+/**
+ * Fan a live catalog change out to every active BrowserWindow. Same
+ * defensive shape as `broadcastScanEvent`.
+ */
+function broadcastCatalogChange(
+  payload: import("@shared/types").CatalogChangeEvent,
+): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    win.webContents.send(IPC.CATALOG.ON_CHANGED, payload);
   }
 }
 
@@ -174,6 +232,20 @@ if (!gotSingleInstanceLock) {
       //     LauncherService runs editor/terminal detection on /Applications
       //     + PATH probe and caches for the app lifetime.
       await processService.boot();
+
+      // 5b. Live filesystem watching. Started AFTER the catalog is open
+      //     because the watcher prunes known repo subtrees, and it can
+      //     only know them by reading the DB.
+      repoWatchService.onChange(broadcastCatalogChange);
+      repoWatchService.start();
+
+      // 5c. Task output stream.
+      taskService.onOutput(broadcastTaskOutput);
+
+      // 5d. Update checking. Checks once shortly after launch and stays
+      //     quiet otherwise; a packaged build only.
+      updaterService.onStatus(broadcastUpdateStatus);
+      updaterService.scheduleStartupCheck();
       await launcherService.boot();
 
       // 5b. Phase 3b — ClaudeService boot. Reads `~/.claude.json`, walks
@@ -258,5 +330,10 @@ if (!gotSingleInstanceLock) {
   // is idempotent; calling it here is the canonical Electron pattern.
   app.on("before-quit", () => {
     unregisterGlobalHotkeys();
+    // Close the filesystem watchers so the process can actually exit —
+    // an open FSEvents stream keeps the event loop alive.
+    void repoWatchService.stop();
+    // Never orphan a dev server the user started from inside the app.
+    taskService.stopAll();
   });
 }

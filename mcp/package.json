@@ -1,0 +1,24 @@
+{
+  "name": "@alltherepos/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the AllTheRepos catalog — read repositories, assert curated relationships",
+  "type": "module",
+  "bin": { "alltherepos-mcp": "./dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^12.9.0",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.3"
+  }
+}
