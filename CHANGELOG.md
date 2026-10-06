@@ -11,6 +11,12 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-06
+
+### Fixed
+
+- see draft releases when verifying an upload
+
 ## [0.1.1] - 2026-10-06
 
 ### Added
@@ -86,6 +92,7 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.0
