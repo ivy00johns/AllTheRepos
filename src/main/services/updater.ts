@@ -19,18 +19,19 @@
  * certificate exists, flipping `autoDownload` on and calling
  * `quitAndInstall` is the whole change; see `docs/RELEASING.md`.
  *
- * ## Private repositories
+ * ## Where the feed lives
  *
- * The release feed lives on a private repo, so reading it needs a token.
- * Rather than embedding one in the shipped app — which would hand every
- * user a credential — the token is resolved at runtime from the
- * environment or the `gh` CLI already authenticated on this machine.
- * With no token the updater reports `unavailable` and explains why,
- * instead of failing with an opaque 404.
+ * Releases are published to a **public** repo (`alltherepos-releases`) while
+ * the source stays private, so checking for an update needs no credentials:
+ * one anonymous request to the GitHub API. That is what lets the check work
+ * for anyone who installs the app, rather than only on the machine that
+ * built it.
+ *
+ * The feed target appears twice — here, and in `electron-builder.yml`'s
+ * `publish` block, which is what writes `app-update.yml` into the bundle.
+ * `tests/unit/main/services/updater-feed.spec.ts` fails if the two disagree,
+ * because a mismatch means every install quietly checks the wrong repo.
  */
-
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 import { app } from "electron";
 import electronUpdater from "electron-updater";
@@ -39,49 +40,23 @@ import type { UpdateStatus } from "@shared/types";
 
 import { openExternalAllowlisted } from "@main/security/allowlist";
 
-const execFileAsync = promisify(execFile);
-
 /** `electron-updater` is CJS; this is the documented interop dance. */
 const { autoUpdater } = electronUpdater;
 
-const REPO_OWNER = "ivy00johns";
-const REPO_NAME = "AllTheRepos";
+/**
+ * Where the DMG and `latest-mac.yml` are published.
+ *
+ * Public on purpose, and deliberately not this source repo: the app reads the
+ * feed anonymously, so anyone who installs it can check for updates. Keep in
+ * lockstep with `publish` in `electron-builder.yml`.
+ */
+const FEED_OWNER = "ivy00johns";
+const FEED_REPO = "alltherepos-releases";
 
 /** Wait this long after launch before checking — boot should feel instant. */
 const STARTUP_DELAY_MS = 8000;
 
 export type UpdateStatusListener = (status: UpdateStatus) => void;
-
-let cachedToken: string | null | undefined;
-
-/**
- * Find a GitHub token without shipping one.
- *
- * Order matters: an explicit environment variable is the deliberate
- * choice, and the `gh` CLI is the convenient fallback for a machine
- * that's already logged in.
- */
-async function resolveToken(): Promise<string | null> {
-  if (cachedToken !== undefined) return cachedToken;
-
-  const fromEnv = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? null;
-  if (fromEnv) {
-    cachedToken = fromEnv;
-    return cachedToken;
-  }
-
-  try {
-    const { stdout } = await execFileAsync("gh", ["auth", "token"], {
-      timeout: 5000,
-    });
-    const token = stdout.trim();
-    cachedToken = token.length > 0 ? token : null;
-  } catch {
-    // `gh` missing or not logged in — a normal state, not an error.
-    cachedToken = null;
-  }
-  return cachedToken;
-}
 
 /**
  * Turn an updater failure into something a person can act on.
@@ -90,28 +65,26 @@ async function resolveToken(): Promise<string | null> {
  * header and a stack trace — useful in a log, useless in a UI. The cases
  * below are the ones that actually happen, and each has a different fix.
  *
- * GitHub deliberately answers 404 rather than 403 for an unauthorised
- * private repo, so "no releases yet" and "token can't see this repo" are
- * indistinguishable from the status code alone — the message says so
- * instead of guessing.
+ * The feed is public, so a 404 means exactly one thing: nothing is published
+ * yet — the updater asks for `releases/latest`, which skips drafts and
+ * pre-releases. The rate-limit branch exists because the check is anonymous:
+ * GitHub allows 60 requests an hour per address, shared with whatever else
+ * is using the connection.
  */
 function describeError(error: unknown): Partial<UpdateStatus> {
   const raw = error instanceof Error ? error.message : String(error);
 
   if (raw.includes("404")) {
-    return {
-      state: "unavailable",
-      message:
-        "No releases published yet — or this token can't see them. GitHub returns 404 for both.",
-    };
+    return { state: "unavailable", message: "No releases published yet." };
   }
   if (raw.includes("ENOTFOUND") || raw.includes("ECONNREFUSED")) {
     return { state: "unavailable", message: "No network connection." };
   }
-  if (raw.includes("401") || raw.includes("403")) {
+  if (raw.includes("401") || raw.includes("403") || raw.includes("429")) {
     return {
       state: "unavailable",
-      message: "GitHub rejected the token. Try `gh auth login`.",
+      message:
+        "GitHub refused the request — an anonymous check is rate-limited. Try again later.",
     };
   }
 
@@ -171,7 +144,7 @@ class UpdaterService {
       this.set({
         state: "available",
         newVersion: info.version,
-        releaseUrl: `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/v${info.version}`,
+        releaseUrl: `https://github.com/${FEED_OWNER}/${FEED_REPO}/releases/tag/v${info.version}`,
         message: null,
         checkedAt: new Date().toISOString(),
       });
@@ -198,8 +171,8 @@ class UpdaterService {
    * Check for a newer release.
    *
    * Every "can't check" path reports a specific reason rather than a
-   * generic failure — "you're running from source" and "no GitHub token"
-   * are completely different problems.
+   * generic failure — "you're running from source" and "nothing is published
+   * yet" are completely different problems, with different fixes.
    */
   async check(): Promise<UpdateStatus> {
     if (!app.isPackaged) {
@@ -211,23 +184,14 @@ class UpdaterService {
       return this.status;
     }
 
-    const token = await resolveToken();
-    if (!token) {
-      this.set({
-        state: "unavailable",
-        message:
-          "No GitHub token found. Releases live on a private repo — run `gh auth login`, or set GH_TOKEN.",
-      });
-      return this.status;
-    }
-
     this.wire();
+    // No token, no `private` flag: the feed is public. `setFeedURL` is used
+    // rather than leaning on the generated `app-update.yml` so the target is
+    // legible in the source — the drift guard keeps the two honest.
     autoUpdater.setFeedURL({
       provider: "github",
-      owner: REPO_OWNER,
-      repo: REPO_NAME,
-      private: true,
-      token,
+      owner: FEED_OWNER,
+      repo: FEED_REPO,
     });
 
     try {

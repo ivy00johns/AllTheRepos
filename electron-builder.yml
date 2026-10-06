@@ -20,14 +20,18 @@ asarUnpack:
   - "**/node_modules/fsevents/**"
 npmRebuild: true
 
-# Update feed. The repo is private, so reading this needs a token —
-# resolved at run time from GH_TOKEN or the `gh` CLI rather than baked
-# into the shipped app (see src/main/services/updater.ts).
+# Update feed. Artifacts are published to a PUBLIC releases-only repo while
+# the source stays private, so a shipped copy can read the feed with an
+# anonymous request — no token, and no reason to embed one. The app names the
+# same repo in `src/main/services/updater.ts` (`FEED_OWNER`/`FEED_REPO`);
+# `tests/unit/main/services/updater-feed.spec.ts` fails if they drift apart.
+#
+# Publishing there needs a token that can write to that repo — see the
+# `RELEASES_TOKEN` secret in docs/RELEASING.md.
 publish:
   provider: github
   owner: ivy00johns
-  repo: AllTheRepos
-  private: true
+  repo: alltherepos-releases
   releaseType: release
 
 mac:
