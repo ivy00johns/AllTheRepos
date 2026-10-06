@@ -11,6 +11,8 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-06
+
 ### Added
 
 - `pnpm release:next` derives the next version and its changelog section from
@@ -26,6 +28,11 @@ source of truth for the current version.
 
 ### Changed
 
+- record the first green CI run, and narrow the tag caveat
+- record that the first CI run is blocked, not pending
+- warn that a re-run can pass without uploading
+- document the opt-in packaged update check
+- verify the packaged app's update check against the live feed
 - Update checks read a public releases repository, so they work for anyone who
   installs the app. Previously the feed was private and the app needed a GitHub
   token on the machine, which meant a copy on anyone else's Mac could never
@@ -79,5 +86,6 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ivy00johns/AllTheRepos/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
+[0.1.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.0
