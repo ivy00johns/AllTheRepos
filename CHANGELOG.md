@@ -11,8 +11,18 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-06
+
+### Changed
+
+- keep the README screenshots from looking like a temp machine
+- rewrite the README around the desktop app
+- generate README screenshots from a demo library
+
 ### Fixed
 
+- let the default editor be any editor we actually detected
+- make a released DMG look like the download it is
 - The default editor is now actually respected. `defaultEditor` was a closed three-value
   enum (`vscode`/`cursor`/`none`), so picking any of the other twelve editors the launcher
   detects — Devin, Zed, IntelliJ, … — was rejected by settings validation and never saved.
@@ -109,7 +119,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.0
