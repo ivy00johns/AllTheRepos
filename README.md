@@ -82,9 +82,9 @@ pnpm electron:dev                  # rebuilds natives, then launches the app
 
 ### First run, in the app
 
-1. **Add a scan folder** (rail → *Add folder to scan*) — a directory that contains repositories, e.g. `~/Projects`.
+1. **Add a scan folder** (rail → *Add folder to scan*) — a directory that contains repositories, e.g. `~/Code`.
 2. Press **Scan**. The scanner walks the tree in a worker thread and writes each repository into the catalog.
-3. `⌘K` opens the command palette; `⌘F` or the top-bar field searches the catalog.
+3. Use the top-bar field to search, and `⌘K` to run a command.
 
 ---
 
@@ -92,11 +92,11 @@ pnpm electron:dev                  # rebuilds natives, then launches the app
 
 <div align="center">
 
-<img src="docs/images/command-palette.png" alt="The in-app command palette, opened with ⌘K, searching the catalog" width="900" />
+<img src="docs/images/command-palette.png" alt="The ⌘K command palette over the catalog" width="900" />
 
 </div>
 
-Everything is keyboard-reachable: **`⌘K`** for the command palette, **`g s`** to jump to settings, **`j`/`k`** to move through the grid, and a menu-bar spotlight window for a repository search without raising the main window.
+Everything is keyboard-reachable: **`⌘K`** for the command palette, **`g s`** to jump to settings, **`j`/`k`** to move through the grid, **Enter** to open the selected repository — plus a menu-bar presence and a spotlight window for a search that does not raise the main window.
 
 <div align="center">
 
@@ -106,7 +106,7 @@ Everything is keyboard-reachable: **`⌘K`** for the command palette, **`g s`** 
 
 Settings owns the scan roots and ignore globs, the embedding provider, the editor to open repos in, your git identities, and the *Check for updates* control that reads the public update feed.
 
-> The screenshots above are generated, not staged: `node scripts/make-readme-shots.mjs` launches the real app against a throwaway profile seeded with a **demo library**, and refuses to write the files if any repository outside that demo data appears on screen — these images are published, and this repository is not.
+> The screenshots above are generated, not staged: `node scripts/make-readme-shots.mjs` launches the real app against a throwaway profile seeded with a **demo library**, and refuses to write the files if any repository outside that demo data appears on screen — these images are published, and this repository is not. It checks the native ABI first, because the app exiting for that reason looks like nothing at all.
 
 ---
 

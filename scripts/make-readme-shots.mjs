@@ -15,19 +15,26 @@
  * `ELECTRON_RUN_AS_NODE=1 <electron>`, borrowing the app's own runtime so the
  * writer and the app agree on NODE_MODULE_VERSION without a second rebuild.
  *
+ * The demo library is written to `~/Code` and deleted again at the end, because
+ * the scan root is a *visible* path — it is the rail's root label and the value
+ * in Settings — and `tildify` only rewrites `/Users/<you>`. If `~/Code` already
+ * exists the script refuses to run rather than write into real data; point
+ * `--root` at an empty directory instead.
+ *
  * Usage:
  *   node scripts/ensure-native-abi.mjs electron && electron-vite build
  *   node scripts/make-readme-shots.mjs
- *   node scripts/make-readme-shots.mjs --out docs/images --size 1440x900
+ *   node scripts/make-readme-shots.mjs --out docs/images --size 1440x900 --root /tmp/demo
  *
- * Exit codes: 0 — shots written · 2 — bad usage or a missing bundle.
+ * Exit codes: 0 — shots written · 2 — bad usage, a missing bundle, or a
+ * `--root` that already exists.
  */
 
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -359,6 +366,27 @@ const kebab = (value) =>
 const shortHash = (value) =>
   crypto.createHash("sha1").update(value).digest("hex").slice(0, 8);
 
+/**
+ * Whether the native modules are built for Electron's ABI.
+ *
+ * Worth a probe, because the failure is unrecognisable otherwise: the app's
+ * main process dies loading `better-sqlite3`, Playwright reports "Target page,
+ * context or browser has been closed", and nothing anywhere mentions an ABI.
+ * It calls `new Database(...)` rather than a bare `require` because
+ * better-sqlite3 defers `bindings()` — a require succeeds against a foreign
+ * ABI and would report a healthy tree.
+ */
+function nativesMatchElectron() {
+  const probe =
+    'const D = require("better-sqlite3"); new D(":memory:").close();';
+  const result = spawnSync(electronBinary, ["-e", probe], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    encoding: "utf8",
+  });
+  return result.status === 0;
+}
+
 /** A real git repo, so the detail rail's branch and dirty reads have answers. */
 function initRepo(dir, dirty) {
   mkdirSync(dir, { recursive: true });
@@ -458,10 +486,34 @@ async function main() {
     console.error(`[readme-shots] --size wants WxH, got "${SIZE}"`);
     process.exit(2);
   }
+  if (!nativesMatchElectron()) {
+    console.error(
+      "[readme-shots] the native modules are not built for Electron's ABI, so the app\n" +
+        "[readme-shots] cannot open a database and exits before its window appears. Run:\n" +
+        "[readme-shots]   node scripts/ensure-native-abi.mjs electron",
+    );
+    process.exit(2);
+  }
+
+  // The scan root is a real, visible path: it is the rail's root label and the
+  // value in Settings. A `/var/folders/…/T/…` screenshot reads as a broken
+  // machine, and `tildify` only rewrites `/Users/<you>` — so the demo library
+  // has to live under $HOME to render as `~/Code`.
+  //
+  // It is deleted again in `finally`, and only ever when it did not already
+  // exist: if something real is at that path this refuses to run rather than
+  // writing into it, so nothing of the developer's is ever removed.
+  const reposRoot = resolve(flag("--root", path.join(homedir(), "Code")));
+  if (fs.existsSync(reposRoot)) {
+    console.error(
+      `[readme-shots] ${reposRoot} already exists — refusing to write the demo library there.\n` +
+        "[readme-shots] move it aside, or pass --root <path to an empty directory>.",
+    );
+    process.exit(2);
+  }
 
   const root = mkdtempSync(path.join(tmpdir(), "atr-readme-shots-"));
   const profileDir = path.join(root, "profile");
-  const reposRoot = path.join(root, "Developer");
   const rows = demoRows(reposRoot);
   const dbPath = path.join(profileDir, "alltherepos.db");
 
@@ -592,12 +644,14 @@ async function main() {
       await win.waitForTimeout(600); // let the rail's own reads settle
       await shoot(win, "catalog.png");
 
-      // The command palette, over the same catalog.
+      // The command palette, over the same catalog. Left empty on purpose: it
+      // is a palette of *commands*, so a query narrows it to a couple of rows
+      // that mean nothing out of context, while the unfiltered list is the
+      // thing worth showing.
       await win.keyboard.press("Meta+k");
       const palette = win.getByRole("dialog", { name: /command palette/i });
       await palette.waitFor({ state: "visible", timeout: 10_000 });
-      await palette.locator("input").fill("ledger");
-      await win.waitForTimeout(400);
+      await win.waitForTimeout(500);
       await shoot(win, "command-palette.png");
       await win.keyboard.press("Escape");
 
@@ -615,6 +669,10 @@ async function main() {
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
+    // The demo library, and only the demo library: this path was verified
+    // absent before anything was written to it.
+    rmSync(reposRoot, { recursive: true, force: true });
+    console.log(`[readme-shots] removed the demo library from ${reposRoot}`);
   }
 }
 

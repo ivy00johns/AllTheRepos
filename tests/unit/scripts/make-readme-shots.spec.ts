@@ -57,7 +57,8 @@ interface ShotsModule {
   demoRows(root: string): DemoRow[];
 }
 
-const ROOT = "/tmp/atr-readme-shots-fixture/Developer";
+/** Stands in for the script's default `~/Code`, without touching `$HOME`. */
+const ROOT = "/Users/example/Code";
 
 let rows: DemoRow[];
 
