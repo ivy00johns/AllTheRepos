@@ -42,6 +42,7 @@ export type {
 // Internal import — used only to compose Phase 1 IPC payload shapes below.
 // Keep this in lockstep with the public re-export above.
 import type {
+  DefaultEditor,
   Group,
   Repo,
   RepoDetail,
@@ -465,8 +466,14 @@ export type GitBranchesResult = GitBranch[];
 /** Input for `git:openInEditor`. */
 export interface OpenInEditorInput {
   slug: string;
-  /** Optional editor override; defaults to Settings.defaultEditor. */
-  editor?: "vscode" | "cursor" | "none";
+  /**
+   * Optional editor override; defaults to `Settings.defaultEditor`.
+   *
+   * Any `EditorId` plus `"none"` — the URI builder dispatches through the
+   * launcher's scheme table, so this is no longer limited to the two
+   * editors that used to have a hand-written `switch` case.
+   */
+  editor?: DefaultEditor;
 }
 
 /** Response for `git:openInEditor`. */

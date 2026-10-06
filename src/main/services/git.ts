@@ -18,6 +18,7 @@ import type {
 import { getSqlite } from "@main/db/client";
 
 import { catalogService } from "./catalog";
+import { buildEditorUrl, editorScheme } from "./launcher";
 import { getSettings } from "./settings";
 
 function repoPathBySlug(slug: string): string | null {
@@ -140,8 +141,14 @@ class GitService {
    * Resolve the editor URI for the given repo + editor preference. The
    * IPC handler then passes the URI through `openExternalAllowlisted`.
    *
-   * Returns `{ uri: null }` when no launchable editor is configured —
-   * the renderer renders a friendly toast in that case.
+   * Every editor the launcher can detect is addressable here, not just
+   * vscode / cursor: the id -> scheme lookup and the URL shape both come
+   * from `@main/services/launcher`, so adding an editor there is enough.
+   *
+   * Returns `{ uri: null }` when nothing launchable is configured — the
+   * explicit `"none"` opt-out, an editor with no URL scheme (Xcode), or an
+   * id we no longer know. The renderer renders a friendly toast for all
+   * three, which is why they are deliberately indistinguishable here.
    */
   async resolveEditorUri(
     input: OpenInEditorInput,
@@ -153,17 +160,10 @@ class GitService {
     const editor = input.editor ?? settings.defaultEditor;
     if (editor === "none") return { uri: null };
 
-    // Both vscode:// and cursor:// accept `/file/<absolute path>` for opening
-    // a directory. encodeURI() handles spaces / unicode in the path safely.
-    const encoded = encodeURI(fullPath);
-    switch (editor) {
-      case "vscode":
-        return { uri: `vscode://file${encoded}` };
-      case "cursor":
-        return { uri: `cursor://file${encoded}` };
-      default:
-        return { uri: null };
-    }
+    const scheme = editorScheme(editor);
+    if (!scheme) return { uri: null };
+
+    return { uri: buildEditorUrl(scheme, fullPath) };
   }
 
   /** Stamp `repos.last_opened_at = now()`. Called from the open-editor flow. */

@@ -3,48 +3,27 @@
  * page. Lets the user pick which editor and terminal to use as the
  * default when clicking the launcher icon row on a repo card.
  *
- * Options come from `atr.launcher.detect()` filtered to
- * `available: true`. We persist on every change via
- * `atr.settings.update(...)` (no separate save button — matches the
- * existing Settings UX for the embeddings inputs).
+ * Options come from `atr.launcher.detect()`, filtered to what is actually
+ * installed. Two deliberate exceptions, both so the control never lies
+ * about what is stored:
+ *   - the editor enum carries an explicit `"none"`, so the "no default"
+ *     choice is a real value that round-trips instead of being stored as
+ *     something the schema would later reject;
+ *   - a saved editor that is no longer installed stays in the list,
+ *     labelled "(not detected)", instead of collapsing to the placeholder.
  *
- * The `Settings` shared type does NOT yet include `defaultEditor` /
- * `defaultTerminal` from Phase 3a (the contract notes that this is a
- * forward-compatible additive change). To avoid editing the shared
- * `Settings` interface from the renderer agent, we cast the update
- * input as `Partial<Phase3aSettings>` locally. The backend reads
- * these keys defensively.
+ * We persist on every change via `atr.settings.update(...)` — no separate
+ * save button, matching the embeddings inputs above it.
  */
 
 import * as React from "react";
 
-import type {
-  DetectedEditorZ,
-  DetectedTerminalZ,
-  EditorIdZ,
-  TerminalIdZ,
-} from "@shared/schemas";
-import type {
-  EditorId,
-  Settings,
-  TerminalId,
-  UpdateSettingsInput,
-} from "@shared/types";
+import type { DefaultEditorZ, TerminalIdZ } from "@shared/schemas";
+import type { Settings, UpdateSettingsInput } from "@shared/types";
 
 import { Label } from "@renderer/components/ui/label";
 import { useLauncherDetect } from "@renderer/hooks/use-launcher";
 import { useUpdateSettings } from "@renderer/hooks/use-settings";
-
-/**
- * Phase 3a additive Settings keys. NOT modifying `@shared/types`
- * from the renderer side — keeping this local type so the renderer
- * can pass these keys through `settings:update` and the backend
- * handles them.
- */
-type Phase3aSettings = Settings & {
-  defaultEditor?: EditorId | null;
-  defaultTerminal?: TerminalId | null;
-};
 
 interface LauncherDefaultsProps {
   settings: Settings;
@@ -56,6 +35,10 @@ interface LauncherDefaultsProps {
   onUpdated?: (next: Settings) => void;
 }
 
+/** Shared classes for the two selects. */
+const SELECT_CLASS =
+  "h-9 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+
 export function LauncherDefaults({
   settings,
   onUpdated,
@@ -63,19 +46,35 @@ export function LauncherDefaults({
   const detect = useLauncherDetect();
   const update = useUpdateSettings();
 
-  const current = settings as Phase3aSettings;
-  const editors = (detect.data?.editors ?? []).filter(
-    (e): e is DetectedEditorZ => e.available,
+  const editors = (detect.data?.editors ?? []).filter((e) => e.available);
+  const terminals = (detect.data?.terminals ?? []).filter((t) => t.available);
+
+  const savedEditor = settings.defaultEditor;
+
+  /**
+   * Installed editors, plus the saved one when it is no longer present.
+   * Built inline (rather than memoised): `filter` hands back a fresh array
+   * every render anyway, and the list is at most fifteen rows.
+   */
+  const editorOptions: Array<{ id: string; name: string }> = editors.map(
+    (e) => ({ id: e.id, name: e.name }),
   );
-  const terminals = (detect.data?.terminals ?? []).filter(
-    (t): t is DetectedTerminalZ => t.available,
-  );
+  if (
+    savedEditor !== "none" &&
+    !editorOptions.some((o) => o.id === savedEditor)
+  ) {
+    editorOptions.push({
+      id: savedEditor,
+      name: `${savedEditor} (not detected)`,
+    });
+  }
 
   const handleEditorChange = React.useCallback(
     async (value: string) => {
-      const next: EditorIdZ | null = value === "" ? null : (value as EditorIdZ);
-      const patch = { defaultEditor: next } as Partial<Phase3aSettings>;
-      const result = await update.mutateAsync(patch as UpdateSettingsInput);
+      const patch: UpdateSettingsInput = {
+        defaultEditor: value as DefaultEditorZ,
+      };
+      const result = await update.mutateAsync(patch);
       onUpdated?.(result);
     },
     [update, onUpdated],
@@ -83,10 +82,10 @@ export function LauncherDefaults({
 
   const handleTerminalChange = React.useCallback(
     async (value: string) => {
-      const next: TerminalIdZ | null =
-        value === "" ? null : (value as TerminalIdZ);
-      const patch = { defaultTerminal: next } as Partial<Phase3aSettings>;
-      const result = await update.mutateAsync(patch as UpdateSettingsInput);
+      const patch: UpdateSettingsInput = {
+        defaultTerminal: value === "" ? null : (value as TerminalIdZ),
+      };
+      const result = await update.mutateAsync(patch);
       onUpdated?.(result);
     },
     [update, onUpdated],
@@ -115,17 +114,13 @@ export function LauncherDefaults({
         <select
           id="default-editor"
           aria-label="Default editor"
-          value={current.defaultEditor ?? ""}
+          value={savedEditor}
           onChange={(e) => void handleEditorChange(e.target.value)}
-          className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          disabled={editors.length === 0 || update.isPending}
+          className={SELECT_CLASS}
+          disabled={update.isPending}
         >
-          <option value="">
-            {editors.length === 0
-              ? "No editors detected"
-              : "— None (no default) —"}
-          </option>
-          {editors.map((e) => (
+          <option value="none">— No default (use the first installed) —</option>
+          {editorOptions.map((e) => (
             <option key={e.id} value={e.id}>
               {e.name}
             </option>
@@ -133,9 +128,15 @@ export function LauncherDefaults({
         </select>
         {editors.length === 0 ? (
           <p className="text-[10px] text-muted-foreground">
-            No supported editors found in /Applications or on PATH.
+            No supported editors found in /Applications, ~/Applications,
+            /System/Applications or on PATH.
           </p>
-        ) : null}
+        ) : (
+          <p className="text-[10px] text-muted-foreground">
+            {editors.length} editor{editors.length === 1 ? "" : "s"} found.
+            Detection runs once per launch — restart to re-scan.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -143,15 +144,15 @@ export function LauncherDefaults({
         <select
           id="default-terminal"
           aria-label="Default terminal"
-          value={current.defaultTerminal ?? ""}
+          value={settings.defaultTerminal ?? ""}
           onChange={(e) => void handleTerminalChange(e.target.value)}
-          className="h-9 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          className={SELECT_CLASS}
           disabled={terminals.length === 0 || update.isPending}
         >
           <option value="">
             {terminals.length === 0
               ? "No terminals detected"
-              : "— None (no default) —"}
+              : "— Auto (first available) —"}
           </option>
           {terminals.map((t) => (
             <option key={t.id} value={t.id}>
@@ -161,7 +162,7 @@ export function LauncherDefaults({
         </select>
         {terminals.length === 0 ? (
           <p className="text-[10px] text-muted-foreground">
-            No supported terminals found in /Applications.
+            No supported terminals found in /Applications or on PATH.
           </p>
         ) : null}
       </div>

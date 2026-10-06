@@ -62,11 +62,17 @@ vi.mock("simple-git", () => ({
 
 import {
   buildEditorUrl,
+  editorScheme,
   normalizeRemoteUrl,
   __launcher_editor_table,
   __launcher_terminal_table,
 } from "@main/services/launcher";
-import { EditorIdSchema, TerminalIdSchema } from "@shared/schemas";
+import {
+  EDITOR_IDS,
+  EditorIdSchema,
+  TERMINAL_IDS,
+  TerminalIdSchema,
+} from "@shared/schemas";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -98,6 +104,14 @@ describe("buildEditorUrl", () => {
   it("builds windsurf://file/<path> for windsurf", () => {
     expect(buildEditorUrl("windsurf", "/Users/me/Projects/foo")).toBe(
       "windsurf://file/Users/me/Projects/foo",
+    );
+  });
+
+  it("builds devin://file/<path> for devin", () => {
+    // Devin is a Windsurf fork that registers both `devin:` and
+    // `windsurf:`; it must build its own scheme, not Windsurf's.
+    expect(buildEditorUrl("devin", "/Users/me/Projects/foo")).toBe(
+      "devin://file/Users/me/Projects/foo",
     );
   });
 
@@ -295,6 +309,69 @@ describe("EDITOR_TABLE conformance", () => {
       expect(ids.has(id as never)).toBe(true);
     }
   });
+
+  it("detects devin as its own editor (not as windsurf)", () => {
+    const devin = __launcher_editor_table.find((e) => e.id === "devin");
+    expect(devin).toBeDefined();
+    expect(devin?.appNames).toContain("Devin.app");
+    expect(devin?.scheme).toBe("devin");
+  });
+
+  it("covers every id in the persisted editor enum", () => {
+    // The settings enum, the detection table, and the URL builder have to
+    // agree: an id the user can persist but the table cannot detect is a
+    // setting that silently does nothing.
+    const ids = new Set(__launcher_editor_table.map((e) => e.id));
+    for (const id of EDITOR_IDS) {
+      expect(ids.has(id)).toBe(true);
+    }
+  });
+});
+
+describe("editorScheme", () => {
+  it("maps each file-scheme editor to the scheme it builds with", () => {
+    for (const [id, scheme] of [
+      ["vscode", "vscode"],
+      ["cursor", "cursor"],
+      ["zed", "zed"],
+      ["windsurf", "windsurf"],
+      ["devin", "devin"],
+    ] as const) {
+      expect(editorScheme(id)).toBe(scheme);
+    }
+  });
+
+  it("maps sublime to the `subl` scheme, not its id", () => {
+    expect(editorScheme("sublime")).toBe("subl");
+  });
+
+  it("maps the JetBrains family to same-named schemes", () => {
+    for (const id of [
+      "idea",
+      "webstorm",
+      "pycharm",
+      "rider",
+      "goland",
+      "clion",
+      "rubymine",
+    ] as const) {
+      expect(editorScheme(id)).toBe(id);
+    }
+  });
+
+  it("returns null for xcode, which ships no URL scheme", () => {
+    expect(editorScheme("xcode")).toBeNull();
+  });
+
+  it("every non-null scheme produces a buildable URL", () => {
+    // Catches the split-brain case where a table entry has a scheme that
+    // buildEditorUrl's switch doesn't know how to render.
+    for (const id of EDITOR_IDS) {
+      const scheme = editorScheme(id);
+      if (scheme === null) continue;
+      expect(buildEditorUrl(scheme, "/Users/me/Projects/foo")).not.toBeNull();
+    }
+  });
 });
 
 describe("TERMINAL_TABLE conformance", () => {
@@ -320,6 +397,13 @@ describe("TERMINAL_TABLE conformance", () => {
     const ids = new Set(__launcher_terminal_table.map((t) => t.id));
     for (const id of ["terminal", "iterm2", "warp"]) {
       expect(ids.has(id as never)).toBe(true);
+    }
+  });
+
+  it("covers every id in the persisted terminal enum", () => {
+    const ids = new Set(__launcher_terminal_table.map((t) => t.id));
+    for (const id of TERMINAL_IDS) {
+      expect(ids.has(id)).toBe(true);
     }
   });
 });

@@ -19,7 +19,9 @@ import {
   ScanEventSchema,
   PingInputSchema,
   PingResponseSchema,
-  // ---- Phase 1 additions
+  // ---- Launcher enums + Phase 1 additions
+  EDITOR_IDS,
+  TERMINAL_IDS,
   SettingsSchema,
   SearchFiltersSchema,
   SearchHitSchema,
@@ -435,6 +437,7 @@ describe("SettingsSchema", () => {
     ollamaEmbedModel: "nomic-embed-text",
     openaiEmbedModel: null,
     defaultEditor: "vscode" as const,
+    defaultTerminal: null,
     identities: ["ivy00johns"],
     schemaVersion: 1,
   };
@@ -448,18 +451,48 @@ describe("SettingsSchema", () => {
     expect(SettingsSchema.parse(withoutIdentities).identities).toEqual([]);
   });
 
-  it("accepts each editor enum value", () => {
-    for (const editor of ["vscode", "cursor", "none"] as const) {
+  it("accepts every detected editor id, not just vscode/cursor", () => {
+    // Regression guard: `defaultEditor` used to be the closed enum
+    // `vscode | cursor | none`, so the detection list in Settings could
+    // offer an editor (Devin, Zed, …) whose choice the schema then threw
+    // away on write.
+    for (const editor of EDITOR_IDS) {
       expect(
         SettingsSchema.parse({ ...valid, defaultEditor: editor }).defaultEditor,
       ).toBe(editor);
     }
   });
 
+  it("accepts the explicit \"none\" opt-out", () => {
+    expect(
+      SettingsSchema.parse({ ...valid, defaultEditor: "none" }).defaultEditor,
+    ).toBe("none");
+  });
+
   it("rejects an unknown editor enum value", () => {
     expect(() =>
-      SettingsSchema.parse({ ...valid, defaultEditor: "sublime" }),
+      SettingsSchema.parse({ ...valid, defaultEditor: "vim" }),
     ).toThrow();
+  });
+
+  it("rejects a null editor (use \"none\", not null)", () => {
+    expect(() =>
+      SettingsSchema.parse({ ...valid, defaultEditor: null }),
+    ).toThrow();
+  });
+
+  it("defaults `defaultTerminal` to null so pre-3a files still parse", () => {
+    const { defaultTerminal: _omitted, ...withoutTerminal } = valid;
+    expect(SettingsSchema.parse(withoutTerminal).defaultTerminal).toBeNull();
+  });
+
+  it("accepts each detected terminal id", () => {
+    for (const terminal of TERMINAL_IDS) {
+      expect(
+        SettingsSchema.parse({ ...valid, defaultTerminal: terminal })
+          .defaultTerminal,
+      ).toBe(terminal);
+    }
   });
 
   it("rejects an empty ollamaBaseUrl", () => {
@@ -504,6 +537,24 @@ describe("UpdateSettingsInputSchema (partial of SettingsSchema)", () => {
     expect(
       UpdateSettingsInputSchema.parse({ defaultEditor: "cursor" }),
     ).toEqual({ defaultEditor: "cursor" });
+  });
+
+  it("forwards a detected editor through the patch", () => {
+    expect(
+      UpdateSettingsInputSchema.parse({ defaultEditor: "devin" }),
+    ).toEqual({ defaultEditor: "devin" });
+  });
+
+  it("forwards a terminal choice through the patch", () => {
+    expect(
+      UpdateSettingsInputSchema.parse({ defaultTerminal: "iterm2" }),
+    ).toEqual({ defaultTerminal: "iterm2" });
+  });
+
+  it("does not invent a defaultTerminal for an empty patch", () => {
+    // `.partial()` must short-circuit before `defaultTerminal`'s default
+    // applies, or every save would write a field the caller never sent.
+    expect(UpdateSettingsInputSchema.parse({})).toEqual({});
   });
 
   it("rejects an unknown editor in a patch", () => {
@@ -1038,7 +1089,7 @@ describe("OpenInEditorInputSchema", () => {
   });
 
   it("accepts each editor option", () => {
-    for (const editor of ["vscode", "cursor", "none"] as const) {
+    for (const editor of [...EDITOR_IDS, "none"] as const) {
       expect(OpenInEditorInputSchema.parse({ slug: "x", editor }).editor).toBe(
         editor,
       );

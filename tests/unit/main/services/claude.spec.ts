@@ -7,7 +7,7 @@
  *   - __claude_shell_single_quote: replaces single-quotes with the
  *     POSIX `'\''` escape sequence and wraps the whole thing in
  *     single quotes.
- *   - __claude_build_editor_file_url: vscode/cursor/zed/windsurf
+ *   - __claude_build_editor_file_url: vscode/cursor/zed/windsurf/devin
  *     produce `<scheme>://file<path>` (URL-encoded); JetBrains family
  *     uses `<scheme>://open?file=<encoded>`; sublime uses
  *     `subl://open?url=file://<encoded>`; xcode / unknown → null.
@@ -155,8 +155,8 @@ describe("__claude_shell_single_quote", () => {
 // ---------------------------------------------------------------------------
 
 describe("__claude_build_editor_file_url", () => {
-  it("vscode/cursor/zed/windsurf use <scheme>://file<encodedPath>", () => {
-    for (const scheme of ["vscode", "cursor", "zed", "windsurf"]) {
+  it("vscode/cursor/zed/windsurf/devin use <scheme>://file<encodedPath>", () => {
+    for (const scheme of ["vscode", "cursor", "zed", "windsurf", "devin"]) {
       const url = __claude_build_editor_file_url(
         scheme,
         "/Users/me/Projects/foo/CLAUDE.md",

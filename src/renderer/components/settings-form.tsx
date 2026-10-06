@@ -147,11 +147,14 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // `defaultEditor` / `defaultTerminal` are deliberately absent: the
+      // editor & terminal section persists each change as it is made, so
+      // re-sending a snapshot from here could only overwrite a newer value
+      // with a stale one.
       const next = await updateSettings({
         ollamaBaseUrl: settings.ollamaBaseUrl,
         ollamaEmbedModel: settings.ollamaEmbedModel,
         openaiEmbedModel: settings.openaiEmbedModel,
-        defaultEditor: settings.defaultEditor,
       });
       setSettings(next);
       setSavedAt(Date.now());
@@ -284,46 +287,19 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
 
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
         <div>
-          <h2 className="font-mono text-base font-semibold">Default editor</h2>
-          <p className="text-xs text-muted-foreground">
-            Used when you middle-click or press Enter on a repo card.
-          </p>
-        </div>
-        <fieldset className="flex flex-wrap gap-2">
-          <legend className="sr-only">Default editor</legend>
-          {(["vscode", "cursor", "none"] as const).map((v) => (
-            <label
-              key={v}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                settings.defaultEditor === v
-                  ? "border-accent bg-accent/10 text-foreground"
-                  : "border-border text-muted-foreground hover:border-border-strong",
-              )}
-            >
-              <input
-                type="radio"
-                name="editor"
-                value={v}
-                checked={settings.defaultEditor === v}
-                onChange={() => setSettings({ ...settings, defaultEditor: v })}
-                className="h-3.5 w-3.5 accent-accent"
-              />
-              <span className="font-mono capitalize">{v}</span>
-            </label>
-          ))}
-        </fieldset>
-      </section>
-
-      <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
-        <div>
           <h2 className="font-mono text-base font-semibold">
-            Default editor &amp; terminal (Phase 3a)
+            Default editor &amp; terminal
           </h2>
           <p className="text-xs text-muted-foreground">
-            Picks the app launched by the editor / terminal icons on each repo
-            card. Detection runs once per app launch; restart to re-scan
-            installed apps. Changes persist immediately.
+            The list is what was actually found in{" "}
+            <code className="font-mono">/Applications</code>,{" "}
+            <code className="font-mono">~/Applications</code>,{" "}
+            <code className="font-mono">/System/Applications</code> and on your
+            shell <code className="font-mono">PATH</code>. It picks the app
+            launched by the editor / terminal icons on each repo card, and by
+            the "Open in editor" button in a repo's detail panel. Detection
+            runs once per app launch — restart to re-scan installed apps.
+            Changes persist immediately.
           </p>
         </div>
         <LauncherDefaults
