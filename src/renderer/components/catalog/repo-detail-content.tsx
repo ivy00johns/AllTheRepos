@@ -30,7 +30,14 @@ import { Input } from "@renderer/components/ui/input";
 import { Separator } from "@renderer/components/ui/separator";
 import { ClaudeTab } from "@renderer/components/claude/claude-tab";
 
+import { useCover } from "@renderer/hooks/use-cover";
+import type { TaskRunState } from "@renderer/hooks/use-actions";
+import { FavoriteStar } from "./favorite-star";
+import { TaskRunner } from "./task-runner";
+import { cleanDescription } from "@renderer/lib/describe";
+
 import { LanguageBar } from "./language-bar";
+import { RepoCover } from "./repo-cover";
 import { colorForLanguage } from "./language-colors";
 import { relativeTime } from "./relative-time";
 
@@ -44,17 +51,29 @@ interface RepoDetailContentProps {
   repo: RepoDetail;
   onClose?: () => void;
   variant?: "panel" | "page";
+  /** Live task output, keyed by run id. */
+  taskRuns?: Record<string, TaskRunState>;
+  onClearRun?: (runId: string) => void;
 }
 
 export function RepoDetailContent({
   repo,
   onClose,
   variant = "panel",
+  taskRuns,
+  onClearRun,
 }: RepoDetailContentProps) {
   const [tags, setTags] = React.useState<string[]>(
     repo.tags.filter((t) => t.source === "user").map((t) => t.value),
   );
   const [draft, setDraft] = React.useState("");
+  const cover = useCover(repo.slug);
+  // Full README is available here, so the fallback has far more to work
+  // with than the 2 KB preview the list rows carry.
+  const description = React.useMemo(
+    () => cleanDescription(repo.description, repo.readmeContent),
+    [repo.description, repo.readmeContent],
+  );
   const [activeTab, setActiveTab] = React.useState<DetailTab>("details");
   // ATR-028: two-step confirm for "Remove from catalog" — no blocking
   // window.confirm, no accidental one-click deletes.
@@ -138,14 +157,18 @@ export function RepoDetailContent({
       )}
     >
       <header className="flex items-start gap-3 border-b border-border p-4">
+        <RepoCover
+          slug={repo.slug}
+          name={repo.name}
+          imageSrc={cover.data?.src}
+          size="md"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{
-                backgroundColor: colorForLanguage(repo.primaryLanguage),
-              }}
+            <FavoriteStar
+              slug={repo.slug}
+              name={repo.name}
+              isFavorite={repo.isFavorite}
             />
             <h2 className="truncate font-mono text-lg font-semibold">
               {repo.name}
@@ -166,7 +189,17 @@ export function RepoDetailContent({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground font-mono">
+          {/*
+            The repaired one-liner sits directly under the name because
+            it answers "what IS this" — the question the panel exists to
+            answer — before any path or git metadata.
+          */}
+          {description ? (
+            <p className="mt-1 text-xs leading-snug text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/80">
             {repo.fullPath}
           </p>
         </div>
@@ -181,6 +214,16 @@ export function RepoDetailContent({
           </button>
         ) : null}
       </header>
+
+      {!repo.missing ? (
+        <div className="shrink-0 empty:hidden [&:has(section)]:border-b [&:has(section)]:border-border">
+          <TaskRunner
+            slug={repo.slug}
+            runs={taskRuns ?? {}}
+            onClearRun={onClearRun ?? (() => {})}
+          />
+        </div>
+      ) : null}
 
       {repo.missing ? (
         <div

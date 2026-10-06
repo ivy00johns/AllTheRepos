@@ -87,6 +87,8 @@ const fixtureRepo = {
   sizeBytes: null,
   lastScannedAt: "2026-05-13T00:00:00.000Z",
   lastOpenedAt: null,
+  isFavorite: false,
+  favoritedAt: null,
   createdAt: "2026-05-13T00:00:00.000Z",
   updatedAt: "2026-05-13T00:00:00.000Z",
   source: "filesystem_scan" as const,

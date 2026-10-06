@@ -1,17 +1,65 @@
+/**
+ * The catalog shell.
+ *
+ * Owns the three-pane layout (directory rail · repo views · detail
+ * panel) and the derivations every pane depends on: ownership, folder
+ * labels, which tags are too common to be worth showing, and the sorted
+ * + filtered repo list.
+ *
+ * Those derivations live HERE, once, rather than inside each card. With
+ * a few hundred repos and three view modes that difference is the
+ * difference between a catalog that scrolls smoothly and one that
+ * recomputes the same string a thousand times per frame.
+ *
+ * Search is driven by the `q` URL param, which the global top-bar search
+ * writes. There is exactly one search input in the app now — the shell
+ * previously rendered a second one directly beneath the first.
+ */
+
 import * as React from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { RefreshCw, Undo2 } from "lucide-react";
 
 import type { Group, Repo, RepoDetail } from "@shared/types";
 
-import { GroupSidebar } from "@renderer/components/groups/group-sidebar";
 import { KeyboardShortcuts } from "@renderer/components/layout/keyboard-shortcuts";
-import { SearchBar } from "@renderer/components/search/search-bar";
 import { useGroupMemberSlugs } from "@renderer/hooks/use-groups";
+import {
+  useFetchRepos,
+  usePullRepos,
+  useTaskOutput,
+} from "@renderer/hooks/use-actions";
+import { useCatalogLive } from "@renderer/hooks/use-catalog-live";
+import { useCovers } from "@renderer/hooks/use-cover";
+import { useLastMove, useUndoMove } from "@renderer/hooks/use-move";
+import {
+  useAddScanPath,
+  usePickScanPath,
+  useRescanPath,
+} from "@renderer/hooks/use-scan-roots";
 import { useSearch as useCatalogSearch } from "@renderer/hooks/use-search";
+import { useSettings } from "@renderer/hooks/use-settings";
 import { requireAtr } from "@renderer/lib/atr";
+import { activityOf, lastTouched } from "@renderer/lib/activity";
+import {
+  inferIdentities,
+  ownershipOf,
+  type OwnershipInfo,
+} from "@renderer/lib/ownership";
+import {
+  isArchivedPath,
+  isUnder,
+  owningRoot,
+  tildify,
+} from "@renderer/lib/repo-tree";
+import { useCatalogView } from "@renderer/stores/catalog-view";
 
+import { CatalogToolbar } from "./catalog-toolbar";
 import { DetailPanel } from "./detail-panel";
-import { FilterChips, type ActiveFilters } from "./filter-chips";
+import { DirRail } from "./dir-rail";
+import { FolderDialog, type FolderDialogRequest } from "./folder-dialog";
+import { ScanRootDialog } from "./scan-root-dialog";
+import { MoveDialog } from "./move-dialog";
 import { RepoGrid } from "./repo-grid";
 
 interface CatalogShellProps {
@@ -21,14 +69,6 @@ interface CatalogShellProps {
   loadRepoDetail: (slug: string) => Promise<RepoDetail | null>;
 }
 
-/**
- * URL search params understood by the catalog route. Mirrors the
- * Next.js `useSearchParams()` keys (`repo`, `q`, `lang`, `tag`,
- * `groupId`, `dirty`). The TanStack Router route owned by
- * frontend-shell declares these via its `validateSearch`.
- *
- * `tag` is repeatable — kept as `string[]` in TanStack Router.
- */
 interface CatalogSearch {
   repo?: string;
   q?: string;
@@ -39,38 +79,13 @@ interface CatalogSearch {
 }
 
 /**
- * The renderer's catalog shell.
- *
- * Ported from `components/catalog/catalog-shell.tsx` with the following
- * adaptations:
- *
- *   1. `useRouter()` / `usePathname()` / `useSearchParams()` from
- *      `next/navigation` are replaced with `useNavigate()` and
- *      `useSearch()` from `@tanstack/react-router`. The legacy
- *      `router.replace(pathname?qs)` shape is replaced with
- *      `navigate({ search: ... , replace: true })`.
- *
- *   2. The infinite-loop fix from memory 644 (`updateParamsRef`
- *      pattern) is re-ported verbatim. `updateParams` depends on the
- *      current search state, which changes every time we navigate —
- *      the ref breaks the dependency cycle so the debounced-`q` effect
- *      doesn't keep re-firing.
- *
- *   3. "Open in editor" routes through `requireAtr().git.openInEditor`
- *      (pure-action callback — exempt from the "use hooks only" rule).
- *      If the bridge is unavailable (browser-only QE run) we fall back
- *      to the legacy `vscode://file/...` URL the Next.js app used.
- *
- *   4. Real search (ATR-003): a non-empty query drives the grid from the
- *      backend `catalog:search` (hybrid FTS + vector) via the
- *      `useCatalogSearch` hook; an empty query browses `initialRepos`
- *      with the facet filters applied client-side.
- *
- *   5. One search source of truth (ATR-012): the `q` URL search param is
- *      authoritative. The global top-bar SearchBar writes the same param,
- *      and the effect below adopts external `q` changes into the local
- *      input so both inputs stay in lockstep.
+ * A tag on more than this share of the catalog tells you nothing about
+ * any individual repo. `node`, `docker` and `ci` are all in this bucket
+ * on a typical machine, and between them they were eating most of the
+ * old card's body.
  */
+const UBIQUITOUS_TAG_SHARE = 0.25;
+
 export function CatalogShell({
   initialRepos,
   groups,
@@ -78,180 +93,305 @@ export function CatalogShell({
   loadRepoDetail,
 }: CatalogShellProps) {
   const navigate = useNavigate();
-  // `strict: false` lets this shell render under whichever route the
-  // frontend-shell wires it up to without forcing a route ID coupling.
   const search = useSearch({ strict: false }) as CatalogSearch;
 
   const querySlug = search.repo ?? null;
   const queryQ = search.q ?? "";
-  const queryLanguage = search.lang ?? null;
-  const queryTags = React.useMemo(
-    () =>
-      Array.isArray(search.tag) ? search.tag : search.tag ? [search.tag] : [],
-    [search.tag],
-  );
-  const queryGroupId = search.groupId ?? null;
-  const queryDirty = search.dirty === "1";
+  const queryGroupId = search.groupId ? Number(search.groupId) : null;
 
-  const [q, setQ] = React.useState(queryQ);
-  const [debouncedQ, setDebouncedQ] = React.useState(queryQ);
-  const [searching, setSearching] = React.useState(false);
   const [detail, setDetail] = React.useState<RepoDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [moveOpen, setMoveOpen] = React.useState(false);
+  const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
+  const [pendingMoveSlugs, setPendingMoveSlugs] = React.useState<string[]>([]);
+  const [folderRequest, setFolderRequest] =
+    React.useState<FolderDialogRequest | null>(null);
+  const [removingRoot, setRemovingRoot] = React.useState<string | null>(null);
+  const [rootNotice, setRootNotice] = React.useState<string | null>(null);
 
-  const filters: ActiveFilters = React.useMemo(
-    () => ({
-      language: queryLanguage,
-      tags: queryTags,
-      groupId: queryGroupId ? Number(queryGroupId) : null,
-      dirtyOnly: queryDirty,
-    }),
-    [queryLanguage, queryTags, queryGroupId, queryDirty],
+  const selectedDir = useCatalogView((s) => s.selectedDir);
+  const setSelectedDir = useCatalogView((s) => s.setSelectedDir);
+  const ownershipFilter = useCatalogView((s) => s.ownershipFilter);
+  const includeArchived = useCatalogView((s) => s.includeArchived);
+  const favoritesOnly = useCatalogView((s) => s.favoritesOnly);
+  const sort = useCatalogView((s) => s.sort);
+  const order = useCatalogView((s) => s.order);
+  const selection = useCatalogView((s) => s.selection);
+  const toggleSelected = useCatalogView((s) => s.toggleSelected);
+  const clearSelection = useCatalogView((s) => s.clearSelection);
+
+  const settingsQuery = useSettings();
+  const catalogLive = useCatalogLive();
+  const taskOutput = useTaskOutput();
+  const fetchRepos = useFetchRepos();
+  const pullRepos = usePullRepos();
+  const [syncNotice, setSyncNotice] = React.useState<string | null>(null);
+  const pickScanPath = usePickScanPath();
+  const addScanPath = useAddScanPath();
+  const rescanPath = useRescanPath();
+  const lastMove = useLastMove();
+  const undoMove = useUndoMove();
+
+  // ---------------------------------------------------------------------
+  // Derivations
+  // ---------------------------------------------------------------------
+
+  /**
+   * Configured identities win; otherwise infer from the catalog so
+   * "Mine" works on first launch without a trip to Settings.
+   */
+  const identities = React.useMemo(() => {
+    const configured = settingsQuery.data?.identities ?? [];
+    if (configured.length > 0) return configured;
+    return inferIdentities(initialRepos);
+  }, [settingsQuery.data?.identities, initialRepos]);
+
+  const ownershipBySlug = React.useMemo(() => {
+    const map = new Map<string, OwnershipInfo>();
+    for (const repo of initialRepos) {
+      map.set(repo.slug, ownershipOf(repo, identities));
+    }
+    return map;
+  }, [initialRepos, identities]);
+
+  const ownershipKindBySlug = React.useMemo(() => {
+    const map = new Map<string, OwnershipInfo["kind"]>();
+    for (const [slug, info] of ownershipBySlug) map.set(slug, info.kind);
+    return map;
+  }, [ownershipBySlug]);
+
+  const ownershipFor = React.useCallback(
+    (repo: Repo): OwnershipInfo =>
+      ownershipBySlug.get(repo.slug) ?? ownershipOf(repo, identities),
+    [ownershipBySlug, identities],
   );
 
-  // The active group (if any) and whether it is a MANUAL group. Smart
-  // groups carry a `smartFilter` we evaluate client-side; manual groups
-  // have no member info on `Repo` or in the `groups:list` payload, so we
-  // fetch their member slugs from the catalog bridge below (ATR-011).
+  /**
+   * Configured scan roots. Everything positional in the catalog — the
+   * rail tree, folder labels, the move dialog's destinations — is
+   * anchored on these rather than on the common ancestor of whatever
+   * repos happen to be catalogued, so the structure doesn't shift as the
+   * catalog grows.
+   */
+  const scanPaths = React.useMemo(
+    () => settingsQuery.data?.scanPaths ?? [],
+    [settingsQuery.data?.scanPaths],
+  );
+
+  /**
+   * Folder shown on cards: the path below the repo's own scan root.
+   *
+   * Deliberately does NOT include the scan root. Prefixing every card
+   * with `~/Repos/` cost most of the line to text that is identical on
+   * every row, and the rail plus the section header already establish
+   * which tree you're in. The absolute path is a hover away.
+   */
+  const folderLabelFor = React.useCallback(
+    (repo: Repo): string => {
+      const dir = repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
+      const owner = owningRoot(repo.fullPath, scanPaths);
+      if (!owner) return tildify(dir);
+      return dir.slice(owner.length).replace(/^\//, "") || "(root)";
+    },
+    [scanPaths],
+  );
+
+  /**
+   * Grouping key for folder sections. The absolute directory, NOT the
+   * display label: two scan roots can each contain an `agent-frameworks`,
+   * and keying on the shortened label would silently merge them into one
+   * section.
+   */
+  const folderKeyFor = React.useCallback(
+    (repo: Repo): string =>
+      repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/")),
+    [],
+  );
+
+  const commonTags = React.useMemo(() => {
+    if (initialRepos.length === 0) return new Set<string>();
+    const counts = new Map<string, number>();
+    for (const repo of initialRepos) {
+      for (const tag of repo.tags) {
+        counts.set(tag.value, (counts.get(tag.value) ?? 0) + 1);
+      }
+    }
+    const threshold = initialRepos.length * UBIQUITOUS_TAG_SHARE;
+    return new Set(
+      [...counts.entries()]
+        .filter(([, count]) => count >= threshold)
+        .map(([value]) => value),
+    );
+  }, [initialRepos]);
+
+  // ---------------------------------------------------------------------
+  // Filtering
+  // ---------------------------------------------------------------------
+
+  const trimmedQuery = queryQ.trim();
+  const isSearching = trimmedQuery.length > 0;
+
+  const searchQuery = useCatalogSearch(queryQ, {
+    mode: "hybrid",
+    limit: 200,
+    filters: {
+      groupIds: queryGroupId !== null ? [queryGroupId] : undefined,
+    },
+  });
+
   const activeGroup = React.useMemo(
-    () =>
-      filters.groupId === null
-        ? null
-        : (groups.find((g) => g.id === filters.groupId) ?? null),
-    [groups, filters.groupId],
+    () => groups.find((g) => g.id === queryGroupId) ?? null,
+    [groups, queryGroupId],
   );
   const isManualGroupActive = activeGroup !== null && !activeGroup.isSmart;
-
-  // Member-slug set for the active MANUAL group. Resolved via `catalog:list`
-  // with the groupId (the main process joins `repo_groups`), so it is the
-  // authoritative membership read path. `null` group => disabled query =>
-  // no restriction. Smart/All-repos selections never enable this.
   const manualMembersQuery = useGroupMemberSlugs(
-    isManualGroupActive ? filters.groupId : null,
+    isManualGroupActive ? queryGroupId : null,
   );
   const manualMemberSlugs = isManualGroupActive
     ? (manualMembersQuery.data ?? null)
     : null;
 
+  /** Repos hidden purely because archived folders are excluded. */
+  const archivedCount = React.useMemo(
+    () => initialRepos.filter((r) => isArchivedPath(r.fullPath)).length,
+    [initialRepos],
+  );
+
+  const filtered = React.useMemo(() => {
+    const base = isSearching
+      ? (searchQuery.data ?? []).map((hit) => hit.repo)
+      : initialRepos;
+
+    // Selecting an archived folder is an explicit request to look inside
+    // it, so the archived filter must not then hide everything in it —
+    // that would make `_archive` a row you can click into and find empty.
+    const scopeIsArchived = selectedDir ? isArchivedPath(selectedDir) : false;
+
+    return base.filter((repo) => {
+      if (favoritesOnly && !repo.isFavorite) return false;
+      if (
+        !includeArchived &&
+        !scopeIsArchived &&
+        isArchivedPath(repo.fullPath)
+      ) {
+        return false;
+      }
+      if (selectedDir && !isUnder(repo.fullPath, selectedDir)) return false;
+      if (ownershipFilter.length > 0) {
+        const kind = ownershipKindBySlug.get(repo.slug);
+        if (!kind || !ownershipFilter.includes(kind)) return false;
+      }
+      if (activeGroup) {
+        if (activeGroup.isSmart) {
+          const f = activeGroup.smartFilter;
+          if (f) {
+            if (f.language && repo.primaryLanguage !== f.language) return false;
+            if (f.dirtyOnly && !repo.isDirty) return false;
+            if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote) {
+              return false;
+            }
+          }
+        } else if (!manualMemberSlugs?.has(repo.slug)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [
+    isSearching,
+    searchQuery.data,
+    initialRepos,
+    includeArchived,
+    favoritesOnly,
+    selectedDir,
+    ownershipFilter,
+    ownershipKindBySlug,
+    activeGroup,
+    manualMemberSlugs,
+  ]);
+
+  /**
+   * Sort.
+   *
+   * Search results keep their relevance order — re-sorting a ranked
+   * result set by name throws away the only thing that made it a result
+   * set. Every other view is sorted by the chosen key.
+   */
+  const displayedRepos = React.useMemo(() => {
+    if (isSearching) return filtered;
+    const direction = order === "asc" ? 1 : -1;
+    const compare = (a: Repo, b: Repo): number => {
+      // Pinning is a statement about importance, so it outranks whatever
+      // column you happen to be sorting by.
+      if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+      switch (sort) {
+        case "favorite": {
+          const at = a.favoritedAt ?? "";
+          const bt = b.favoritedAt ?? "";
+          return bt.localeCompare(at) * -direction;
+        }
+        case "name":
+          return a.name.localeCompare(b.name) * direction;
+        case "size":
+          return ((a.sizeBytes ?? 0) - (b.sizeBytes ?? 0)) * direction;
+        case "language":
+          return (
+            (a.primaryLanguage ?? "").localeCompare(b.primaryLanguage ?? "") *
+            direction
+          );
+        case "folder":
+          return folderLabelFor(a).localeCompare(folderLabelFor(b)) * direction;
+        case "owner":
+          return (
+            ownershipFor(a).label.localeCompare(ownershipFor(b).label) *
+            direction
+          );
+        case "touched":
+        default: {
+          // Repos with no timestamp sort last regardless of direction —
+          // "unknown" isn't "oldest", and burying them under a hundred
+          // dated repos when sorting ascending would be wrong.
+          const aDays = activityOf(lastTouched(a)).days;
+          const bDays = activityOf(lastTouched(b)).days;
+          if (aDays === null && bDays === null) return 0;
+          if (aDays === null) return 1;
+          if (bDays === null) return -1;
+          return (bDays - aDays) * -direction;
+        }
+      }
+    };
+    return [...filtered].sort(compare);
+  }, [isSearching, filtered, sort, order, folderLabelFor, ownershipFor]);
+
+  const coverFor = useCovers(displayedRepos);
+
+  // ---------------------------------------------------------------------
+  // Interactions
+  // ---------------------------------------------------------------------
+
   const updateParams = React.useCallback(
-    (patch: Record<string, string | string[] | null | undefined>) => {
-      // TanStack Router's `search` setter is typed per-route; this
-      // shell is route-agnostic, so we cast to a loose object updater
-      // and let the route's `validateSearch` enforce the schema.
-      const searchUpdater = (prev: CatalogSearch): CatalogSearch => {
+    (patch: Record<string, string | null>) => {
+      const updater = (prev: CatalogSearch): CatalogSearch => {
         const next: CatalogSearch = { ...prev };
         for (const [key, value] of Object.entries(patch)) {
-          if (value === undefined) continue; // undefined => leave alone
           if (value === null || value === "") {
             delete (next as Record<string, unknown>)[key];
-            continue;
+          } else {
+            (next as Record<string, unknown>)[key] = value;
           }
-          if (Array.isArray(value)) {
-            if (value.length === 0) {
-              delete (next as Record<string, unknown>)[key];
-            } else {
-              (next as Record<string, unknown>)[key] = value;
-            }
-            continue;
-          }
-          (next as Record<string, unknown>)[key] = value;
         }
         return next;
       };
-      navigate({
-        search: searchUpdater as unknown as never,
-        replace: true,
-      });
+      navigate({ search: updater as unknown as never, replace: true });
     },
     [navigate],
   );
 
-  // Whether the user has an active text query. When set, the grid is
-  // driven by the real backend `catalog:search` (hybrid FTS + vector);
-  // when empty, we browse `initialRepos` with the facet filters applied
-  // client-side. The hook owns its own debounce, so we hand it the raw
-  // `q` and read the (debounced) result.
-  const trimmedQuery = q.trim();
-  const isSearching = trimmedQuery.length > 0;
+  const selectRepo = React.useCallback(
+    (slug: string | null) => updateParams({ repo: slug }),
+    [updateParams],
+  );
 
-  // Real catalog search. Forward the active facet filters so FTS/vector
-  // results respect the same language/tag/dirty constraints as browsing.
-  // `groupIds` is included when a group is selected so the backend can
-  // scope hybrid results to a group's members. The contract caps `limit`
-  // at 200; ask for the max so search isn't silently truncated.
-  const searchQuery = useCatalogSearch(q, {
-    mode: "hybrid",
-    limit: 200,
-    filters: {
-      language: filters.language ?? undefined,
-      tags: filters.tags.length ? filters.tags : undefined,
-      groupIds: filters.groupId !== null ? [filters.groupId] : undefined,
-      dirtyOnly: filters.dirtyOnly || undefined,
-    },
-  });
-
-  // Browse path: client-side facet filter over the server-rendered set.
-  const browseRepos = React.useMemo(() => {
-    const groupMembership = (repo: Repo): boolean => {
-      if (filters.groupId === null) return true;
-      const g = groups.find((x) => x.id === filters.groupId);
-      if (!g) return true;
-      if (g.isSmart) {
-        // Smart group: evaluate its `smartFilter` client-side. A smart
-        // group with no filter (`smartFilter === null`) is unconstrained
-        // and matches everything — never fall through to the manual
-        // member-set path below (the member set is never fetched for a
-        // smart group, so falling through would strand it on an empty
-        // grid).
-        const f = g.smartFilter;
-        if (!f) return true;
-        if (f.language && repo.primaryLanguage !== f.language) return false;
-        if (f.dirtyOnly && !repo.isDirty) return false;
-        if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote)
-          return false;
-        if (f.tagsInclude?.length) {
-          const have = new Set(repo.tags.map((t) => t.value));
-          if (!f.tagsInclude.every((t) => have.has(t))) return false;
-        }
-        if (f.tagsExclude?.length) {
-          const have = new Set(repo.tags.map((t) => t.value));
-          if (f.tagsExclude.some((t) => have.has(t))) return false;
-        }
-        if (f.sinceDays !== undefined && repo.lastCommitDate) {
-          const ageDays =
-            (Date.now() - Date.parse(repo.lastCommitDate)) / (24 * 3600 * 1000);
-          if (ageDays > f.sinceDays) return false;
-        }
-        return true;
-      }
-      // Manual group (ATR-011): membership lives in `repo_groups`, not on
-      // `Repo`, so we restrict to the member-slug set fetched from the
-      // catalog bridge. While that set is still loading (`null`), render
-      // nothing rather than the whole catalog — showing every repo was the
-      // original bug. A repo matches only if its slug is in the set.
-      return manualMemberSlugs?.has(repo.slug) ?? false;
-    };
-    return initialRepos.filter((r) => {
-      if (filters.language && r.primaryLanguage !== filters.language)
-        return false;
-      if (filters.dirtyOnly && !r.isDirty) return false;
-      if (filters.tags.length) {
-        const have = new Set(r.tags.map((t) => t.value));
-        if (!filters.tags.every((t) => have.has(t))) return false;
-      }
-      if (!groupMembership(r)) return false;
-      return true;
-    });
-  }, [initialRepos, filters, groups, manualMemberSlugs]);
-
-  // The grid source: search hits (mapped to `Repo`, score order
-  // preserved) when querying, else the browsed list.
-  const displayedRepos = React.useMemo<Repo[]>(() => {
-    if (!isSearching) return browseRepos;
-    return (searchQuery.data ?? []).map((hit) => hit.repo);
-  }, [isSearching, browseRepos, searchQuery.data]);
-
-  // Load detail when URL param changes.
   React.useEffect(() => {
     let cancelled = false;
     if (!querySlug) {
@@ -260,9 +400,9 @@ export function CatalogShell({
       return;
     }
     setDetailLoading(true);
-    loadRepoDetail(querySlug).then((d) => {
+    void loadRepoDetail(querySlug).then((loaded) => {
       if (cancelled) return;
-      setDetail(d);
+      setDetail(loaded);
       setDetailLoading(false);
     });
     return () => {
@@ -270,154 +410,291 @@ export function CatalogShell({
     };
   }, [querySlug, loadRepoDetail]);
 
-  // Fake "searching" indicator to match the 250ms debounce.
-  React.useEffect(() => {
-    if (q !== debouncedQ) {
-      setSearching(true);
-    } else {
-      setSearching(false);
-    }
-  }, [q, debouncedQ]);
-
-  // Reflect debounced query to URL for shareable links.
-  // Use a ref for updateParams to break the dependency cycle:
-  // updateParams depends on navigate, which is stable, but more
-  // importantly we want this effect to ONLY re-fire when
-  // `debouncedQ` actually changes — not when `updateParams`'
-  // identity changes. The ref pattern from memory 644 keeps the
-  // catalog free of infinite navigation loops.
-  const updateParamsRef = React.useRef(updateParams);
-  updateParamsRef.current = updateParams;
-  React.useEffect(() => {
-    updateParamsRef.current({ q: debouncedQ || null });
-  }, [debouncedQ]);
-
-  // Adopt external changes to the URL `q` param as the single source of
-  // truth (ATR-012-search): the global top-bar SearchBar drives the same
-  // `q` param, and back/forward + deep links can change it too. When the
-  // URL diverges from the local input, sync the input (and its debounced
-  // mirror) so search results follow. This converges — once they match,
-  // neither this nor the debounce effect above re-fires — so there is no
-  // ping-pong with the local→URL sync.
-  React.useEffect(() => {
-    setQ((prev) => (prev === queryQ ? prev : queryQ));
-    setDebouncedQ((prev) => (prev === queryQ ? prev : queryQ));
-  }, [queryQ]);
-
-  const selectRepo = React.useCallback(
-    (slug: string | null) => {
-      updateParams({ repo: slug });
-    },
-    [updateParams],
-  );
-
   const openInEditor = React.useCallback(
     (slug: string) => {
-      const r = initialRepos.find((x) => x.slug === slug);
-      if (!r) return;
-      // Pure-action callback exception: dial straight through the
-      // preload bridge. The `git:openInEditor` channel takes the slug
-      // and looks up the path on the main side, so we don't have to
-      // marshall `fullPath`.
+      const repo = initialRepos.find((r) => r.slug === slug);
+      if (!repo) return;
       try {
-        const atr = requireAtr();
-        // Fire-and-forget — UI doesn't need to wait on the launcher.
-        void atr.git.openInEditor({ slug });
+        void requireAtr().git.openInEditor({ slug });
       } catch {
-        // Bridge unavailable (e.g. browser-only QE run). Fall back to
-        // the legacy `vscode://file/...` URL the Next.js app used.
-        window.location.href = `vscode://file/${r.fullPath}`;
+        // Bridge unavailable (browser-only QE run) — fall back to the
+        // editor URL scheme so the action still does something.
+        window.location.href = `vscode://file/${repo.fullPath}`;
       }
     },
     [initialRepos],
   );
 
-  const closeDetail = React.useCallback(() => selectRepo(null), [selectRepo]);
+  /**
+   * Dragging a repo carries the whole current selection when the dragged
+   * repo is part of it, and just itself otherwise — the behaviour every
+   * file manager has, and the one that makes bulk reorg feel natural.
+   */
+  const handleDragStart = React.useCallback(
+    (slug: string, event: React.DragEvent) => {
+      const payload = selection.includes(slug) ? selection : [slug];
+      event.dataTransfer.setData(
+        "application/x-atr-repos",
+        JSON.stringify(payload),
+      );
+      event.dataTransfer.effectAllowed = "move";
+    },
+    [selection],
+  );
 
+  const handleDropRepos = React.useCallback(
+    (slugs: string[], targetDir: string) => {
+      setPendingMoveSlugs(slugs);
+      setMoveTarget(targetDir);
+      setMoveOpen(true);
+    },
+    [],
+  );
+
+  /** Dropping a folder onto another opens the same dialog a menu would. */
+  const handleDropFolder = React.useCallback(
+    (fromPath: string, targetParent: string) => {
+      setFolderRequest({ mode: "move", path: fromPath, targetParent });
+    },
+    [],
+  );
+
+  /**
+   * Every directory in the catalog, offered as a move destination.
+   * Derived from repo paths plus the scan roots, so a freshly created
+   * empty folder is selectable as soon as a scan picks it up.
+   */
+  const folderOptions = React.useMemo(() => {
+    const paths = new Set<string>(scanPaths);
+    for (const repo of initialRepos) {
+      let dir = repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
+      const owner = owningRoot(repo.fullPath, scanPaths);
+      while (dir && owner && dir.length > owner.length) {
+        paths.add(dir);
+        dir = dir.slice(0, dir.lastIndexOf("/"));
+      }
+    }
+    return [...paths].sort();
+  }, [initialRepos, scanPaths]);
+
+  /**
+   * Pick a folder and start watching it.
+   *
+   * Two steps behind one click: the native picker, then add-and-scan.
+   * A rejection (already covered, not a directory) surfaces as a notice
+   * strip rather than a dialog — it's information, not a decision.
+   */
+  const handleAddScanPath = React.useCallback(async () => {
+    setRootNotice(null);
+    const picked = await pickScanPath.mutateAsync();
+    if (!picked) return;
+    const result = await addScanPath.mutateAsync(picked);
+    if (!result.added) setRootNotice(result.reason);
+  }, [pickScanPath, addScanPath]);
+
+  const handleRescan = React.useCallback(
+    (path: string) => {
+      setRootNotice(null);
+      rescanPath.mutate(path, {
+        onError: () =>
+          setRootNotice("A scan is already running — try again once it ends."),
+      });
+    },
+    [rescanPath],
+  );
+
+  /**
+   * The set a sync acts on: the explicit selection when there is one,
+   * otherwise everything currently visible. That makes "pull all my work
+   * repos" a filter followed by one click, with no select-all step.
+   */
+  const syncTargets = React.useCallback((): string[] => {
+    if (selection.length > 0) return selection;
+    return displayedRepos.filter((r) => !r.missing).map((r) => r.slug);
+  }, [selection, displayedRepos]);
+
+  const summarise = React.useCallback(
+    (result: { entries: Array<{ outcome: string }>; updated: number }) => {
+      const counts = new Map<string, number>();
+      for (const entry of result.entries) {
+        counts.set(entry.outcome, (counts.get(entry.outcome) ?? 0) + 1);
+      }
+      const parts: string[] = [];
+      const say = (key: string, label: string) => {
+        const n = counts.get(key);
+        if (n) parts.push(`${n} ${label}`);
+      };
+      say("updated", "updated");
+      say("already-current", "already current");
+      say("fetched", "fetched");
+      say("dirty", "blocked by uncommitted changes");
+      say("diverged", "diverged");
+      say("no-upstream", "without an upstream");
+      say("no-remote", "without a remote");
+      say("failed", "failed");
+      say("missing", "missing");
+      return parts.join(" · ") || "Nothing to do";
+    },
+    [],
+  );
+
+  const handleFetch = React.useCallback(async () => {
+    const slugs = syncTargets();
+    if (slugs.length === 0) return;
+    setSyncNotice(`Fetching ${slugs.length}…`);
+    const result = await fetchRepos.mutateAsync(slugs);
+    setSyncNotice(summarise(result));
+  }, [syncTargets, fetchRepos, summarise]);
+
+  const handlePull = React.useCallback(async () => {
+    const slugs = syncTargets();
+    if (slugs.length === 0) return;
+    setSyncNotice(`Pulling ${slugs.length}…`);
+    const result = await pullRepos.mutateAsync(slugs);
+    setSyncNotice(summarise(result));
+  }, [syncTargets, pullRepos, summarise]);
+
+  const openMoveForSelection = React.useCallback(() => {
+    setPendingMoveSlugs(selection);
+    setMoveTarget(selectedDir);
+    setMoveOpen(true);
+  }, [selection, selectedDir]);
+
+  const checkedSlugs = React.useMemo(() => new Set(selection), [selection]);
   const slugs = React.useMemo(
     () => displayedRepos.map((r) => r.slug),
     [displayedRepos],
   );
 
+  const scopeLabel = selectedDir ? tildify(selectedDir) : null;
+
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
-      <GroupSidebar
+      <DirRail
+        repos={initialRepos}
         groups={groups}
-        totalCount={totalCount}
-        selectedGroupId={filters.groupId}
+        ownershipBySlug={ownershipKindBySlug}
+        scanPaths={scanPaths}
+        activeGroupId={queryGroupId}
         onSelectGroup={(id) =>
           updateParams({ groupId: id === null ? null : String(id) })
         }
+        revealSlug={querySlug}
+        onDropRepos={handleDropRepos}
+        onDropFolder={handleDropFolder}
+        onRequestFolderOp={setFolderRequest}
+        onRescan={handleRescan}
+        onStopScanning={setRemovingRoot}
+        onAddScanPath={() => void handleAddScanPath()}
+        addingScanPath={pickScanPath.isPending || addScanPath.isPending}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-border bg-background/95 px-6 py-4 backdrop-blur-sm">
-          <SearchBar
-            value={q}
-            onChange={setQ}
-            onDebouncedChange={setDebouncedQ}
-            loading={isSearching && (searching || searchQuery.isFetching)}
-          />
-          <FilterChips
-            filters={filters}
-            groups={groups}
-            onRemove={(patch) =>
-              updateParams({
-                lang: patch.language !== undefined ? patch.language : undefined,
-                tag: patch.tags !== undefined ? patch.tags : undefined,
-                groupId:
-                  patch.groupId !== undefined
-                    ? patch.groupId === null
-                      ? null
-                      : String(patch.groupId)
-                    : undefined,
-                dirty:
-                  patch.dirtyOnly !== undefined
-                    ? patch.dirtyOnly
-                      ? "1"
-                      : null
-                    : undefined,
-              })
-            }
-          />
-        </div>
+        <CatalogToolbar
+          shownCount={displayedRepos.length}
+          totalCount={totalCount || initialRepos.length}
+          archivedCount={archivedCount}
+          scopeLabel={scopeLabel}
+          onClearScope={() => setSelectedDir(null)}
+          onMoveSelection={openMoveForSelection}
+          onPull={() => void handlePull()}
+          onFetch={() => void handleFetch()}
+          syncing={fetchRepos.isPending || pullRepos.isPending}
+        />
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="flex items-center justify-between pb-3 text-xs text-muted-foreground font-mono">
-            <span>
-              {isSearching ? (
-                <>
-                  {displayedRepos.length} result
-                  {displayedRepos.length === 1 ? "" : "s"} for “{trimmedQuery}”
-                </>
-              ) : (
-                <>
-                  {displayedRepos.length} of {initialRepos.length} repo
-                  {initialRepos.length === 1 ? "" : "s"}
-                </>
-              )}
-            </span>
-            <span className="hidden sm:inline">
-              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5">
-                j
-              </kbd>{" "}
-              /{" "}
-              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5">
-                k
-              </kbd>{" "}
-              nav ·{" "}
-              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5">
-                ⏎
-              </kbd>{" "}
-              open
-            </span>
+        {syncNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-4 py-1.5"
+          >
+            <span className="atr-meta">{syncNotice}</span>
+            <button
+              type="button"
+              onClick={() => setSyncNotice(null)}
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            >
+              Dismiss
+            </button>
           </div>
+        ) : null}
+
+        {catalogLive.notice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex shrink-0 items-center gap-2 border-b border-border bg-accent/10 px-4 py-1.5"
+          >
+            <RefreshCw className="h-3 w-3 shrink-0 text-accent" aria-hidden />
+            <span className="text-[11px] text-accent">
+              {catalogLive.notice}
+            </span>
+            <button
+              type="button"
+              onClick={catalogLive.dismiss}
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
+        {rootNotice ? (
+          <div
+            role="status"
+            className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-1.5"
+          >
+            <span className="text-[11px] text-warning">{rootNotice}</span>
+            <button
+              type="button"
+              onClick={() => setRootNotice(null)}
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
+        {lastMove.data ? (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-4 py-1.5">
+            <span className="atr-meta">Last change: {lastMove.data.label}</span>
+            <button
+              type="button"
+              onClick={() => undoMove.mutate(undefined)}
+              disabled={undoMove.isPending}
+              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
+            >
+              <Undo2 className="h-3 w-3" aria-hidden />
+              Undo
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex-1 overflow-y-auto px-4 py-3">
           <RepoGrid
             repos={displayedRepos}
+            ownershipFor={ownershipFor}
+            folderLabelFor={folderLabelFor}
+            folderKeyFor={folderKeyFor}
+            coverFor={coverFor}
+            commonTags={commonTags}
             selectedSlug={querySlug}
+            checkedSlugs={checkedSlugs}
             onSelect={selectRepo}
+            onToggleChecked={toggleSelected}
             onOpenEditor={openInEditor}
-            loading={isSearching && (searching || searchQuery.isPending)}
+            onDragStart={handleDragStart}
+            loading={isSearching && searchQuery.isPending}
+            emptyTitle={
+              isSearching ? `Nothing matches “${trimmedQuery}”` : "Nothing here"
+            }
+            emptyHint={
+              selectedDir
+                ? "This folder is empty under the current filters. Clear the folder scope to see everything."
+                : archivedCount > 0 && !includeArchived
+                  ? `${archivedCount} archived repos are hidden — turn on Archived in the toolbar to include them.`
+                  : "Try a different search, or clear the filters."
+            }
           />
         </div>
       </main>
@@ -425,7 +702,41 @@ export function CatalogShell({
       <DetailPanel
         repo={detail}
         loading={detailLoading && !detail}
-        onClose={closeDetail}
+        onClose={() => selectRepo(null)}
+        taskRuns={taskOutput.runs}
+        onClearRun={taskOutput.clear}
+      />
+
+      <ScanRootDialog
+        path={removingRoot}
+        onOpenChange={(open) => {
+          if (!open) setRemovingRoot(null);
+        }}
+      />
+
+      <FolderDialog
+        request={folderRequest}
+        onOpenChange={(open) => {
+          if (!open) setFolderRequest(null);
+        }}
+        folderOptions={folderOptions}
+        onDone={() => void lastMove.refetch()}
+      />
+
+      <MoveDialog
+        open={moveOpen}
+        onOpenChange={(open) => {
+          setMoveOpen(open);
+          if (!open) setPendingMoveSlugs([]);
+        }}
+        slugs={pendingMoveSlugs}
+        repos={initialRepos}
+        scanPaths={scanPaths}
+        initialTarget={moveTarget}
+        onMoved={() => {
+          clearSelection();
+          void lastMove.refetch();
+        }}
       />
 
       <KeyboardShortcuts
@@ -433,7 +744,7 @@ export function CatalogShell({
         selectedSlug={querySlug}
         onSelectSlug={selectRepo}
         onOpenSelected={() => querySlug && openInEditor(querySlug)}
-        onCloseDetail={closeDetail}
+        onCloseDetail={() => selectRepo(null)}
       />
     </div>
   );
