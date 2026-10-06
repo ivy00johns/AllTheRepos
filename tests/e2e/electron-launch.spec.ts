@@ -9,7 +9,8 @@
  * the Debug nav button rendered in the top bar.
  *
  * This test:
- *   1. Launches Electron via `_electron.launch` pointing at the built
+ *   1. Launches Electron (via `_launch-app.ts`, against a private profile)
+ *      pointing at the built
  *      main-process bundle (`out/main/index.js`).
  *   2. Waits for the first window to load.
  *   3. Navigates to `/debug` by clicking the top-bar "Debug" link.
@@ -25,7 +26,9 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
@@ -40,15 +43,7 @@ test.describe("Electron main window — /debug ping", () => {
   });
 
   test("opens, navigates to /debug, surfaces ping, exposes numeric pid", async () => {
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      },
-    });
+    const { app, close } = await launchApp();
 
     try {
       const win = await app.firstWindow();
@@ -85,7 +80,7 @@ test.describe("Electron main window — /debug ping", () => {
         await expect(win.locator("body")).toContainText("pong");
       }
     } finally {
-      await app.close();
+      await close();
     }
   });
 });

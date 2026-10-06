@@ -11,6 +11,17 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Electron e2e suite no longer collides with a copy of the app you already have open.
+  Every spec launched against the default userData directory, so
+  `requestSingleInstanceLock` found the running app holding the lock, took the `app.quit()`
+  branch, and exited 0 before a window existed — which Playwright reports only as "Target
+  page, context or browser has been closed", indistinguishable from a crash. Launches now
+  go through `tests/e2e/_launch-app.ts`, which gives each one a private `--user-data-dir`
+  and deletes it again on close. The suite stops reading and writing your real catalog and
+  settings as a side effect.
+
 ## [0.1.3] - 2026-10-06
 
 ### Changed

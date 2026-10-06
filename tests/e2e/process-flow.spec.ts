@@ -29,7 +29,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolve } from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
@@ -44,15 +46,7 @@ test.describe("Phase 3a process flow", () => {
   });
 
   test("processes route renders chrome (empty or populated table)", async () => {
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      },
-    });
+    const { app, close } = await launchApp();
 
     try {
       const win = await app.firstWindow();
@@ -89,7 +83,7 @@ test.describe("Phase 3a process flow", () => {
         `expected either the empty-state copy or a <table> in /processes — got: ${text.slice(0, 300)}`,
       ).toBe(true);
     } finally {
-      await app.close();
+      await close();
     }
   });
 
@@ -97,15 +91,7 @@ test.describe("Phase 3a process flow", () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "atr-proc-e2e-"));
     let child: ChildProcess | null = null;
 
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      },
-    });
+    const { app, close } = await launchApp();
 
     try {
       // 1. Spawn a tiny http server listening on an ephemeral port.
@@ -215,7 +201,7 @@ test.describe("Phase 3a process flow", () => {
       } catch {
         // ignore
       }
-      await app.close();
+      await close();
     }
   });
 });

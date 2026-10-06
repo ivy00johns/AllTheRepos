@@ -20,7 +20,9 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
@@ -43,15 +45,7 @@ test.describe("Phase 3a launcher flow", () => {
   });
 
   test("launcher icon row renders on the catalog with non-empty aria-labels", async () => {
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      },
-    });
+    const { app, close } = await launchApp();
 
     try {
       const win = await app.firstWindow();
@@ -106,7 +100,7 @@ test.describe("Phase 3a launcher flow", () => {
       // — and Playwright Electron doesn't expose clipboard read by
       // default. Skip to keep the spec deterministic.
     } finally {
-      await app.close();
+      await close();
     }
   });
 });

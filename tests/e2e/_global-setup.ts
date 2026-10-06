@@ -4,9 +4,10 @@
  * Two concerns the Electron specs share at boot:
  *
  *  1. The native `.node` binaries (better-sqlite3, find-git-repositories)
- *     must match Electron's ABI (NODE_MODULE_VERSION 135 for Electron 36).
- *     `pnpm test` rebuilds them for host Node (137 on Node 24), which
- *     leaves the tree in the wrong state for an Electron launch.
+ *     must match Electron's ABI (NODE_MODULE_VERSION 135 for Electron 36;
+ *     `pnpm test` rebuilds them for host Node instead — 127 on Node 22, and
+ *     Electron reports the mismatch as ERR_DLOPEN_FAILED), which leaves the
+ *     tree in the wrong state for an Electron launch.
  *  2. `out/main/index.js` (and friends) must exist.
  *
  * This setup runs `pnpm electron:rebuild` (force `electron-rebuild -f`)

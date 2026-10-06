@@ -6,10 +6,11 @@
  * Electron specs under `tests/e2e/*.spec.ts` which use `_electron.launch`
  * and do NOT need a webServer block.
  *
- * Phase 1 adds `catalog-flow.spec.ts`; both specs run sequentially in a
- * single worker so the same out/main/index.js binary isn't launched
- * twice in parallel (Electron's single-instance lock + the same userData
- * dir would cause flakes).
+ * Phase 1 adds `catalog-flow.spec.ts`; the specs run sequentially in a single
+ * worker. Every launch goes through `tests/e2e/_launch-app.ts`, which hands it
+ * a private `--user-data-dir` — without that, the app's single-instance lock
+ * collides with a copy the developer already has open and the launch quits
+ * with exit 0 before any window exists.
  *
  * Owner: qe-agent (Phase 0 / Phase 1).
  */

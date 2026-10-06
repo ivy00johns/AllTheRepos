@@ -24,11 +24,12 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  _electron as electron,
   expect,
   test,
   type ConsoleMessage,
 } from "@playwright/test";
+
+import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
@@ -55,15 +56,7 @@ test.describe("Phase 2 command palette flow", () => {
   });
 
   test("Cmd+K opens palette on catalog, Esc closes; Cmd+K + 'settings' + Enter navigates to /settings", async () => {
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
-      },
-    });
+    const { app, close } = await launchApp();
 
     const consoleErrors: string[] = [];
 
@@ -144,7 +137,7 @@ test.describe("Phase 2 command palette flow", () => {
         `Renderer logged unexpected console errors:\n  - ${consoleErrors.join("\n  - ")}`,
       ).toEqual([]);
     } finally {
-      await app.close();
+      await close();
     }
   });
 });
