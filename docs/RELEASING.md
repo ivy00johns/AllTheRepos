@@ -92,6 +92,15 @@ to a **different tag** — a correct release that is still not the one the updat
 Exit `2` means the check itself could not run (bad usage, or GitHub refused the request),
 so a failure is never mistaken for a verdict.
 
+> **Drafts are hidden from `GET /releases/tags/{tag}`.** GitHub excludes drafts from that
+> endpoint, so a draft release answers **404** — which, before this was handled, made the
+> workflow's first verification step fail with "no release tagged v0.1.1" while all four
+> assets sat on the draft. A 404 is therefore looked up in the releases *list* as well, and
+> the assets are read back through the asset API, because a draft's `browser_download_url`
+> is not public yet. Both fallbacks need a token: `--allow-draft` is only meaningful with
+> `GH_TOKEN` (or `GITHUB_TOKEN`) set, which is why the workflow's step passes
+> `RELEASES_TOKEN` into it.
+
 ---
 
 ## Bumping the version

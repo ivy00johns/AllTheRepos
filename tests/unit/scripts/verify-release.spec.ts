@@ -50,6 +50,10 @@ interface Audit {
 
 interface VerifyModule {
   parseManifest(text: string): Manifest;
+  findRelease(
+    releases: unknown,
+    tag: string,
+  ): { tag_name?: string; draft?: boolean } | null;
   auditRelease(input: {
     release: unknown;
     manifestText?: string | null;
@@ -124,6 +128,35 @@ describe("parseManifest", () => {
     expect(manifest.version).toBeNull();
     expect(manifest.path).toBeNull();
     expect(manifest.files).toEqual([]);
+  });
+});
+
+describe("findRelease", () => {
+  // The whole reason this exists: the release workflow verifies a *draft*, and
+  // `GET /releases/tags/{tag}` 404s for drafts. Only the list endpoint returns
+  // them, so the release is picked out of that list — and picking the wrong
+  // entry would verify somebody else's release.
+  const releases = [
+    { tag_name: "v0.1.1", draft: true, assets: [] },
+    { tag_name: "v0.1.0", draft: false, assets: [] },
+  ];
+
+  test("finds the draft the by-tag endpoint refuses to return", () => {
+    expect(verify.findRelease(releases, "v0.1.1")).toEqual(releases[0]);
+  });
+
+  test("finds a published release too, so one path serves both calls", () => {
+    expect(verify.findRelease(releases, "v0.1.0")).toEqual(releases[1]);
+  });
+
+  test("returns null for a tag nobody released", () => {
+    expect(verify.findRelease(releases, "v0.9.9")).toBeNull();
+  });
+
+  test("survives a malformed body rather than verifying nothing", () => {
+    expect(verify.findRelease(null, "v0.1.1")).toBeNull();
+    expect(verify.findRelease({ message: "Not Found" }, "v0.1.1")).toBeNull();
+    expect(verify.findRelease([null, undefined], "v0.1.1")).toBeNull();
   });
 });
 

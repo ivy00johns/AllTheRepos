@@ -25,6 +25,15 @@
  *   node scripts/verify-release.mjs --allow-draft          # before publishing
  *   node scripts/verify-release.mjs --repo owner/name      # default: publish block
  *
+ * Drafts need one thing said out loud: `GET /releases/tags/{tag}` excludes
+ * them, so a draft release answers 404 there even though it exists — which is
+ * precisely the state the workflow checks first. So a release that 404s is
+ * looked up in the releases list as well, and the assets are read back through
+ * the asset API when a token is present, because a draft's
+ * `browser_download_url` is not public yet. Both fallbacks are what make
+ * `--allow-draft` work on a runner; without a token the script still reports
+ * honestly that nothing is visible.
+ *
  * Exit codes: 0 — complete · 1 — incomplete (each reason printed) · 2 — the
  * check could not run at all (bad usage, network down).
  */
@@ -179,8 +188,26 @@ export function auditRelease({
   return { failures, warnings, notes };
 }
 
+/**
+ * The release carrying `tag`, out of a list from the releases endpoint.
+ *
+ * Exported and pure so the draft case is testable without GitHub: the list
+ * endpoint is the only one that can return a draft, and picking the wrong
+ * entry out of it would verify somebody else's release.
+ */
+export function findRelease(releases, tag) {
+  if (!Array.isArray(releases)) return null;
+  return (
+    releases.find((release) => release && release.tag_name === tag) ?? null
+  );
+}
+
+function authToken() {
+  return process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? null;
+}
+
 function requestHeaders() {
-  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? null;
+  const token = authToken();
   return {
     accept: "application/vnd.github+json",
     "user-agent": "alltherepos-release-verify",
@@ -194,10 +221,30 @@ async function getJson(url) {
   return { status: 200, body: await response.json() };
 }
 
-async function getText(url) {
-  const response = await fetch(url, { headers: requestHeaders() });
+async function getText(url, headers = requestHeaders()) {
+  const response = await fetch(url, { headers });
   if (response.status !== 200) return { status: response.status, text: null };
   return { status: 200, text: await response.text() };
+}
+
+/**
+ * An attached asset's bytes.
+ *
+ * The asset API is preferred over `browser_download_url` when a token exists: a
+ * draft's download URL is not public, and asking the API for
+ * `application/octet-stream` returns the bytes themselves. Without a token
+ * there is nothing better than the plain URL — which is all a published
+ * release needs.
+ */
+async function getAssetText(repo, asset) {
+  if (authToken() && asset.id) {
+    const viaApi = await getText(
+      `https://api.github.com/repos/${repo}/releases/assets/${asset.id}`,
+      { ...requestHeaders(), accept: "application/octet-stream" },
+    );
+    if (viaApi.status === 200) return viaApi;
+  }
+  return getText(asset.browser_download_url);
 }
 
 function flagValue(args, name) {
@@ -222,13 +269,28 @@ async function main() {
 
   console.log(`[verify-release] ${repo} @ ${tag} (version ${expectedVersion})`);
 
-  const release = await getJson(
+  let release = await getJson(
     `https://api.github.com/repos/${repo}/releases/tags/${tag}`,
   );
+  if (release.status === 404) {
+    // The by-tag endpoint hides drafts, so a draft upload looks like no release
+    // at all. The list endpoint shows them — to a token that may see them,
+    // which is the credential the release workflow runs with.
+    const list = await getJson(
+      `https://api.github.com/repos/${repo}/releases?per_page=100`,
+    );
+    const found = list.status === 200 ? findRelease(list.body, tag) : null;
+    if (found) release = { status: 200, body: found };
+  }
   if (release.status === 404) {
     console.error(
       `[verify-release] no release tagged ${tag} in ${repo}. Nothing published yet — or the tag was never pushed.`,
     );
+    if (!authToken()) {
+      console.error(
+        "[verify-release] note: drafts are invisible without a token, so `--allow-draft` needs GH_TOKEN (or GITHUB_TOKEN) set.",
+      );
+    }
     process.exit(1);
   }
   if (release.status !== 200) {
@@ -249,7 +311,7 @@ async function main() {
     (asset) => asset.name === manifestName,
   );
   if (manifestAsset) {
-    const downloaded = await getText(manifestAsset.browser_download_url);
+    const downloaded = await getAssetText(repo, manifestAsset);
     manifestText = downloaded.text;
   }
 
