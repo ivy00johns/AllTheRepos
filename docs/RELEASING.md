@@ -270,6 +270,15 @@ bundle that fails `codesign --verify`.
 
 - **A draft release is invisible to the updater.** `releases/latest`
   skips drafts. Publish it.
+- **Re-running the workflow for a tag whose release is already published uploads
+  nothing — and still passes.** electron-publish only reuses an existing release
+  when its type matches the one it was asked to publish: with `EP_DRAFT=true`
+  and a release that is already live, it logs "GitHub release not created"
+  (`reason: "existing type not compatible with publishing type"`) and exits
+  successfully. The steps after it — the notes edit and both `release:verify`
+  runs — then pass against the release that was already there, so a green run is
+  **not** proof that this run uploaded anything. Delete the release first when
+  you want the workflow to do the whole job.
 - **A published release older than two hours won't accept uploads.**
   electron-builder refuses to reopen a release published more than two hours ago —
   its guard against clobbering something already shipped — and logs "GitHub release
