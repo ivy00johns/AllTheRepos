@@ -30,8 +30,14 @@ import type {
   CancelScanInput,
   CancelScanResult,
   CatalogChangeEvent,
+  AssertRepoLinkInput,
+  AssertRepoLinkResult,
   GraphBuildInput,
   GraphResult,
+  RemoveRepoLinkInput,
+  RemoveRepoLinkResult,
+  RepoRelationsInput,
+  RepoRelationsResult,
   UpdateStatus,
   UpdateCheckInput,
   UpdateStatusInput,
@@ -326,6 +332,28 @@ export const api = {
     /** Build the relationship graph. Reads from disk — call on demand. */
     build: (input: GraphBuildInput): Promise<GraphResult> =>
       ipcRenderer.invoke(IPC.GRAPH.BUILD, input) as Promise<GraphResult>,
+    /** Curated links touching one repo. Cheap — safe per selection. */
+    links: (input: RepoRelationsInput): Promise<RepoRelationsResult> =>
+      ipcRenderer.invoke(
+        IPC.GRAPH.LINKS,
+        input,
+      ) as Promise<RepoRelationsResult>,
+    /**
+     * Assert a curated link. Writes one `repo_links` row, stamped
+     * `source: "ui"`; re-asserting the same (from, to, kind) updates the
+     * reason instead of failing.
+     */
+    link: (input: AssertRepoLinkInput): Promise<AssertRepoLinkResult> =>
+      ipcRenderer.invoke(
+        IPC.GRAPH.LINK,
+        input,
+      ) as Promise<AssertRepoLinkResult>,
+    /** Remove a curated link. `removed: false` when it was already gone. */
+    unlink: (input: RemoveRepoLinkInput): Promise<RemoveRepoLinkResult> =>
+      ipcRenderer.invoke(
+        IPC.GRAPH.UNLINK,
+        input,
+      ) as Promise<RemoveRepoLinkResult>,
   },
 
   update: {

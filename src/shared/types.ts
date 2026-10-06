@@ -221,6 +221,13 @@ import type {
   GraphEdgeSchema,
   GraphClusterSchema,
   GraphResultSchema,
+  RepoRelationSchema,
+  RepoRelationsInputSchema,
+  RepoRelationsResultSchema,
+  AssertRepoLinkInputSchema,
+  AssertRepoLinkResultSchema,
+  RemoveRepoLinkInputSchema,
+  RemoveRepoLinkResultSchema,
   OpenReleaseResultSchema,
   SetFavoriteInputSchema,
   SetFavoriteResultSchema,
@@ -308,6 +315,27 @@ export type GraphEdge = import("zod").infer<typeof GraphEdgeSchema>;
 export type GraphCluster = import("zod").infer<typeof GraphClusterSchema>;
 export type GraphBuildInput = Record<string, never>;
 export type GraphResult = import("zod").infer<typeof GraphResultSchema>;
+
+export type RepoRelation = import("zod").infer<typeof RepoRelationSchema>;
+export type RepoRelationsInput = import("zod").infer<
+  typeof RepoRelationsInputSchema
+>;
+export type RepoRelationsResult = import("zod").infer<
+  typeof RepoRelationsResultSchema
+>;
+
+export type AssertRepoLinkInput = import("zod").infer<
+  typeof AssertRepoLinkInputSchema
+>;
+export type AssertRepoLinkResult = import("zod").infer<
+  typeof AssertRepoLinkResultSchema
+>;
+export type RemoveRepoLinkInput = import("zod").infer<
+  typeof RemoveRepoLinkInputSchema
+>;
+export type RemoveRepoLinkResult = import("zod").infer<
+  typeof RemoveRepoLinkResultSchema
+>;
 
 export type UpdateStatus = import("zod").infer<typeof UpdateStatusSchema>;
 export type UpdateCheckInput = Record<string, never>;

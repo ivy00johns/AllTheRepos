@@ -137,6 +137,19 @@ export const IPC = {
   GRAPH: {
     /** Build the relationship graph from the catalog + on-disk reads. */
     BUILD: "graph:build",
+    /**
+     * Curated links touching one repo. One indexed read, so unlike BUILD
+     * the catalog can ask on every selection.
+     */
+    LINKS: "graph:links",
+    /**
+     * Assert a curated link. Writes one `repo_links` row, keyed on
+     * (from, to, kind) so re-asserting updates the reason instead of
+     * failing. This is the namespace's only write.
+     */
+    LINK: "graph:link",
+    /** Remove a curated link asserted from either end. */
+    UNLINK: "graph:unlink",
   },
 
   /**

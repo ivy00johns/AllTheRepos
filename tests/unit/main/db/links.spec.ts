@@ -297,3 +297,86 @@ describe("link queries", () => {
     expect(row.full_path).toBe(newPath);
   });
 });
+
+/**
+ * `listRelations` — the catalog's view: the *other* repo, its name, and
+ * which way the assertion points. The graph builder wants raw rows; the
+ * catalog wants this.
+ */
+describe("listRelations", () => {
+  beforeEach(async () => {
+    isolate = isolateDataDir();
+    const { closeDb, getDb } = await import("@main/db/client");
+    closeDb();
+    getDb();
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import("@main/db/client");
+    closeDb();
+    isolate?.cleanup();
+    isolate = null;
+  });
+
+  it("resolves each link to the other repo and records the direction", async () => {
+    const { createLink, listRelations } = await import("@main/db/links");
+    const alpha = await makeRepo("alpha", path.join(isolate!.dir, "alpha"));
+    const beta = await makeRepo("beta", path.join(isolate!.dir, "beta"));
+    const gamma = await makeRepo("gamma", path.join(isolate!.dir, "gamma"));
+
+    createLink({
+      fromId: alpha,
+      toId: beta,
+      kind: "depends-on",
+      why: "shares ufuzzy",
+    });
+    createLink({
+      fromId: gamma,
+      toId: alpha,
+      kind: "part-of",
+      why: "lives under alpha",
+      source: "ui",
+    });
+
+    expect(listRelations(alpha)).toEqual([
+      {
+        slug: "beta-aaaaaa",
+        name: "beta",
+        kind: "depends-on",
+        direction: "outgoing",
+        why: "shares ufuzzy",
+        source: "mcp",
+        createdAt: expect.any(String),
+      },
+      {
+        slug: "gamma-aaaaaa",
+        name: "gamma",
+        kind: "part-of",
+        direction: "incoming",
+        why: "lives under alpha",
+        source: "ui",
+        createdAt: expect.any(String),
+      },
+    ]);
+  });
+
+  it("never returns the repo itself, and is empty when nothing links it", async () => {
+    const { createLink, listRelations } = await import("@main/db/links");
+    const alpha = await makeRepo("alpha", path.join(isolate!.dir, "alpha"));
+    const beta = await makeRepo("beta", path.join(isolate!.dir, "beta"));
+    const lonely = await makeRepo("lonely", path.join(isolate!.dir, "lonely"));
+
+    createLink({
+      fromId: alpha,
+      toId: beta,
+      kind: "related",
+      why: "same product",
+    });
+
+    expect(listRelations(alpha).map((r) => r.slug)).toEqual(["beta-aaaaaa"]);
+    expect(listRelations(beta)).toEqual([
+      expect.objectContaining({ slug: "alpha-aaaaaa", direction: "incoming" }),
+    ]);
+    expect(listRelations(lonely)).toEqual([]);
+  });
+});

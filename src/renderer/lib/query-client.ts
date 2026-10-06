@@ -64,4 +64,9 @@ export const queryKeys = {
     status: (slug: string) => ["git", "status", slug] as const,
     branches: (slug: string) => ["git", "branches", slug] as const,
   },
+  graph: {
+    /** The whole map — `all` also prefix-matches the per-repo keys below. */
+    all: ["graph"] as const,
+    links: (slug: string) => ["graph", "links", slug] as const,
+  },
 } as const;

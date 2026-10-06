@@ -16,6 +16,8 @@ interface DetailPanelProps {
   /** Live task output, keyed by run id. */
   taskRuns?: Record<string, TaskRunState>;
   onClearRun?: (runId: string) => void;
+  /** Open another repo (the Related list hops the panel). */
+  onOpenRepo?: (slug: string) => void;
 }
 
 export function DetailPanel({
@@ -25,6 +27,7 @@ export function DetailPanel({
   className,
   taskRuns,
   onClearRun,
+  onOpenRepo,
 }: DetailPanelProps) {
   const open = !!repo || loading;
 
@@ -58,6 +61,7 @@ export function DetailPanel({
           variant="panel"
           taskRuns={taskRuns}
           onClearRun={onClearRun}
+          onOpenRepo={onOpenRepo}
         />
       ) : null}
     </aside>

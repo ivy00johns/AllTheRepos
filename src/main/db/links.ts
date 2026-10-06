@@ -15,7 +15,7 @@
 
 import path from "node:path";
 
-import type { RepoLink, RepoLinkKind } from "@shared/types";
+import type { RepoLink, RepoLinkKind, RepoRelation } from "@shared/types";
 
 import { getSqlite } from "./client";
 
@@ -47,6 +47,30 @@ function rowToIdentity(row: RepoIdentityRow): ResolveResult {
     slug: row.slug,
     name: row.name,
     fullPath: row.full_path,
+  };
+}
+
+interface RelationRow {
+  slug: string;
+  name: string;
+  kind: string;
+  why: string | null;
+  source: string;
+  created_at: string;
+}
+
+function rowToRelation(
+  row: RelationRow,
+  direction: "outgoing" | "incoming",
+): RepoRelation {
+  return {
+    slug: row.slug,
+    name: row.name,
+    kind: row.kind as RepoLinkKind,
+    direction,
+    why: row.why,
+    source: row.source === "ui" ? "ui" : "mcp",
+    createdAt: row.created_at,
   };
 }
 
@@ -155,6 +179,44 @@ export function removeLink(
     )
     .run(fromId, toId, kind);
   return result.changes > 0;
+}
+
+/**
+ * Curated links touching `repoId`, each resolved to the *other* repo and
+ * tagged with which way the assertion points.
+ *
+ * {@link listLinks} returns raw rows because the graph builder and the MCP
+ * both want them unshaped. The catalog wants the opposite question
+ * answered — "what does this repo relate to, and in which direction" — so
+ * the other side's name comes along and `repoId` never appears in the
+ * result. Asserting a relationship is only worth doing if the catalog can
+ * then act on it, and the only action it offers is opening that repo.
+ */
+export function listRelations(repoId: number): RepoRelation[] {
+  const sqlite = getSqlite();
+  const outgoing = sqlite
+    .prepare(
+      `SELECT t.slug, t.name, l.kind, l.why, l.source, l.created_at
+         FROM repo_links l
+         JOIN repos t ON t.id = l.to_repo_id
+        WHERE l.from_repo_id = ?
+        ORDER BY t.name`,
+    )
+    .all(repoId) as RelationRow[];
+  const incoming = sqlite
+    .prepare(
+      `SELECT f.slug, f.name, l.kind, l.why, l.source, l.created_at
+         FROM repo_links l
+         JOIN repos f ON f.id = l.from_repo_id
+        WHERE l.to_repo_id = ?
+        ORDER BY f.name`,
+    )
+    .all(repoId) as RelationRow[];
+
+  return [
+    ...outgoing.map((row) => rowToRelation(row, "outgoing")),
+    ...incoming.map((row) => rowToRelation(row, "incoming")),
+  ];
 }
 
 /** Every curated link, or every link touching `repoId` in either direction. */

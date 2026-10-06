@@ -36,8 +36,14 @@ import type {
   CancelScanInput,
   CancelScanResult,
   CatalogChangeEvent,
+  AssertRepoLinkInput,
+  AssertRepoLinkResult,
   GraphBuildInput,
   GraphResult,
+  RemoveRepoLinkInput,
+  RemoveRepoLinkResult,
+  RepoRelationsInput,
+  RepoRelationsResult,
   UpdateStatus,
   UpdateCheckInput,
   UpdateStatusInput,
@@ -229,6 +235,12 @@ export interface AtrBridge {
   graph: {
     /** Build the relationship graph. */
     build(input: GraphBuildInput): Promise<GraphResult>;
+    /** Curated links touching one repo (both directions). */
+    links(input: RepoRelationsInput): Promise<RepoRelationsResult>;
+    /** Assert a curated link. Writes one `repo_links` row. */
+    link(input: AssertRepoLinkInput): Promise<AssertRepoLinkResult>;
+    /** Remove a curated link. `removed: false` when it was already gone. */
+    unlink(input: RemoveRepoLinkInput): Promise<RemoveRepoLinkResult>;
   };
 
   update: {

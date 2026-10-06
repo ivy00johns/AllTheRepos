@@ -791,6 +791,72 @@ export const GraphResultSchema = z.object({
   builtAt: z.string(),
 });
 
+/**
+ * Curated links touching one repo, resolved to the *other* side.
+ *
+ * The graph page asks for the whole map at once and pays for it; the
+ * catalog wants one repo's assertions on selection, which is a single
+ * indexed read. Hence a shape of its own rather than a `GraphEdge` reuse.
+ */
+export const RepoRelationsInputSchema = z.object({ slug: z.string().min(1) });
+
+export const RepoRelationSchema = z.object({
+  /** The repo on the other end of the link. */
+  slug: z.string(),
+  name: z.string(),
+  kind: RepoLinkKindSchema,
+  /**
+   * `outgoing` when the selected repo asserts the link, `incoming` when
+   * another repo asserts it about this one. Direction is kept because
+   * `part-of` reads very differently each way.
+   */
+  direction: z.enum(["outgoing", "incoming"]),
+  why: z.string().nullable(),
+  source: z.enum(["mcp", "ui"]),
+  createdAt: z.string(),
+});
+
+export const RepoRelationsResultSchema = z.object({
+  relations: z.array(RepoRelationSchema),
+});
+
+/**
+ * Assert a curated link, from the catalog itself.
+ *
+ * Mirrors the MCP's `link` tool with one difference: both ends are named
+ * by slug. The renderer never holds a path — the panel has the slug of the
+ * repo on screen and the picker hands back another — so the main process
+ * resolves slugs to ids and the path-addressing rule (`db/links.ts`) stays
+ * where it is enforced.
+ */
+export const AssertRepoLinkInputSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+  /**
+   * Required, exactly as it is for the MCP. A curated link outranks every
+   * derived signal on the map, so an unexplained one is worse than none.
+   */
+  why: z.string().trim().min(1).max(500),
+});
+
+export const AssertRepoLinkResultSchema = z.object({ link: RepoLinkSchema });
+
+/**
+ * Remove a curated link.
+ *
+ * Both ends are named so nothing is guessed: `RepoRelation.direction`
+ * tells the panel which side it is looking at, and it can therefore say
+ * which end is `from` without a second round trip.
+ */
+export const RemoveRepoLinkInputSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+});
+
+export const RemoveRepoLinkResultSchema = z.object({ removed: z.boolean() });
+
 export const CountUnderInputSchema = z.object({ path: z.string().min(1) });
 export const CountUnderResultSchema = z.object({
   count: z.number().int().nonnegative(),

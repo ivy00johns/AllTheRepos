@@ -703,6 +703,7 @@ export function CatalogShell({
         repo={detail}
         loading={detailLoading && !detail}
         onClose={() => selectRepo(null)}
+        onOpenRepo={selectRepo}
         taskRuns={taskOutput.runs}
         onClearRun={taskOutput.clear}
       />
