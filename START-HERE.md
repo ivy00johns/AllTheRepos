@@ -9,13 +9,14 @@ exist. Recover them from git history or the `build/repo-hub-mvp` branch if ever 
 > [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) (what's next). ~3 pages, replaces
 > crawling the source tree.
 
-## Status at a glance (2026-08-21, after Wave 0 of the production-readiness push)
+## Status at a glance (2026-10-06, after Wave 5 — the catalog-v2 + MCP wave)
 
 | Phase                                                    | State                                                                                                                                                       |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0 Scaffold · 1 Feature parity · 2 Native shell           | ✅ functional — search, tag/group persistence, manual-group filter, fonts, spotlight/tray repo-open, real tray icon, dock badge                             |
 | 3 Deep integrations (process, launcher, **Claude**, git) | ✅ functional — 138 real Claude projects, real per-project usage trends, transcript viewer; embeddings wired (Ollama-gated). Deferred: MCP "running" status |
-| **5 Distribution**                                       | 🔨 **in scope** — unsigned, no CI, updater unwired; promoted out of `FUTURE.md` into ATR-046…052                                                            |
+| **3b Catalog v2 + MCP** (Wave 5)                         | ✅ functional — curated relationship graph + MCP server, live file watching, folders, repo moves, per-repo tasks, covers, favorites, catalog toolbar + table view |
+| **5 Distribution**                                       | 🔨 **partly landed (Wave 5)** — ad-hoc signed, GitHub-Releases publish feed, `electron-updater` wired with an "Update to X" affordance, real app icons, `docs/RELEASING.md`. Still open: notarization (ATR-046), CI (ATR-047), CI release (ATR-048), branded DMG (ATR-051), onboarding window (ATR-050), versioning/changelog (ATR-052) |
 | 4 Intelligence · 6 Cross-platform                        | ⛔ not started (still post-MVP → [`docs/FUTURE.md`](./docs/FUTURE.md))                                                                                      |
 
 **Goal (widened 2026-08-21): production ready** — a signed, notarized, CI-built,
@@ -25,16 +26,28 @@ auto-updating app. The daily-driver MVP is the first half and is nearly done. Se
 **Wave 0 (2026-08-21)** closed the foundation: `main` was **19 commits behind** the work
 branch and the repo had **no git remote at all** — both fixed, and it now lives on a private
 GitHub remote. The legacy stack is gone (ATR-013) and the native-ABI flip is automated
-(ATR-016), so `pnpm test` and `pnpm test:electron-e2e` no longer need a manual rebuild
-between them.
+(ATR-016), so the test scripts now guard themselves. (A flip is broken again on this machine for an
+unrelated reason — see **ATR-057** in Gotchas.)
 
-**Next: Wave A** — the 8 open P1s (scanner blind spots ATR-033/037, catalog list UX
-ATR-038/040/041/042/043/045). Then **Wave B** — distribution, now tracked as ATR-046…052.
+**Wave 5 — catalog v2 + MCP (2026-08-24–25)** is the big one, and it sat **uncommitted for six
+weeks** until 2026-10-06, when it became 7 coherent commits on `feat/alltherepos-mcp`
+(`bfbe3ab..9c295ce`) and was pushed. It closed **ATR-037/038/040/045/049**, partly closed
+**ATR-041/048/052**, and shipped a great deal the ledger never had an ID for: the **MCP server**
+(`mcp/`, 6 tools over a new `repo_links` table), the **curated relationship graph** + `/graph`
+route, **live file watching** (`fs.watch`, debounced, with a reconcile pass), **scan-root
+management**, **folders**, **repo moves** + a relocation journal, **per-repo tasks**, **repo
+covers**, **favorites**, and the **catalog toolbar + table view**. It is **not merged to `main`**.
 
-**Build health (verified 2026-08-21):** `pnpm typecheck` ✅ **0 errors across all three
-tsconfigs** — it now covers `src/main`, `src/preload` and `src/renderer`, which the root
-config used to exclude. `vitest` **862 passed / 0 failed / 0 skipped** · **Electron E2E
-7/7**. Fonts (IBM Plex Sans) load at runtime.
+**Next:** the tail — scanner discovery (**ATR-033**), the silent 200-repo cap (**ATR-042**),
+group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
+(**ATR-046/047/048/050/051/052**). Before any of that, unblock the build: **ATR-057** breaks
+native ABI flips on this machine. New since Wave 5: ATR-056/057/058.
+
+**Build health (verified 2026-10-06, after the related-repos follow-up):** `pnpm typecheck` ✅ **0 errors
+across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
+`vitest` **1004 passed / 0 failed / 0 skipped** (45 files) · **Electron E2E 7/7** (1.4 min).
+Fonts (IBM Plex Sans) load at runtime. Note `pnpm test` only works when the tree already sits
+in the host ABI — flipping it is broken (ATR-057).
 
 > ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
 > finishes booting. Known, measured, and filed — expect a slow first paint until it lands.
@@ -50,6 +63,12 @@ pnpm electron:dev  # the real app. `pnpm dev` aliases this.
 Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:full` (both, handles the ABI flip).
 
 ## Gotchas (this machine)
+
+- **Native rebuilds are broken (ATR-057).** The **2026-09-22** Command Line Tools update
+  installed SDK 27.0 (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21
+  rejects (`tapi error: malformed file`). Any `node-gyp` rebuild fails, so an **ABI flip dies**
+  and `pnpm test` / `test:full` fail unless the tree already matches. Workaround:
+  `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`.
 
 - ~~**`pnpm test` needs host-ABI natives.**~~ **Fixed (ATR-016).** Every test script now
   runs `scripts/ensure-native-abi.mjs` first and rebuilds only on a real mismatch, so the

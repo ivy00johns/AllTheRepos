@@ -482,6 +482,24 @@ works against a catalog created by an older app build.
 The data directory is `~/Library/Application Support/alltherepos`
 (`catalog.ts:19-26`), overridable with `ATR_DATA_DIR` (`catalog.ts:31`).
 
+### The app writes the same table
+
+Curating a relationship is not MCP-only. The repo detail panel asserts and
+removes links directly, over `graph:link` / `graph:unlink`
+(`src/main/ipc/graph.ts`), calling the same `createLink` / `removeLink`
+listed in the table above. Rows written there are stamped `source: "ui"`
+(`src/main/ipc/graph.ts`), so the map can still tell a person's assertion
+from an agent session's.
+
+Both paths enforce the same two rules in `src/main/ipc/graph.ts`: a
+repository cannot link to itself, and both ends must resolve to a catalog
+row before anything is written. `graph:unlink` additionally answers
+`removed: false` rather than erroring when an endpoint no longer exists —
+its links cascaded away with it (`src/main/db/schema.ts:120-125`).
+
+This adds no external command, no filesystem write outside the app's own
+data directory, and no network request. **§1–§8 still hold.**
+
 ### What it cannot do
 
 There is no tool for moving a repository, creating or renaming a folder,
@@ -516,9 +534,13 @@ the app is open is safe.
 **Curated links do not appear on the map until the graph is rebuilt.**
 `graphService.build()` (`services/graph.ts:307`) recomputes from scratch
 on demand and does not watch the database, and the Map view caches its
-result for five minutes (`hooks/use-graph.ts:34`). After a session asserts
-links, press refresh on the Map view (`routes/graph.tsx:182`) to see them.
+result for five minutes (`hooks/use-graph.ts`). Asserting a link *from the
+catalog panel* is the one path that refreshes itself: the mutation
+invalidates the map and both repos' relation lists
+(`hooks/use-graph.ts`, `invalidateLinks`). After an **MCP** session
+asserts links — an external process the app cannot hear — press refresh on
+the Map view (`routes/graph.tsx:182`) to see them.
 
 ---
 
-*Last verified against the source on 2026-08-24, v0.1.0.*
+*Last verified against the source on 2026-10-06, v0.1.0.*
