@@ -14,6 +14,7 @@ import {
   sqliteTable,
   text,
   index,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const repos = sqliteTable(
@@ -39,6 +40,11 @@ export const repos = sqliteTable(
     sizeBytes: integer("size_bytes"),
     lastScannedAt: text("last_scanned_at"),
     lastOpenedAt: text("last_opened_at"),
+    /** Pinned by the user. Additive column — see `ensureAdditiveColumns`. */
+    isFavorite: integer("is_favorite", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    favoritedAt: text("favorited_at"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -96,6 +102,38 @@ export const repoGroups = sqliteTable(
   (t) => ({
     pk: primaryKey({ columns: [t.repoId, t.groupId] }),
     groupIdIdx: index("repo_groups_group_id_idx").on(t.groupId),
+  }),
+);
+
+/**
+ * Curated relationships — asserted by a person or an agent, not derived.
+ *
+ * Keyed on `repo_id` rather than `slug` deliberately: a slug embeds the
+ * repo's path hash, so it changes the moment a repo is moved. The row id
+ * survives a move through the same rebind path that already preserves
+ * tags and groups.
+ */
+export const repoLinks = sqliteTable(
+  "repo_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    fromRepoId: integer("from_repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    toRepoId: integer("to_repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    why: text("why"),
+    source: text("source").notNull().default("mcp"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    fromIdx: index("repo_links_from_idx").on(t.fromRepoId),
+    toIdx: index("repo_links_to_idx").on(t.toRepoId),
+    uniq: uniqueIndex("repo_links_unique").on(t.fromRepoId, t.toRepoId, t.kind),
   }),
 );
 
