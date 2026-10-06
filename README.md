@@ -2,6 +2,11 @@
 
 A local-first hub for the dozens-to-thousands of git repositories on a developer's machine. Two stacks live in this repo while we migrate: the legacy **Next.js** web app at `localhost:3939`, and the **Electron desktop app** (`pnpm electron:dev`) — see [`NEW-PLAN.md`](./NEW-PLAN.md) for the full architecture.
 
+> **🔍 What this app runs on your machine:** every git command, shell command, filesystem
+> write and network request is inventoried with source citations in
+> [`docs/COMMAND-DISCLOSURE.md`](./docs/COMMAND-DISCLOSURE.md). This is alpha software that
+> touches your entire repository collection — read it before pointing it at your machine.
+
 > **👉 Start at [`START-HERE.md`](./START-HERE.md)** for current status and the doc map, then
 > [`docs/PLAN.md`](./docs/PLAN.md) (where we are) and [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) (what's next).
 
@@ -183,6 +188,8 @@ Resolving this properly (dual prebuilt binaries, ABI auto-targeting) is a Phase 
 | [`docs/PLAN.md`](./docs/PLAN.md)                                                                                   | **Strategic** roadmap, honest phase status, closure log       |
 | [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md)                                                               | **Tactical ledger** — every open item, ID'd (`ATR-###`)       |
 | [`docs/FUTURE.md`](./docs/FUTURE.md)                                                                               | **Frontier** — Phase 4/5/6 and parked decisions               |
+| [`docs/COMMAND-DISCLOSURE.md`](./docs/COMMAND-DISCLOSURE.md)                                                       | **Disclosure** — every command, write and request, cited      |
+| [`mcp/README.md`](./mcp/README.md)                                                                                 | **MCP server** — curated repo relationships from a Claude session |
 | [`NEW-PLAN.md`](./NEW-PLAN.md)                                                                                     | Frozen 850-line Electron architecture & feature design        |
 | [`docs/audits/`](./docs/audits/)                                                                                   | Point-in-time ground-truth audit reports                      |
 | [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md)                                                                   | Current IPC channel contract (Phase 3b; older: v1, v3)        |

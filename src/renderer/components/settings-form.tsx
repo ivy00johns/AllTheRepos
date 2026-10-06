@@ -6,6 +6,7 @@ import {
   Save,
   Trash2,
   XCircle,
+  RefreshCw,
 } from "lucide-react";
 
 import type { Settings } from "@shared/types";
@@ -18,6 +19,7 @@ import { Label } from "@renderer/components/ui/label";
 import { Separator } from "@renderer/components/ui/separator";
 import { useScan } from "@renderer/hooks/use-scan";
 import { useUpdateSettings } from "@renderer/hooks/use-settings";
+import { useUpdate } from "@renderer/hooks/use-update";
 
 interface SettingsFormProps {
   initialSettings: Settings;
@@ -57,7 +59,25 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
   const [newPath, setNewPath] = React.useState("");
+  const [newIdentity, setNewIdentity] = React.useState("");
+  const update = useUpdate();
   const [scanStats, setScanStats] = React.useState<ScanStats>(EMPTY_STATS);
+
+  const identities = settings.identities ?? [];
+
+  /** Add a handle, ignoring blanks and case-insensitive duplicates. */
+  const addIdentity = React.useCallback(() => {
+    const value = newIdentity.trim().replace(/^@/, "");
+    if (!value) return;
+    setSettings((prev) => {
+      const existing = prev.identities ?? [];
+      if (existing.some((i) => i.toLowerCase() === value.toLowerCase())) {
+        return prev;
+      }
+      return { ...prev, identities: [...existing, value] };
+    });
+    setNewIdentity("");
+  }, [newIdentity]);
 
   const { mutateAsync: updateSettings } = useUpdateSettings();
   const { state: scanState, startScan } = useScan();
@@ -310,6 +330,115 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           settings={settings}
           onUpdated={(next) => setSettings(next)}
         />
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
+        <div>
+          <h2 className="font-mono text-base font-semibold">Updates</h2>
+          <p className="text-xs text-muted-foreground">
+            Checks GitHub for a newer release on launch. Installing stays
+            manual: macOS only applies updates to code-signed apps, and this
+            build is unsigned.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="atr-meta">
+            Version {update.status.currentVersion || "—"}
+          </span>
+          <Button
+            variant="outline"
+            onClick={update.check}
+            disabled={update.checking}
+          >
+            <RefreshCw
+              className={cn("h-4 w-4", update.checking && "animate-spin")}
+              aria-hidden
+            />
+            {update.checking ? "Checking…" : "Check for updates"}
+          </Button>
+          {update.status.state === "available" ? (
+            <Button onClick={update.openRelease}>
+              Get {update.status.newVersion}
+            </Button>
+          ) : null}
+        </div>
+        {update.status.state === "current" ? (
+          <p className="text-xs text-accent">You&apos;re on the latest release.</p>
+        ) : null}
+        {update.status.message ? (
+          <p className="text-xs text-muted-foreground">
+            {update.status.message}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
+        <div>
+          <h2 className="font-mono text-base font-semibold">Your identities</h2>
+          <p className="text-xs text-muted-foreground">
+            Git host handles that belong to you. Repos whose remote is under
+            one of these are marked <strong>Mine</strong>; everything else with
+            a remote is <strong>Cloned</strong>. Add a work account here to
+            have it counted as yours too. Leave the list empty and the catalog
+            infers your main handle from the repos it can see.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {identities.length === 0 ? (
+            <span className="text-xs italic text-muted-foreground">
+              None set — inferring from your remotes.
+            </span>
+          ) : (
+            identities.map((identity) => (
+              <span
+                key={identity}
+                className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 font-mono text-xs text-foreground"
+              >
+                {identity}
+                <button
+                  type="button"
+                  aria-label={`Remove identity ${identity}`}
+                  onClick={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      identities: prev.identities.filter(
+                        (value) => value !== identity,
+                      ),
+                    }))
+                  }
+                  className="cursor-pointer rounded text-muted-foreground transition-colors duration-150 hover:text-destructive"
+                >
+                  <XCircle className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Label htmlFor="identity-input" className="sr-only">
+            Add a git handle
+          </Label>
+          <Input
+            id="identity-input"
+            value={newIdentity}
+            placeholder="github-handle"
+            spellCheck={false}
+            onChange={(event) => setNewIdentity(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addIdentity();
+              }
+            }}
+            className="max-w-xs"
+          />
+          <Button variant="outline" onClick={addIdentity}>
+            <FolderPlus className="h-4 w-4" aria-hidden />
+            Add
+          </Button>
+        </div>
       </section>
 
       <div className="flex items-center gap-3">

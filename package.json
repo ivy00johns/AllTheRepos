@@ -18,7 +18,9 @@
     "electron:build": "electron-vite build",
     "electron:preview": "electron-vite preview",
     "electron:pack": "pnpm electron:rebuild && electron-vite build && electron-builder --mac --dir",
-    "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac"
+    "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac",
+    "icons": "node scripts/make-icons.mjs",
+    "release": "pnpm icons && pnpm electron:rebuild && electron-vite build && electron-builder --mac --publish always"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.27.2",
@@ -38,6 +40,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "cytoscape": "^3.34.1",
+    "cytoscape-fcose": "^2.2.0",
     "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.8.3",
     "find-git-repositories": "^0.2.2",
