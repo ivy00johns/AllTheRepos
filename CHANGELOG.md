@@ -134,6 +134,24 @@ source of truth for the current version.
   it, so they had been wrong for every release cut from a current Mac, including the machine this
   repository builds on. The documented procedure is now the one Apple documents: try to open the
   app, then **System Settings → Privacy & Security → Open Anyway**, then confirm the warning.
+- The first-launch instructions are rendered from one source instead of written three times, and a
+  guard fails the build when any page still gives the removed advice. `scripts/first-launch.mjs`
+  holds the facts — the **Open Anyway** path, the macOS 15 removal of the right-click override, the
+  `xattr` command — and the file inside the DMG, the paragraph the release notes carry and the
+  `::warning::` a certificate-less CI run prints all render from it, so the three cannot disagree
+  about what somebody has to click. They disagreed for several releases, because each carried its
+  own copy: all three said right-click → **Open** after Apple had removed it, and the copy that was
+  missed is the one a person reads while stuck at a launch macOS refused. `pnpm first-launch:check`
+  runs in `ci.yml` on every push and pull request and does two things. `--check` fails when
+  `resources/READ-ME-FIRST.txt` has drifted from what the source renders — naming the line that
+  drifted, so `--write` is an obvious repair — which is what makes the file's contents a fact about
+  the code rather than a promise somebody kept. And `scripts/check-first-launch-advice.mjs` reads
+  every tracked Markdown, text, workflow and source file, plus the text the source renders, and
+  fails on any paragraph that offers a right-click as the way to open the app. That one is a
+  heuristic and it is shaped to be one people leave switched on: it fires on the sentence that
+  shipped, and it stays silent on the tray's own right-click menu, which a rule that looked only at
+  the words would have broken on. The four steps a person follows are unchanged; they are now
+  written once.
 
 ## [0.1.6] - 2026-10-07
 

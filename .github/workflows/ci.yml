@@ -8,7 +8,7 @@
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
-#   pnpm typecheck · pnpm badges · pnpm test:electron-e2e
+#   pnpm typecheck · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
 #
 # `pnpm badges` is `pnpm test` plus a JSON report, and the badge the README
 # shows is drawn from that same run — which is what stops the test count being
@@ -54,6 +54,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The first-launch instructions are rendered from one source
+      # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
+      # paragraph and the CI warning. This fails if that file has drifted from what
+      # renders it, and if any text a person can read still sends them through the
+      # right-click override macOS 15 removed — which is the advice all three
+      # surfaces carried, and the reason they are rendered from one place now.
+      # Pure Node, no network, so it belongs in the fast job.
+      - name: The first-launch instructions, and the advice they must not give
+        run: pnpm first-launch:check
       # The unit suite writes its own totals to a JSON report and the badge is
       # drawn from them, so the number in the README is always the number this
       # run just produced. It went stale by hand three times before this.

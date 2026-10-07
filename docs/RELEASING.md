@@ -24,6 +24,11 @@ node scripts/check-updater-feed.mjs          # ... the same check, on this machi
 gh workflow run release.yml -f rehearse=true # run the whole pipeline, publish nothing
 gh workflow run schedule-health.yml          # ask whether the scheduled gates have been running
 node scripts/check-schedule-health.mjs       # ... the same digest, on this machine
+
+node scripts/first-launch.mjs --print read-me  # the file the DMG ships, from its one source
+node scripts/first-launch.mjs --print release-note  # the paragraph the release notes carry
+pnpm first-launch:check   # guard: that file is current, and no page gives the removed advice
+pnpm first-launch:write   # rewrite it after an edit to the source
 ```
 
 `release/` output:
@@ -676,6 +681,24 @@ but not enough for Gatekeeper to trust a copy that was downloaded.
   ```bash
   xattr -dr com.apple.quarantine /Applications/AllTheRepos.app
   ```
+
+The words above are not written here a second time. The procedure lives in
+`scripts/first-launch.mjs`, the only place in the repository that knows it, and
+three surfaces render from there: `READ-ME-FIRST.txt` inside the DMG
+(`--print read-me`), the paragraph the release notes carry (`--print
+release-note`), and the `::warning::` a certificate-less CI run prints (`--print
+warning`). Each used to be its own hand-written copy of the same sentences,
+which is how all three spent several releases advising a right-click → **Open**
+override Apple had removed in macOS 15 — and the copy that was missed is the one
+a person reads while stuck at a launch macOS refused. `pnpm first-launch:check`
+fails if the file on disk has drifted from what the source renders
+(`pnpm first-launch:write` is the repair), and also if any page a person can read
+still offers that shortcut. It runs in `ci.yml` on every push and pull request.
+
+The in-app notice is the one surface that is still written by hand — it is a
+React component, and an explanation of something that already happened rather
+than a set of steps — so it is covered by that second check rather than by the
+source.
 
 Ad-hoc signing (`identity: "-"`) is deliberate and not the same as no
 signing. Apple Silicon refuses to execute an arm64 binary with no

@@ -425,8 +425,13 @@ describe("signing and notarising a release", () => {
     expect(body).toContain("SIGNING=ad-hoc");
     expect(body).toContain("IDENTITY=-");
     expect(body).toContain("ATR_NOTARIZE=skip");
-    // The warning has to name the consequence, not just the missing secret.
-    expect(signing).toMatch(/cannot install its own updates/);
+    // The warning has to name the consequence, not just the missing secret — and
+    // it names it without carrying a second copy of it. The sentence is rendered
+    // from `scripts/first-launch.mjs`, the same source as the file inside the DMG
+    // and the release-note paragraph below; the consequence itself is asserted in
+    // that script's own spec, so this asserts the wiring rather than the wording.
+    expect(body).toContain("node scripts/first-launch.mjs --print warning");
+    expect(signing).not.toMatch(/cannot install its own updates/);
   });
 
   test("requires notarisation exactly on the path that claims to be signed", () => {
@@ -496,6 +501,21 @@ describe("signing and notarising a release", () => {
     const bodies = commands(notes).split("if [ \"$SIGNING\" = \"developer-id\" ]");
     expect(bodies.length, "the notes do not branch on SIGNING").toBeGreaterThan(1);
     expect(bodies[0]).not.toContain("checks only");
+  });
+
+  test("renders the ad-hoc instructions instead of writing its own copy", () => {
+    const notes = stepBlock(PUBLISH_STEP);
+
+    // The paragraph a person reads before they download anything comes from the
+    // same source as the file inside the DMG and the warning above. Written out
+    // here is precisely how the three came to disagree once already: the mirror
+    // inside the DMG said right-click → Open, and so did this step, for several
+    // releases, after Apple had removed that override in macOS 15.
+    expect(notes).toContain("node scripts/first-launch.mjs --print release-note");
+    expect(commands(notes)).not.toContain("right-click");
+    // ... and no second copy of the procedure either, which is what a hand-written
+    // paragraph here would inevitably grow back.
+    expect(commands(notes)).not.toContain("Open Anyway");
   });
 });
 

@@ -218,7 +218,11 @@ jobs:
             echo "SIGNING=ad-hoc" >> "$GITHUB_ENV"
             echo "IDENTITY=-" >> "$GITHUB_ENV"
             echo "ATR_NOTARIZE=skip" >> "$GITHUB_ENV"
-            echo "::warning::CSC_LINK is not set, so this build is ad-hoc signed: macOS will refuse the first launch until it is allowed once through System Settings → Privacy & Security → Open Anyway, and the app cannot install its own updates. Add the CSC_LINK and CSC_KEY_PASSWORD secrets plus a notarisation credential to publish an installable release — see docs/RELEASING.md."
+            # The consequence half is rendered from the one place the first-launch
+            # instructions are written down (`scripts/first-launch.mjs`), so this
+            # warning cannot describe a macOS procedure the DMG disagrees with. Only
+            # the this-repository half — which secret, and what to do — is here.
+            echo "::warning::CSC_LINK is not set, so this build is ad-hoc signed: $(node scripts/first-launch.mjs --print warning) Add the CSC_LINK and CSC_KEY_PASSWORD secrets plus a notarisation credential to publish an installable release — see docs/RELEASING.md."
             exit 0
           fi
 
@@ -362,16 +366,17 @@ jobs:
             # above, not guessed here — the notes are the first thing a person
             # reads about a release, so a stale sentence about signing is the
             # one piece of documentation guaranteed to be wrong.
+            #
+            # The ad-hoc paragraph is rendered from `scripts/first-launch.mjs`,
+            # the same source as the file inside the DMG and the warning above,
+            # so the three cannot disagree about what a person has to click.
+            # Writing it out here is how they came to disagree once already.
             if [ "$SIGNING" = "developer-id" ]; then
               echo "Open the DMG, drag **AllTheRepos** into Applications, and launch it. It is"
               echo "signed with a Developer ID and notarised by Apple, so there is no Gatekeeper"
               echo "warning to work around."
             else
-              echo "macOS will refuse the first launch, and that is expected: this build is ad-hoc"
-              echo "signed and **not notarised**. The right-click → Open shortcut older macOS accepted"
-              echo "was removed in macOS 15, so the way through is **System Settings → Privacy &"
-              echo "Security → Open Anyway** — after trying to open the app. The same steps are in"
-              echo "`READ-ME-FIRST.txt` inside the DMG. Every launch after that is a normal double-click."
+              node scripts/first-launch.mjs --print release-note
             fi
             echo
             echo "The other three assets are the update feed, not alternative installers: the app"
