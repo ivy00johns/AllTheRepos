@@ -38,6 +38,23 @@ source of truth for the current version.
   Only a tag push can publish — inside that job "rehearse" means only "not a push", so a trigger
   added to the workflow later rehearses by accident rather than publishing by accident. It costs
   about five macOS runner minutes a week.
+- A release rehearsal now launches the app it just built and makes it read the live feed, so the
+  updater is exercised end to end rather than only its feed. Every other step in that job verifies
+  the **upload** — the three assets exist, the manifest names them — and none of them runs the
+  thing a person installs. The rehearsal is the only run that can assert this: its build is
+  stamped `0.0.0`, below every release, so the app is genuinely behind the feed and must offer the
+  release that is live — a version that appears nowhere in the build, and so can only have come
+  from the fetch the check exists to make. It is the same opt-in
+  `tests/e2e/packaged-update-check.spec.ts` a developer runs by hand, told which bundle to launch
+  with `ATR_PACKAGED_UPDATE_BEHIND_BUNDLE` rather than given a second copy of the assertion; a
+  bundle named that way has to exist and has to be behind the feed, because a skip there would be
+  a check reporting success without having asserted anything. That is also why the scratch version
+  lost its `-rehearse.<run id>` suffix: `electron-updater` reads a build whose own version carries
+  a pre-release tag as being on *that* pre-release's channel and goes looking for releases tagged
+  for it, so a `0.0.0-rehearse.7` build reports "No published versions on GitHub" instead of
+  reading the feed. Only a rehearsal runs the step — a tag push builds the version it is
+  releasing, so the feed has nothing newer to offer it, and reading `releases/latest` seconds
+  after publishing would be racing GitHub.
 
 ## [0.1.6] - 2026-10-07
 

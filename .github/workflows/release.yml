@@ -96,7 +96,15 @@ jobs:
       # the failure this whole design exists to avoid — a scratch release
       # escaping into `releases/latest` — a 0.1.x install would read it as older
       # than itself and be offered nothing.
-      SCRATCH_VERSION: 0.0.0-rehearse.${{ github.run_id }}
+      #
+      # No pre-release suffix, tempting as it is to have the version say what it
+      # is. `electron-updater` reads a build whose own version carries a
+      # pre-release tag as being on *that* pre-release's channel and goes looking
+      # for releases tagged for it, so `0.0.0-rehearse.<run id>` found nothing and
+      # reported "No published versions on GitHub". A plain `0.0.0` takes the same
+      # path through the feed a real install takes, which is what the launch check
+      # at the end of this job needs in order to assert anything at all.
+      SCRATCH_VERSION: 0.0.0
     steps:
       - name: Check the publishing credential
         env:
@@ -260,6 +268,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: pnpm release:verify --tag "$TAG"
+
+      # The update check itself, end to end: the app this job just built, launched
+      # as a real bundle, reading the live feed anonymously and reporting what it
+      # finds there. Everything above verifies the *upload* — that the three
+      # assets exist and that the manifest names what was attached — and none of
+      # it runs the thing a person installs. "The feed is readable" and "the app
+      # reads it" are not the same claim.
+      #
+      # A rehearsal is where this can run, and also where it says the most. The
+      # build is stamped `0.0.0`, below every released `0.1.x`, so it is genuinely
+      # behind the feed and has to offer the release that is live — a version that
+      # appears nowhere in this build, and can therefore only have come from the
+      # one request the check exists to make. On a tag push there is nothing to
+      # assert: the app's own version *is* the feed's latest, so reading that back
+      # would be racing the release GitHub has just been handed.
+      #
+      # The check is `tests/e2e/packaged-update-check.spec.ts`, the opt-in spec a
+      # developer runs by hand, told which bundle to launch rather than given a
+      # second copy of the assertion.
+      - name: Launch the build and check for updates against the live feed
+        if: ${{ env.REHEARSE == 'true' }}
+        env:
+          ATR_PACKAGED_UPDATE_BEHIND_BUNDLE: release/mac-arm64/AllTheRepos.app
+        run: pnpm test:packaged-update
 
       # A run that dies between the upload and the publish leaves its assets on
       # a DRAFT — invisible to `releases/latest` and to `GET /releases/tags/{tag}`,

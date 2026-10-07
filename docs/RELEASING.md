@@ -143,11 +143,11 @@ gh workflow run release.yml -f rehearse=true   # by hand, now
 ```
 
 It runs the same job a tag push runs — the tag/version guard, typecheck, the unit suite, the
-native rebuild, packaging, the upload, `release:verify` against its own draft, and the notes and
-release body a real release would attach — with the version, the tag and the draft flag settled
-differently. The build is stamped `0.0.0-rehearse.<run id>` and uploaded under that tag, the
-release stays a **draft**, and the run deletes the draft when it is finished, so a botched
-rehearsal leaves no more trace than a clean one.
+native rebuild, packaging, the upload, `release:verify` against its own draft, the notes and
+release body a real release would attach, and **the app itself, launched and made to read the
+live feed** — with the version, the tag and the draft flag settled differently. The build is
+stamped `0.0.0` and uploaded under that tag, the release stays a **draft**, and the run deletes
+the draft when it is finished, so a botched rehearsal leaves no more trace than a clean one.
 
 And it runs itself: **every Monday at 14:00 UTC, against `main`**. That is the point of it. A
 release pipeline is otherwise only ever exercised *by releasing*, which is the one moment a break
@@ -157,14 +157,38 @@ Monday instead. (GitHub disables a scheduled workflow after 60 days without repo
 which is the one way this goes quietly idle.)
 
 Three reasons that is safe. `releases/latest` skips drafts, so nothing a rehearsal creates can
-reach the update feed at all; `0.0.0-rehearse.<run id>` sorts below every released `0.1.x`,
-because semver compares the version before it looks at any pre-release tag — so even a scratch
+reach the update feed at all; `0.0.0` sorts below every released `0.1.x` — so even a scratch
 release that somehow escaped could not be offered to an install as an update; and only a tag push
 can publish, because inside that job "rehearse" means only "not a push", so a trigger added to
 this workflow later rehearses by accident rather than publishing by accident.
 
 It is the *same* job rather than a copy of it on purpose. A rehearsal that ran its own steps
 could drift from the ones that ship, which is the thing it exists to prevent.
+
+#### The app the rehearsal launches
+
+The step that launches the build is the one end-to-end claim a tag push cannot make. Everything
+before it verifies the **upload** — the three assets exist, the manifest names what was attached —
+and none of it runs the thing a person installs. The rehearsal stamps its build `0.0.0`, below
+every release, so the app it launches is genuinely behind the feed and has to offer the release
+that is live: a version that appears nowhere in the build, and which can therefore only have come
+from fetching the feed. It is the same opt-in `tests/e2e/packaged-update-check.spec.ts` a developer
+runs by hand, told which bundle to launch with `ATR_PACKAGED_UPDATE_BEHIND_BUNDLE`, rather than a
+second copy of the assertion. A bundle named that way has to exist and has to be behind the feed,
+because a skip there would report success without asserting anything.
+
+The scratch version dropped its `-rehearse.<run id>` suffix for this, and not for tidiness:
+`electron-updater` reads a build whose own version carries a pre-release tag as being on *that*
+pre-release's channel and goes looking for releases tagged for it, so `0.0.0-rehearse.7` finds
+nothing and reports *No published versions on GitHub*. A plain `0.0.0` takes the path a real
+install takes. The tag it uploads under is `v0.0.0` — a name no release will ever want, and one
+that a failed run's cleanup removes like any other scratch release, so the next rehearsal reuses
+it rather than leaving a trail.
+
+A tag push does not run this step on purpose. The app it builds *is* the version being released,
+so the feed has nothing newer to offer it and there is no branch to assert; and reading
+`releases/latest` seconds after publishing would be racing GitHub. That half is covered from a
+laptop instead, by the build that was released — see *Verifying the check from a real build* below.
 
 ### Checking the update feed
 
@@ -345,6 +369,11 @@ pnpm test:packaged-update   # launches both, against the live feed
 It needs a **published release** and the **network**: it really does call the
 GitHub API, with no token in the child environment, which is the whole point of
 the assertion.
+
+The release rehearsal runs the second half of it against the build it just made,
+by naming that bundle in `ATR_PACKAGED_UPDATE_BEHIND_BUNDLE`. A bundle named that
+way must exist and must be behind the feed: the caller asked for that branch, so
+a skip would be a check that reported success without asserting anything.
 
 The second build exists because the comparison cannot be faked from outside.
 `electron-updater` reads `app.getVersion()` once, when the updater is

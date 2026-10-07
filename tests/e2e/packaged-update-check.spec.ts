@@ -35,6 +35,13 @@
  *
  * The feed address is read from the bundle's own `app-update.yml` rather than
  * written down a fourth time, so this spec cannot drift from what ships.
+ *
+ * The release rehearsal runs this spec too, against the build it just made, and
+ * names that bundle with `ATR_PACKAGED_UPDATE_BEHIND_BUNDLE`: a rehearsal's
+ * version is a scratch one below every release, so that build is genuinely
+ * behind the live feed and serves the branch below. A bundle named that way has
+ * to exist, and has to be behind the feed — the caller asked for this branch by
+ * name, so a skip there would report success without having asserted anything.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -48,11 +55,28 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const CURRENT_BUNDLE = resolve(REPO_ROOT, "release", "mac-arm64", "AllTheRepos.app");
 const OLDER_BUNDLE = resolve(REPO_ROOT, "release", "older", "mac-arm64", "AllTheRepos.app");
 
+/**
+ * A bundle to serve the "behind the feed" branch, instead of the local
+ * `pnpm electron:pack-older` one — the release rehearsal points this at the
+ * build it just made, which is exactly the build whose update check should be
+ * exercised. `null` means nobody named one.
+ */
+const NAMED_BEHIND_BUNDLE = process.env.ATR_PACKAGED_UPDATE_BEHIND_BUNDLE
+  ? resolve(REPO_ROOT, process.env.ATR_PACKAGED_UPDATE_BEHIND_BUNDLE)
+  : null;
+const BEHIND_BUNDLE = NAMED_BEHIND_BUNDLE ?? OLDER_BUNDLE;
+
 function binaryIn(bundle: string): string {
   return resolve(bundle, "Contents", "MacOS", "AllTheRepos");
 }
 
-/** `owner/repo` from the packaged bundle, plus the anonymity assertion. */
+/**
+ * `owner/repo` from the current bundle's `app-update.yml`, plus the anonymity
+ * assertion. Read from *that* bundle, not the one under test: the file is
+ * written by the publishing build, and a `--dir` build (`pnpm
+ * electron:pack-older`) carries none, so pointing this at the bundle under test
+ * would break the local flow for a file that says the same thing either way.
+ */
 function feedRepo(): string {
   const path = resolve(CURRENT_BUNDLE, "Contents", "Resources", "app-update.yml");
   const yaml = readFileSync(path, "utf8");
@@ -88,16 +112,36 @@ async function publishedVersion(repo: string): Promise<string> {
   return (body.tag_name ?? "").replace(/^v/, "");
 }
 
-/** Plain semver "is a before b" — enough for x.y.z, and no new dependency. */
+/** The numeric triple, and whether a pre-release tag follows it. */
+function parseVersion(version: string): {
+  numbers: readonly [number, number, number];
+  prerelease: boolean;
+} {
+  const [core, ...suffix] = version.split("-");
+  const numbers = core.split("+")[0].split(".").map(Number);
+  return {
+    numbers: [numbers[0] ?? 0, numbers[1] ?? 0, numbers[2] ?? 0],
+    prerelease: suffix.length > 0,
+  };
+}
+
+/**
+ * Plain semver "is a before b" — enough for x.y.z and a pre-release of it, and
+ * no new dependency. The pre-release half is not decoration: a scratch build is
+ * `0.0.0-rehearse.7`, which is below `0.1.6` and used to be reported as ahead of
+ * it by a comparison that read `0-rehearse` as `NaN`.
+ */
 function isOlder(a: string, b: string): boolean {
-  const left = a.split(".").map(Number);
-  const right = b.split(".").map(Number);
+  const left = parseVersion(a);
+  const right = parseVersion(b);
   for (let index = 0; index < 3; index += 1) {
-    const l = left[index] ?? 0;
-    const r = right[index] ?? 0;
-    if (l !== r) return l < r;
+    if (left.numbers[index] !== right.numbers[index]) {
+      return left.numbers[index] < right.numbers[index];
+    }
   }
-  return false;
+  // Equal triples: a pre-release sorts below the release it belongs to, and
+  // build metadata (`0.0.0+rehearse`) changes nothing at all.
+  return left.prerelease && !right.prerelease;
 }
 
 /** Launch a packaged bundle, isolated, with no credentials in its environment. */
@@ -165,6 +209,11 @@ test.describe("the packaged app's update check", () => {
   test.setTimeout(300_000);
 
   test("reaches the public feed anonymously and reports up to date", async () => {
+    test.skip(
+      NAMED_BEHIND_BUNDLE !== null,
+      "a bundle was named for the other branch — this run is about that one",
+    );
+
     const latest = await publishedVersion(feedRepo());
     const { app, page, cleanup } = await launchPackagedApp(CURRENT_BUNDLE);
 
@@ -195,19 +244,29 @@ test.describe("the packaged app's update check", () => {
   });
 
   test("offers the published release when the build is behind it", async () => {
-    test.skip(
-      !existsSync(binaryIn(OLDER_BUNDLE)),
-      `no older build at ${OLDER_BUNDLE} — make one with \`pnpm electron:pack-older\``,
-    );
+    if (NAMED_BEHIND_BUNDLE === null) {
+      test.skip(
+        !existsSync(binaryIn(BEHIND_BUNDLE)),
+        `no older build at ${BEHIND_BUNDLE} — make one with \`pnpm electron:pack-older\``,
+      );
+    } else {
+      // Named by the caller, so a missing bundle is a failure and not a skip:
+      // this branch was asked for by name, and skipping it would report success
+      // without having asserted anything.
+      expect(
+        existsSync(binaryIn(BEHIND_BUNDLE)),
+        `no packaged app at ${BEHIND_BUNDLE} — a bundle was named for this branch`,
+      ).toBe(true);
+    }
 
     const latest = await publishedVersion(feedRepo());
-    const { app, page, cleanup } = await launchPackagedApp(OLDER_BUNDLE);
+    const { app, page, cleanup } = await launchPackagedApp(BEHIND_BUNDLE);
 
     try {
       const version = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
       expect(
         isOlder(version, latest),
-        `the older build reports ${version}, which is not behind ${latest} — rebuild it with \`pnpm electron:pack-older\``,
+        `the build under test reports ${version}, which is not behind the feed's ${latest} — a build below the release is the point of this branch`,
       ).toBe(true);
 
       await checkForUpdates(page);

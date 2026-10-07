@@ -39,6 +39,7 @@ const workflow = fs.readFileSync(
 
 const CLEANUP_STEP = "Discard the draft a failed run left behind";
 const PUBLISH_STEP = "Attach the notes and publish the draft";
+const LAUNCH_STEP = "Launch the build and check for updates against the live feed";
 const DRILL_JOB = "drill";
 
 const lines = workflow.split("\n");
@@ -253,14 +254,21 @@ describe("rehearsing a release without publishing one", () => {
   });
 
   test("a rehearsal's version is one no install would ever be offered", () => {
-    // `0.0.0-rehearse.<run id>`: valid semver, and semver compares the
-    // major.minor.patch triple before it looks at any pre-release tag, so this
-    // sorts below every 0.1.x this project has released. Even the runaway case
-    // — a scratch release somehow escaping into `releases/latest` — could not be
-    // offered to an install as an update.
-    expect(releaseJob).toMatch(
-      /SCRATCH_VERSION: 0\.0\.0-rehearse\.\$\{\{ github\.run_id \}\}/,
-    );
+    // `0.0.0`: valid semver, below every `0.1.x` this project has released and
+    // below every version there could ever be an install of. Even the runaway
+    // case — a scratch release somehow escaping into `releases/latest` — could
+    // not be offered to an install as an update.
+    expect(releaseJob).toMatch(/SCRATCH_VERSION: 0\.0\.0$/m);
+  });
+
+  test("... and it is not a pre-release, which the updater reads as a channel", () => {
+    // The version lost its `-rehearse.<run id>` suffix for this reason, and it is
+    // not cosmetic. `electron-updater` reads a build whose own version carries a
+    // pre-release tag as being on *that* pre-release's channel, so
+    // `0.0.0-rehearse.7` goes looking for releases tagged for `rehearse`, finds
+    // none, and reports "No published versions on GitHub" — and the launch check
+    // below would be asserting an error instead of the feed.
+    expect(releaseJob).not.toMatch(/SCRATCH_VERSION: 0\.0\.0-/);
   });
 
   test("is the same pipeline, not a copy of it", () => {
@@ -285,6 +293,36 @@ describe("rehearsing a release without publishing one", () => {
     // `releases/latest` still points at the previous release, so asserting on it
     // during a rehearsal would be asserting on somebody else's work.
     expect(stepBlock("Verify the published release")).toMatch(/if:.*REHEARSE/);
+  });
+
+  test("launches the build it just made, and makes it read the live feed", () => {
+    // Every other step verifies the upload. This is the only one that runs the
+    // app a person installs, and it is the updater's whole path: a real bundle,
+    // an anonymous feed read, a version comparison, the UI that reports it.
+    const launch = stepBlock(LAUNCH_STEP);
+
+    expect(commands(launch)).toContain("pnpm test:packaged-update");
+    // ... the check a developer runs by hand, told which bundle to launch rather
+    // than given a second copy of the assertion.
+    expect(launch).toContain(
+      "ATR_PACKAGED_UPDATE_BEHIND_BUNDLE: release/mac-arm64/AllTheRepos.app",
+    );
+  });
+
+  test("only a rehearsal launches it, because only a rehearsal is behind", () => {
+    // A tag push builds the version it is releasing, so the feed has nothing
+    // newer to offer it and there is no branch to assert. It would also be racing
+    // GitHub, which has just been handed the release the check would read back.
+    expect(stepBlock(LAUNCH_STEP)).toMatch(/if:.*REHEARSE/);
+  });
+
+  test("launches a bundle that exists by the time it runs", () => {
+    // The launch needs a packaged app on disk, which the packaging step above is
+    // what puts there.
+    const names = [...workflow.matchAll(/^\s+- name: (.+)$/gm)].map((m) => m[1]);
+    expect(names.indexOf(LAUNCH_STEP)).toBeGreaterThan(
+      names.indexOf("Package and upload as a draft"),
+    );
   });
 
   test("takes its scratch release away whether it passed or failed", () => {

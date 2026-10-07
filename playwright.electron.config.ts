@@ -36,6 +36,9 @@ export default defineConfig({
   // packaged-update-check.spec.ts also matches, but skips itself unless
   // ATR_PACKAGED_UPDATE_E2E is set and a packaged app exists (`pnpm
   // test:packaged-update`): it launches the real bundle and needs the network.
+  // The release rehearsal runs that same script with
+  // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
+  // version is below the feed by construction.
   testMatch:
     /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|packaged-update-check)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
