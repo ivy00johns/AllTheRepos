@@ -37,6 +37,8 @@ interface AdviceModule {
   SCANNED_EXTENSIONS: string[];
   FINGERPRINT_WINDOW: number;
   MENU_CONTEXT: RegExp;
+  NOT_ADVICE: RegExp[];
+  isAdviceSurface(file: string): boolean;
   paragraphs(text: string): Array<{ line: number; text: string }>;
   findStaleAdvice(text: string): Hit[];
   renderedSurfaces(): Array<{ file: string; text: string }>;
@@ -102,6 +104,11 @@ const TRAY_DISPATCH = `/**
  * can run the bound handler exactly as if the user had clicked the
  * native menu item.
  */`;
+
+/** How many stale instructions one piece of text holds — the fixture above. */
+function findStaleAdviceOf(text: string): number {
+  return advice.findStaleAdvice(text).length;
+}
 
 function runCli(args: string[] = []) {
   const result = spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -264,6 +271,36 @@ describe("it reads what it says it reads", () => {
     expect(files).toContain("src/renderer/components/layout/adhoc-build-notice.tsx");
     expect(files).toContain(".github/workflows/release.yml");
     expect(files.some((file) => file.includes("node_modules"))).toBe(false);
+  });
+
+  test("the two files it does not read, and nothing else, are the exceptions", () => {
+    const files = advice.scannedFiles(ROOT);
+
+    // Not read: the fixtures, which quote the forbidden sentence on purpose, and
+    // this check's own file, which has to quote it in order to forbid it. Without
+    // both, the check fails on itself the moment it is committed — which is
+    // precisely what it did on its first run.
+    expect(files.some((file) => file.startsWith("tests/"))).toBe(false);
+    expect(files).not.toContain("scripts/check-first-launch-advice.mjs");
+
+    // Still read: everything a person could actually learn the procedure from.
+    expect(files).toContain("scripts/first-launch.mjs");
+    expect(files).toContain("README.md");
+    expect(files).toContain("docs/RELEASING.md");
+    expect(files).toContain("resources/READ-ME-FIRST.txt");
+    expect(files).toContain("src/renderer/components/layout/adhoc-build-notice.tsx");
+
+    expect(advice.isAdviceSurface("README.md")).toBe(true);
+    expect(advice.isAdviceSurface("tests/unit/scripts/anything.spec.ts")).toBe(false);
+    expect(advice.isAdviceSurface("scripts/first-launch.mjs")).toBe(true);
+  });
+
+  test("... and the fixture really does contain the sentence, so the exception is earned", () => {
+    // If this ever stops being true the exception above is no longer justified, and
+    // a carve-out nobody can justify is how a real instruction escapes one day.
+    const spec = fs.readFileSync(__filename, "utf8");
+    expect(spec).toContain("then right-click the app →");
+    expect(findStaleAdviceOf(spec)).toBeGreaterThan(0);
   });
 });
 

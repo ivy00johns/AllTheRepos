@@ -221,14 +221,48 @@ export function findStaleAdvice(text) {
   return found;
 }
 
-/** The tracked text files this reads, in git's order. */
+/**
+ * The files this check does not read, and why each one earns that.
+ *
+ * `tests/` first: a fixture's entire job is to contain the sentence that must not
+ * ship — the spec for this file quotes the v0.1.6 paragraph verbatim, wrap and all,
+ * because the wrap is half the bug — and a test file is not where anybody goes to
+ * learn how to install something. Then this file: it documents the rule by quoting
+ * what it forbids, which it cannot do while being subject to it.
+ *
+ * Both are named rather than inferred, and the list is deliberately this short. It
+ * is the only way either file escapes, and a third entry should feel like the same
+ * kind of decision as adding one to `NOT_A_LINK` in the link check.
+ *
+ * The exemption has one sharp edge worth knowing: an untracked file is not in
+ * `git ls-files`, so the check is blind to a file that has not been staged yet. A
+ * new fixture therefore passes locally and fails on the runner once committed —
+ * which is exactly how the first version of this shipped.
+ */
+export const NOT_ADVICE = [
+  /^tests\//,
+  /^scripts\/check-first-launch-advice\.mjs$/,
+];
+
+/** Whether a file is one a person could read as advice. */
+export function isAdviceSurface(file) {
+  return !NOT_ADVICE.some((pattern) => pattern.test(file));
+}
+
+/**
+ * The tracked text files this reads, in git's order.
+ *
+ * Tracked, not the working tree: what ships is what is committed, and a document
+ * somebody is still writing should not fail a gate.
+ */
 export function scannedFiles(root = ROOT) {
   const output = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" });
   return output
     .split("\0")
     .filter((file) => file.length > 0)
     .filter((file) => SCANNED_EXTENSIONS.some((extension) => file.endsWith(extension)))
-    .filter((file) => !file.includes("node_modules/"));
+    .filter((file) => !file.includes("node_modules/"))
+    .filter(isAdviceSurface);
 }
 
 /**
