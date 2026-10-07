@@ -1,0 +1,94 @@
+# Schedule health — report whether every workflow that declares a clock has
+# actually run on it.
+#
+# A scheduled gate is the only kind of gate that fails by not happening: no red
+# run, no error, no notification, just a run that never appears. GitHub disables
+# scheduled workflows after 60 days without repository activity, a workflow can be
+# disabled by hand, a cron can be edited into something GitHub reads differently,
+# a file can be renamed — and a `schedule:` added anywhere but the default branch
+# never fires at all, which this repository has already been bitten by once.
+#
+# So something has to ask, on a clock of its own, whether the other clocks are
+# still ticking. `scripts/check-schedule-health.mjs` reads the scheduled gates out
+# of this checkout, asks GitHub for each one's newest `event=schedule` run and its
+# enabled state, and prints a line per gate.
+#
+# It is deliberately the most boring gate here: no install, no build, no artifacts
+# — one checkout, one API read per gate, and a table. It runs after the others so
+# their Monday runs are already on the board when it looks.
+name: Schedule health
+
+on:
+  push:
+    paths:
+      # The schedules themselves live in these files, so a change to any of them
+      # changes what this digest is about.
+      - ".github/workflows/**"
+      - "scripts/check-schedule-health.mjs"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "scripts/check-schedule-health.mjs"
+  schedule:
+    # Mondays, 15:00 UTC — after the link check (13:30), the feed check (13:30)
+    # and the release rehearsal (14:00) have had their turn, so a gate that
+    # missed its own clock this morning is already visible as a gap.
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Reading runs of *other* workflows needs this, and it is the one permission
+  # this file asks for. Nothing here writes: the digest's whole output is a
+  # report.
+  actions: read
+
+concurrency:
+  group: schedule-health-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  digest:
+    name: did every gate run on its clock?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No `pnpm install`: the checker imports nothing but Node and the files in
+      # this checkout.
+      - name: Report whether every scheduled gate has run on its clock
+        env:
+          # The one credential in this file, and it is needed: reading the
+          # Actions API for a private repository takes a token with
+          # `actions: read`. The script fails loudly rather than quietly when it
+          # has none, because a digest that cannot look is the silence it exists
+          # to catch.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node scripts/check-schedule-health.mjs > "$RUNNER_TEMP/digest.md" 2>&1
+          status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/digest.md"
+          # The digest is the deliverable, so it goes on the run's summary
+          # whether it passed or failed: "everything is fine" should be readable
+          # without opening a log, and a red run should say which gate stopped.
+          cat "$RUNNER_TEMP/digest.md" >> "$GITHUB_STEP_SUMMARY"
+
+          # 2 is "could not read GitHub" — a rate limit, a 5xx, a lost network.
+          # That says nothing about the gates, and a gate that cries wolf is one
+          # people stop reading, so it is reported and does not fail the run. The
+          # same bargain the link check and the feed check strike.
+          #
+          # 1 and 3 still fail. 1 is a gate that has gone quiet, which is the
+          # whole point of being here; 3 is this digest being unable to look at
+          # all — no token, or a token without `actions: read` — which nobody else
+          # will notice if it is allowed to pass.
+          if [ "$status" = "2" ]; then
+            echo "::warning::the digest could not read GitHub — that says nothing about whether the gates ran, so this run does not fail on it"
+            exit 0
+          fi
+          exit "$status"

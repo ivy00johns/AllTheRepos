@@ -276,22 +276,30 @@ jobs:
       # it runs the thing a person installs. "The feed is readable" and "the app
       # reads it" are not the same claim.
       #
-      # A rehearsal is where this can run, and also where it says the most. The
-      # build is stamped `0.0.0`, below every released `0.1.x`, so it is genuinely
-      # behind the feed and has to offer the release that is live — a version that
-      # appears nowhere in this build, and can therefore only have come from the
-      # one request the check exists to make. On a tag push there is nothing to
-      # assert: the app's own version *is* the feed's latest, so reading that back
-      # would be racing the release GitHub has just been handed.
+      # Both ways in, and they expect opposite answers. A tag push has just
+      # published the version it built, so the check has to come back "you're on
+      # the latest release" — the state every install is in once it takes the
+      # release. A rehearsal's build is stamped `0.0.0`, below every release, so it
+      # is behind the feed by construction and has to offer the release that is
+      # live: a version that appears nowhere in this build, and can therefore only
+      # have come from the one request the check exists to make.
       #
       # The check is `tests/e2e/packaged-update-check.spec.ts`, the opt-in spec a
-      # developer runs by hand, told which bundle to launch rather than given a
-      # second copy of the assertion.
+      # developer runs by hand, told what to expect rather than given a second copy
+      # of the assertion. The same run also walks the install path — the archive
+      # `latest-mac.yml` names, its sha512, and the signature on the bundle inside
+      # it — which is why this is a step on a macOS runner rather than part of the
+      # Ubuntu feed check.
       - name: Launch the build and check for updates against the live feed
-        if: ${{ env.REHEARSE == 'true' }}
-        env:
-          ATR_PACKAGED_UPDATE_BEHIND_BUNDLE: release/mac-arm64/AllTheRepos.app
-        run: pnpm test:packaged-update
+        run: |
+          if [ "$REHEARSE" = "true" ]; then
+            export ATR_PACKAGED_UPDATE_BEHIND_BUNDLE="release/mac-arm64/AllTheRepos.app"
+          else
+            # Just published this version, so the feed should already name it; the
+            # spec waits for it to, rather than racing a cache that is seconds old.
+            export ATR_PACKAGED_UPDATE_EXPECT="current"
+          fi
+          pnpm test:packaged-update
 
       # A run that dies between the upload and the publish leaves its assets on
       # a DRAFT — invisible to `releases/latest` and to `GET /releases/tags/{tag}`,

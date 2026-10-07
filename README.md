@@ -206,7 +206,7 @@ flowchart LR
 │   ├── e2e/               # Playwright Electron specs
 │   └── helpers/
 ├── resources/             # icon.icns, tray art, entitlements
-├── .github/workflows/     # ci.yml, release.yml, doc-links.yml, updater-feed.yml
+├── .github/workflows/     # ci.yml, release.yml, doc-links.yml, updater-feed.yml, schedule-health.yml
 └── electron-builder.yml   # DMG + ZIP packaging and the update feed
 ```
 
@@ -232,6 +232,8 @@ The **tests badge above is generated, not typed.** `pnpm test:report` writes the
 
 `node scripts/check-updater-feed.mjs` is the other gate that needs the internet, and it has its own workflow ([`.github/workflows/updater-feed.yml`](./.github/workflows/updater-feed.yml)) for the same reason. It reads the update feed exactly the way a shipped app does — **no credential at all**, `releases/latest`, the live `latest-mac.yml`, and the archive it names, downloaded and hashed. That is not what `pnpm release:verify` checks: that reads the same manifest with a token, at publish time, against the release it was just uploaded with, and the gap between those two reads is where a feed rots — a release deleted, its assets re-uploaded under new names, the releases repo turned private. So this one runs on any change to what it reads, and **weekly**, half an hour behind the link check.
 
+`node scripts/check-schedule-health.mjs` ([`.github/workflows/schedule-health.yml`](./.github/workflows/schedule-health.yml)) is about the clocks the other two run on, and it exists because a scheduled workflow is the one kind of gate that fails by **not happening**: nothing goes red, nothing is logged, the run simply never appears. GitHub disables schedules after 60 days without repository activity, one can be disabled by hand, a cron can be edited into something GitHub reads differently, and a `schedule:` added anywhere but the default branch never fires at all. So every Monday at 15:00 UTC — after the 13:30 and 14:00 sweeps have had their turn — it reads the scheduled gates out of the workflow files, asks GitHub when each one last produced a `schedule` run, and reports the answer on the run's summary. A gate that is disabled, that GitHub has no workflow for, or that has gone longer than its own cadence (plus a window) without a run fails it.
+
 ### The dual-rebuild dance
 
 `better-sqlite3` and `find-git-repositories` ship one set of `.node` binaries, and host Node and Electron bundle different Node versions. `scripts/ensure-native-abi.mjs` probes the actual ABI and rebuilds only on a mismatch, which is why every command above is safe to run back to back:
@@ -254,9 +256,9 @@ pnpm release:verify        # read a published release back: DMG, ZIP and a coher
 git tag v0.1.3 && git push origin v0.1.3
 ```
 
-Pushing a `v*` tag runs [`.github/workflows/release.yml`](./.github/workflows/release.yml), which typechecks and tests the tagged commit, packages the DMG and the ZIP, uploads them to a **draft** in the public releases-only repo, verifies the draft, attaches the changelog, publishes it, and verifies it again in the state users actually see.
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](./.github/workflows/release.yml), which typechecks and tests the tagged commit, packages the DMG and the ZIP, uploads them to a **draft** in the public releases-only repo, verifies the draft, attaches the changelog, publishes it, and verifies it again in the state users actually see. Then it does what no verification of the upload can: it **launches the app it just built** and makes it read the live feed anonymously, and it walks the path an install would take — the archive `latest-mac.yml` names, downloaded, hashed against the sha512 the manifest promises, unpacked, and verified with `codesign` — because a download that is intact and cannot be launched is still a broken update.
 
-That same pipeline can be run **without releasing anything** — `gh workflow run release.yml -f rehearse=true`, and every Monday at 14:00 UTC against `main`. Both build the real artifacts under a scratch version (`0.0.0`) and delete what they make, leaving nothing visible. A rehearsal also **launches the build it just made and makes it read the live feed** — the one end-to-end claim a tag push cannot make, since everything else in that job verifies the upload while this verifies the app. It runs weekly because a pipeline is otherwise only ever exercised by releasing, which is the one moment a break in the guard, the notes step or the packaging costs a version that is already tagged and pushed.
+That same pipeline can be run **without releasing anything** — `gh workflow run release.yml -f rehearse=true`, and every Monday at 14:00 UTC against `main`. Both build the real artifacts under a scratch version (`0.0.0`) and delete what they make, leaving nothing visible. A rehearsal also **launches the build it just made and makes it read the live feed**: a rehearsal's build is stamped below every release, so the check has to come back with the release that is live offered to it, while a tag push has just published the version it built and has to be told it is on the latest release. Everything else in that job verifies the upload; this verifies the app. It runs weekly because a pipeline is otherwise only ever exercised by releasing, which is the one moment a break in the guard, the notes step or the packaging costs a version that is already tagged and pushed.
 
 The artifacts deliberately do **not** land in this repository. They go to [`ivy00johns/alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases) — the repo the app's updater reads — so anyone who installs a build can check for updates anonymously while the source stays private. Two things about those builds:
 

@@ -18,6 +18,8 @@ gh workflow run release.yml                  # prove the draft cleanup
 gh workflow run updater-feed.yml             # read the live update feed the way the app does
 node scripts/check-updater-feed.mjs          # ... the same check, on this machine
 gh workflow run release.yml -f rehearse=true # run the whole pipeline, publish nothing
+gh workflow run schedule-health.yml          # ask whether the scheduled gates have been running
+node scripts/check-schedule-health.mjs       # ... the same digest, on this machine
 ```
 
 `release/` output:
@@ -185,10 +187,23 @@ install takes. The tag it uploads under is `v0.0.0` — a name no release will e
 that a failed run's cleanup removes like any other scratch release, so the next rehearsal reuses
 it rather than leaving a trail.
 
-A tag push does not run this step on purpose. The app it builds *is* the version being released,
-so the feed has nothing newer to offer it and there is no branch to assert; and reading
-`releases/latest` seconds after publishing would be racing GitHub. That half is covered from a
-laptop instead, by the build that was released — see *Verifying the check from a real build* below.
+Both ways into the job run that step, and they assert opposite things. A tag push has just published
+the version it built, so its check must come back *you're on the latest release* — the state every
+install is in once it takes the release. The spec waits up to two minutes for `releases/latest` to
+name that version rather than racing a cache that is seconds old, and fails only if it never does,
+which is then a release nobody would be offered. A rehearsal is the other half: its build is stamped
+`0.0.0`, below every release, so it has to *offer* the release that is live — a version that appears
+nowhere in the build, and can therefore only have come from the fetch the check exists to make.
+
+The same run also walks the **install path**, which is the half an Ubuntu runner cannot reach: it
+downloads the archive `latest-mac.yml` names, hashes it against the sha512 the manifest promises,
+unpacks it, and runs `codesign --verify --deep --strict` on the bundle inside — then checks that
+bundle's version is the one the manifest names. A download that hashes correctly and cannot be
+launched is still a broken update, and it is the failure nobody sees until the hundred megabytes are
+already on disk. It is deliberately not `spctl`: this build is ad-hoc signed and **not notarised**,
+so Gatekeeper refuses a downloaded copy by design — that is the documented right-click → Open, not
+rot. On a tag push the archive it verifies is the one that run just published; on a rehearsal it is
+the release that is live, which is the previous one.
 
 ### Checking the update feed
 
@@ -225,6 +240,48 @@ it reads: the check itself, the manifest parser and repo lookup it reuses, and t
 `electron-builder.yml` publish block that is the feed's address. Its unit tests assert that no request carries an `authorization` header
 even when the environment holds a token, because a check that passes merely because the machine
 running it is authenticated is the exact failure being guarded against.
+
+### Reporting on the clocks
+
+```bash
+node scripts/check-schedule-health.mjs   # by hand
+gh workflow run schedule-health.yml      # the same digest, on a runner
+```
+
+Four workflows here run on a clock rather than on a push — the link check, the feed check, the
+release rehearsal, and this digest itself — and a scheduled workflow is the one kind of gate that
+fails by *not happening*.
+Nothing goes red, nothing is logged, no notification is sent: the run simply never appears. GitHub
+disables scheduled workflows after 60 days without repository activity, one can be disabled by hand
+while somebody debugs a cron, a cron can be edited into something GitHub reads differently, and a
+`schedule:` added anywhere but the default branch never fires at all — which this repository has
+already been through once, with `release.yml` itself.
+
+So `.github/workflows/schedule-health.yml` asks, every Monday at **15:00 UTC** — after the 13:30 and
+14:00 sweeps have had their turn, so a gap left that morning is reported that afternoon rather than
+the following week. It reads the gates out of the workflow files rather than from a list of its own,
+so a schedule added tomorrow is covered the day it lands and one that is deleted stops being
+reported on, and it prints a line per gate:
+
+- **A gate that is not `active`** fails the run, whatever its history says.
+- **A gate whose last `event=schedule` run is older than its own cadence plus a window** — a day for
+a weekly sweep, a few hours for a daily one, half an hour for an hourly one — fails the run. The
+window is the point: GitHub runs scheduled workflows on a best-effort basis and delays them under
+load, so a window of exactly one period would report ordinary jitter as rot.
+- **A gate that has never run on its clock** fails the run only once the workflow itself is older
+than that window. A schedule added on a Tuesday has not missed its Monday yet.
+- **A gate GitHub has no workflow for** fails the run. That is the branch case, and from here it is
+invisible otherwise.
+
+Exit `0` means every clock is ticking; `1` means at least one has gone quiet, with the gate named;
+`2` means GitHub could not be read — a rate limit, a 5xx, a lost network — which says nothing about
+the gates, so the workflow reports it and does not fail; and `3` means the digest cannot look at
+all: no token, a token without `actions: read`, or a cron in a shape it has no window for. That last
+one fails loudly on purpose, because a digest that cannot look is the silence it exists to catch.
+
+The one thing it cannot catch is every clock stopping at once: it is itself a scheduled workflow, so
+if the whole set goes quiet it goes quiet with them. It answers the question that has an owner — one
+gate has stopped while the repository is alive and being pushed to.
 
 ### What `release:verify` checks
 
@@ -370,10 +427,24 @@ It needs a **published release** and the **network**: it really does call the
 GitHub API, with no token in the child environment, which is the whole point of
 the assertion.
 
-The release rehearsal runs the second half of it against the build it just made,
-by naming that bundle in `ATR_PACKAGED_UPDATE_BEHIND_BUNDLE`. A bundle named that
-way must exist and must be behind the feed: the caller asked for that branch, so
-a skip would be a check that reported success without asserting anything.
+The release workflow runs this spec itself, and tells it which half to assert
+through the environment:
+
+```bash
+ATR_PACKAGED_UPDATE_BEHIND_BUNDLE=<a bundle> pnpm test:packaged-update  # must offer the release that is live
+ATR_PACKAGED_UPDATE_EXPECT=current           pnpm test:packaged-update  # must be on the latest release
+```
+
+A bundle named that way has to exist and has to be behind the feed — the caller
+asked for that branch, so a skip would be a check that reported success without
+asserting anything — while `current` waits for the feed to name the build's own
+version before it asks the app, because a tag push does this seconds after
+publishing the release it is asserting on.
+
+The file's third test needs no packaged app and no bundle name: it works on the
+release the live feed offers, whoever built it — the archive `latest-mac.yml`
+names, downloaded, hashed against the digest the manifest promises, unpacked, and
+verified with `codesign`.
 
 The second build exists because the comparison cannot be faked from outside.
 `electron-updater` reads `app.getVersion()` once, when the updater is

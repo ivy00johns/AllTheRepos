@@ -299,30 +299,42 @@ describe("rehearsing a release without publishing one", () => {
     // Every other step verifies the upload. This is the only one that runs the
     // app a person installs, and it is the updater's whole path: a real bundle,
     // an anonymous feed read, a version comparison, the UI that reports it.
-    const launch = stepBlock(LAUNCH_STEP);
+    const launch = commands(stepBlock(LAUNCH_STEP));
 
-    expect(commands(launch)).toContain("pnpm test:packaged-update");
-    // ... the check a developer runs by hand, told which bundle to launch rather
-    // than given a second copy of the assertion.
+    expect(launch).toContain("pnpm test:packaged-update");
+    // ... the check a developer runs by hand, told what to expect rather than
+    // given a second copy of the assertion.
     expect(launch).toContain(
-      "ATR_PACKAGED_UPDATE_BEHIND_BUNDLE: release/mac-arm64/AllTheRepos.app",
+      'ATR_PACKAGED_UPDATE_BEHIND_BUNDLE="release/mac-arm64/AllTheRepos.app"',
     );
+    expect(launch).toContain('ATR_PACKAGED_UPDATE_EXPECT="current"');
   });
 
-  test("only a rehearsal launches it, because only a rehearsal is behind", () => {
-    // A tag push builds the version it is releasing, so the feed has nothing
-    // newer to offer it and there is no branch to assert. It would also be racing
-    // GitHub, which has just been handed the release the check would read back.
-    expect(stepBlock(LAUNCH_STEP)).toMatch(/if:.*REHEARSE/);
+  test("expects the opposite answer on each of the two ways in", () => {
+    // A rehearsal's build is stamped below every release, so the check it can
+    // assert is that an update is offered. A tag push has just published the
+    // version it built, so the check it can assert is that the app is on the
+    // latest release. Sending the wrong one is a red run about nothing.
+    const launch = commands(stepBlock(LAUNCH_STEP));
+    const [rehearsal, push] = launch.split("else");
+
+    expect(rehearsal).toMatch(/if \[ "\$REHEARSE" = "true" \]/);
+    expect(rehearsal).toContain("ATR_PACKAGED_UPDATE_BEHIND_BUNDLE");
+    expect(rehearsal).not.toContain("ATR_PACKAGED_UPDATE_EXPECT");
+
+    expect(push).toContain('ATR_PACKAGED_UPDATE_EXPECT="current"');
+    expect(push).not.toContain("ATR_PACKAGED_UPDATE_BEHIND_BUNDLE");
   });
 
-  test("launches a bundle that exists by the time it runs", () => {
+  test("launches a bundle that exists, and a release that is already live", () => {
     // The launch needs a packaged app on disk, which the packaging step above is
-    // what puts there.
+    // what puts there; and the push half asserts on `releases/latest`, which the
+    // publish step is what makes this run's tag — so it has to come after both.
     const names = [...workflow.matchAll(/^\s+- name: (.+)$/gm)].map((m) => m[1]);
     expect(names.indexOf(LAUNCH_STEP)).toBeGreaterThan(
       names.indexOf("Package and upload as a draft"),
     );
+    expect(names.indexOf(LAUNCH_STEP)).toBeGreaterThan(names.indexOf(PUBLISH_STEP));
   });
 
   test("takes its scratch release away whether it passed or failed", () => {

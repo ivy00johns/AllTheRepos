@@ -38,6 +38,37 @@ source of truth for the current version.
   Only a tag push can publish — inside that job "rehearse" means only "not a push", so a trigger
   added to the workflow later rehearses by accident rather than publishing by accident. It costs
   about five macOS runner minutes a week.
+- A tag push launches the app it just built, and the same run walks the whole install path. The
+  launch check used to be a rehearsal's alone, because only a rehearsal's build is behind the feed:
+  a tag push builds the version it just published, so there is nothing newer to offer it. It runs on
+  both paths now, with the opposite expectation named rather than guessed — a rehearsal's build must
+  be *offered* the release that is live, and a tag push's must report that it is *on* the latest
+  release. That half waits up to two minutes for `releases/latest` to name the version it published,
+  because the feed is a cache and the release is seconds old, and fails only if it never arrives.
+  The same spec now also verifies the **install path**, which is the half a Linux runner cannot
+  reach: the archive `latest-mac.yml` names is downloaded, hashed against the sha512 the manifest
+  promises, unpacked, and its bundle is handed to `codesign --verify --deep --strict`, with the
+  bundle's version checked against the manifest's. A download that hashes correctly and cannot be
+  launched is still a broken update, and that is the failure nobody sees until the hundred megabytes
+  are already on disk. Not `spctl`: this build is ad-hoc signed and not notarised, so Gatekeeper
+  refusing a downloaded copy is the documented right-click → Open rather than rot.
+- A weekly digest reports whether the scheduled gates actually ran. A scheduled workflow is the one
+  kind of gate that fails by *not happening* — nothing goes red, nothing is logged, the run simply
+  never appears — and there are four clocks here now: the link check, the feed check, the release
+  rehearsal, and this digest. GitHub disables scheduled workflows after 60 days without repository
+  activity, one can be disabled by hand, a cron can be edited into a shape GitHub reads differently,
+  and a `schedule:` added anywhere but the default branch never fires at all — which this repository
+  has already been through once, with `release.yml`. So `.github/workflows/schedule-health.yml` runs
+  every Monday at 15:00 UTC, after the 13:30 and 14:00 sweeps have had their turn, and asks GitHub
+  the only question that settles it: for every workflow in the checkout that declares a `schedule`,
+  when did it last produce an `event=schedule` run, and is it still `active`? The gates are read out
+  of the workflow files rather than from a list of its own, so a schedule added tomorrow is covered
+  the day it lands. A gate that is disabled, that GitHub has no workflow for, or that has gone longer
+  than its own cadence plus a window without a run fails the digest, and the report goes on the run's
+  summary so a green week says something too. A gate that could not be read is reported and does not
+  fail — the same bargain the link check and the feed check strike — but a digest that cannot look at
+  all, because it has no token or no `actions: read`, fails loudly: that silence is exactly what it
+  exists to catch.
 - A release rehearsal now launches the app it just built and makes it read the live feed, so the
   updater is exercised end to end rather than only its feed. Every other step in that job verifies
   the **upload** — the three assets exist, the manifest names them — and none of them runs the
