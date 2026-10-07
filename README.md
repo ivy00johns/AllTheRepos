@@ -226,6 +226,7 @@ pnpm test:full             # unit + Electron E2E
 pnpm badges                # re-run the suite and redraw docs/images/tests.svg from its totals
 pnpm links:check           # resolve every link in the Markdown, out to the web and in to the repo
 pnpm versions:check        # the front door links the feed instead of naming a release version
+pnpm platforms:check       # every architecture we build has a binary for every native module, and which ones would
 ```
 
 Current status: the unit suite, `typecheck` and `pnpm lint` are green on every push and pull request, and the Electron E2E job runs on `macos-14` against a real window driven over the debugger protocol, so a runner's GUI session is sufficient. Counts are deliberately absent: the specs that need something a runner does not have stop with a reason rather than failing, so a tally written here moves without the suite changing — the tests badge above is generated from the run instead.

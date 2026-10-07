@@ -91,6 +91,18 @@ jobs:
       # README links `.../releases/latest`, which redirects. Pure Node, no network.
       - name: The front door, and the versions it must not name
         run: pnpm versions:check
+      # Every architecture in `electron-builder.yml` has to have a binary for
+      # every native module inside the bundle, and "macOS on Apple silicon" is a
+      # fact about that file while the reasons for it live in the dependency
+      # tree — `@lancedb/lancedb` ships prebuilt binaries with no darwin-x64
+      # among them, while `better-sqlite3` and `find-git-repositories` compile
+      # from source and cover anything. Adding `x64` to the dmg/zip targets
+      # packages fine and then loses semantic search on an Intel Mac, because
+      # `services/lance.ts` fails soft on purpose — so no gate would go red and
+      # this is the gate that has to. It also prints which platforms *would*
+      # build, which is the answer to "can we expand?". Pure Node, no network.
+      - name: The architectures, and the binaries each one needs
+        run: pnpm platforms:check
       # The unit suite writes its own totals to a JSON report and the badge is
       # drawn from them, so the number in the README is always the number this
       # run just produced. It went stale by hand three times before this.
