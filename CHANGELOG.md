@@ -11,8 +11,13 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-07
+
 ### Added
 
+- assert the sentence the app shows when GitHub refuses its own read
+- fail the lint gate on a suppression that suppresses nothing
+- prove the refusal check can fail, and define a refusal once
 - The release pipeline opens the DMG before it publishes it. Every other gate looked at the upload or
   at the bundle on the runner — `release:verify` reads the three assets back from GitHub, and "Verify
   what was signed" runs `codesign` against `release/mac-arm64/AllTheRepos.app` — and neither of them
@@ -118,6 +123,18 @@ source of truth for the current version.
   decision somebody made, so the next person keeps the shape it was working around and never learns the
   rule was satisfied or has gone. Asked for in the config rather than by a flag on the command, so an
   editor's ESLint integration, a hook and CI all answer the same.
+
+### Fixed
+
+- The link check no longer goes red for a release that has been *prepared* and not yet pushed. A
+  release leaves two links pointing at a version that does not exist yet, and only one of them was
+  excused: the release page. The other is the changelog's own `[Unreleased]` link, which
+  `scripts/next-release.mjs` rewrites to `compare/v<version>...HEAD` on the bump commit — so following
+  the repository's own instructions, on its own tooling, left the one gate that runs on a schedule
+  failing until the tag was pushed. `check-doc-links.mjs` now excuses that compare by the same rule it
+  already applied to the release page: the version being released, and no other, so a compare against
+  a version that has genuinely gone remains a dead link. It was found the way the DMG was: by doing the
+  thing by hand.
 
 ## [0.1.7] - 2026-10-07
 
@@ -563,7 +580,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.8
 [0.1.7]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.5
