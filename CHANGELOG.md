@@ -11,6 +11,44 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- gate the outward prose, with the house style kept in a config. `pnpm lint:prose` runs a vendored
+  prose checker over the tree on the fast CI job, beside `pnpm lint`, and `.prose-guard.json` is
+  where this project's decisions live: em dashes are deliberate, so that rule is a warning rather
+  than the error it ships as — 1,200-odd of them are in the tree and none of them fails a build —
+  while a banned phrase, AI vocabulary or a sycophantic opener still fails the run. `CHANGELOG.md`
+  is scanned rather than skipped, because it is prose this project writes and releases. The gate
+  was proved able to fail rather than only able to pass: a file carrying a banned phrase took it to
+  exit 1, and removing that file took it back to exit 0.
+- draft the launch post, in [`docs/announcement.md`](./docs/announcement.md), written under that
+  same gate rather than exempted from it and deliberately not linked from the README until the
+  wording is approved.
+- review the app's UI/UX and file what the sweep found. The
+  [2026-10-07 review](./docs/audits/2026-10-07-ui-ux-review.md) re-checks the six findings of the
+  earlier plan (four resolved, two partly) and adds **16 ledger items, ATR-059…074**, four of them
+  P1 — two accessibility blockers and two viewport-height clipping bugs, both measured against a
+  real window rather than read off the source. Nothing was fixed by that sweep: it files, it does
+  not touch.
+
+### Changed
+
+- put the graph page's controls back on the design system. The six signal filters are one segmented
+  control, each showing how many links it holds; zoom and fit are icon buttons with accessible
+  names in a single bar instead of hand-styled divs with no name at all; the map carries a counted
+  summary for a screen reader; and a graph filtered down to nothing, or one that failed to build,
+  offers the action that gets you out rather than a dead screen.
+- state where the tree came from in one paragraph at the front door, instead of re-telling two
+  waves at the length of the closure log and the ledger that own them.
+
+### Fixed
+
+- stop the documents praising their own honesty. Three of them described their status as an
+  "honest" list and one labelled its own gaps as "stated plainly rather than glossed", while the
+  evidence was already in each document.
+- clear the AI vocabulary the new gate caught, in the two archived planning docs and one audit
+  heading, and the "is the point" construction it found four times in `RELEASING.md`.
+
 ## [0.1.8] - 2026-10-07
 
 ### Added

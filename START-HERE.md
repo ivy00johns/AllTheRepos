@@ -23,25 +23,21 @@ exist. Recover them from git history or the `build/repo-hub-mvp` branch if ever 
 auto-updating app. The daily-driver MVP is the first half and is nearly done. Sequencing:
 [`docs/plans/2026-08-21-production-readiness-plan.md`](./docs/plans/2026-08-21-production-readiness-plan.md).
 
-**Wave 0 (2026-08-21)** closed the foundation: `main` was **19 commits behind** the work
-branch and the repo had **no git remote at all** — both fixed, and it now lives on a private
-GitHub remote. The legacy stack is gone (ATR-013) and the native-ABI flip is automated
-(ATR-016), so the test scripts now guard themselves. (A flip is broken again on this machine for an
-unrelated reason — see **ATR-057** in Gotchas.)
-
-**Wave 5 — catalog v2 + MCP (2026-08-24–25)** is the big one, and it sat **uncommitted for six
-weeks** until 2026-10-06, when it became 7 coherent commits on `feat/alltherepos-mcp`
-(`bfbe3ab..9c295ce`) and was pushed. It closed **ATR-037/038/040/045/049**, partly closed
-**ATR-041/048/052**, and shipped a great deal the ledger never had an ID for: the **MCP server**
-(`mcp/`, 6 tools over a new `repo_links` table), the **curated relationship graph** + `/graph`
-route, **live file watching** (`fs.watch`, debounced, with a reconcile pass), **scan-root
-management**, **folders**, **repo moves** + a relocation journal, **per-repo tasks**, **repo
-covers**, **favorites**, and the **catalog toolbar + table view**. It is **not merged to `main`**.
+**Where the tree came from — two waves.** **Wave 0 (2026-08-21)** moved `main` off the work
+branch (19 commits behind, no git remote at all) onto a private GitHub remote, retired the
+legacy Next.js stack (**ATR-013**) and automated the native-ABI flip (**ATR-016**). **Wave 5
+(built 2026-08-24–25, committed 2026-10-06)** is the catalog-v2 + MCP wave: 7 commits on
+`feat/alltherepos-mcp` (`bfbe3ab..9c295ce`), uncommitted for six weeks until then, closing
+**ATR-037/038/040/045/049** and leaving **ATR-041/048/052** partly done. It is **not merged to
+`main`**. Both are written up row by row in [`docs/PLAN.md`](./docs/PLAN.md)'s closure log, with
+the item detail in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) — this page carries
+state, not history.
 
 **Next:** the tail — scanner discovery (**ATR-033**), the silent 200-repo cap (**ATR-042**),
 group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
-(**ATR-046/047/048/050/051/052**). Before any of that, unblock the build: **ATR-057** breaks
-native ABI flips on this machine. New since Wave 5: ATR-056/057/058.
+(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). Before any of that, unblock the
+build: **ATR-057** breaks native ABI flips on this machine. New since Wave 5: ATR-056/057/058,
+and the 2026-10-07 UI/UX intake (**ATR-059…074** — filed, not fixed).
 
 **Build health (verified 2026-10-06, after the related-repos follow-up):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
@@ -59,7 +55,7 @@ pnpm install
 pnpm electron:dev  # the real app. `pnpm dev` aliases this.
 ```
 
-Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:full` (both, handles the ABI flip).
+Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:full` (both, handles the ABI flip) · `pnpm lint:prose` (the outward prose, on the fast CI job).
 
 ## Gotchas (this machine)
 
