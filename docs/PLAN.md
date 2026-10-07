@@ -1,6 +1,6 @@
 # Build Plan — AllTheRepos
 
-The roadmap and phase definitions, with an honest status for each phase and a closure
+The roadmap and phase definitions, with the status of each phase and a closure
 log of what has shipped. The full architecture rationale lives in the frozen
 [`../NEW-PLAN.md`](../NEW-PLAN.md). Open work lives in [`REMAINING-WORK.md`](./REMAINING-WORK.md).
 

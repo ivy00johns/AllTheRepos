@@ -176,7 +176,7 @@ the task id against `taskService.list(repoPath)` — the live re-read of
 that project's declared tasks — and rejects anything not on the list.
 The IPC schema carries a task id, not a command string.
 
-**Honest limitation.** The app does not sandbox, inspect, or judge what
+**Limitation.** The app does not sandbox, inspect, or judge what
 a project's own scripts do. If `package.json` declares
 `"reset": "rm -rf ./data"`, that is what runs when you press Run on
 `reset`. **The app's safety guarantees cover the app's own actions, not
@@ -295,7 +295,7 @@ folder is dirty or has a process running, the whole operation is refused
 and names the offender. Scan roots themselves cannot be moved
 (`is-scan-root`).
 
-**Partial batches are reported honestly.** A batch where three of five
+**Partial batches.** A batch where three of five
 moved reports exactly that (`move.ts:23`).
 
 ---
@@ -408,7 +408,7 @@ the GitHub release check does not appear in the `fetch(` grep because it
 is issued inside the `electron-updater` dependency, not by application
 code; see §8.
 
-### Test coverage of the safety rails — accurately stated
+### Test coverage of the safety rails
 
 | Rail | Covered by |
 | --- | --- |
@@ -418,7 +418,7 @@ code; see §8.
 | Scan-root removal leaves the directory on disk | `scan-roots.spec.ts:149-165` |
 | Kill escalation state machine | `process.spec.ts:298-440` |
 
-**Known gaps, stated plainly rather than glossed:**
+**Known gaps:**
 
 1. **`moveService.check()` has no dedicated test file.** The
    per-repository blocker preflight described in §5 — `dirty`,

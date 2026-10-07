@@ -1,0 +1,31 @@
+{
+  "$comment": "prose-slop-guard config. Checker: /Users/johns/.agents/skills/prose-slop-guard/scripts/check_prose_slop.py --root .",
+  "$house-style": "Em dashes are this repository's house style, so no-em-dash is downgraded from the default error to warn. The prose uses them for appositive asides in every outward surface (README, docs/RELEASING.md, docs/COMMAND-DISCLOSURE.md, CHANGELOG.md) - over 1,200 of them - and rewriting that many would replace the voice the docs are written in rather than remove a tell. The rule stays on at warn instead of off so a file that suddenly accumulates them is still visible in a run.",
+  "$allow-vocabulary": "harness is kept at warn rather than banned outright: it is a term of art here for the Electron E2E harness and the unit test harness (audits/2026-05-31-ground-truth-audit.md, REMAINING-WORK.md ATR-047). The words that were genuine tells - landscape (docs/archive) and highest-leverage (audits/2026-07-11) - were rewritten instead.",
+  "$severities": "banned-vocabulary stays at its default warn rather than being escalated to error, so a future use of a domain term does not fail a build.",
+  "rules": {
+    "no-em-dash": "warn",
+    "banned-phrases": "error",
+    "sycophancy": "error",
+    "banned-vocabulary": "warn",
+    "negative-parallelism": "warn"
+  },
+  "extraVocabulary": [],
+  "allowVocabulary": ["harness"],
+  "extraPhrases": [],
+  "extensions": [".md", ".mdx", ".markdown", ".txt", ".rst"],
+  "skipPaths": [
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+    "release",
+    "coverage",
+    "LICENSE",
+    "LICENSE.md"
+  ],
+  "exemptBlockquotes": true,
+  "scanFrontmatter": false
+}

@@ -170,7 +170,7 @@ live feed** — with the version, the tag and the draft flag settled differently
 stamped `0.0.0` and uploaded under that tag, the release stays a **draft**, and the run deletes
 the draft when it is finished, so a botched rehearsal leaves no more trace than a clean one.
 
-And it runs itself: **every Monday at 14:00 UTC, against `main`**. That is the point of it. A
+And it runs itself: **every Monday at 14:00 UTC, against `main`**. A
 release pipeline is otherwise only ever exercised *by releasing*, which is the one moment a break
 in the guard, the notes step or electron-builder's configuration costs a version that is already
 tagged and pushed. Five macOS runner minutes a week is a cheap price for finding that on a quiet
@@ -290,8 +290,8 @@ reported on, and it prints a line per gate:
 - **A gate that is not `active`** fails the run, whatever its history says.
 - **A gate whose last `event=schedule` run is older than its own cadence plus a window** — a day for
 a weekly sweep, a few hours for a daily one, half an hour for an hourly one — fails the run. The
-window is the point: GitHub runs scheduled workflows on a best-effort basis and delays them under
-load, so a window of exactly one period would report ordinary jitter as rot.
+window absorbs ordinary jitter: GitHub runs scheduled workflows on a best-effort basis and delays them under
+load, so a window of exactly one period would report that jitter as rot.
 - **A gate that has never run on its clock** fails the run only once the workflow itself is older
 than that window. A schedule added on a Tuesday has not missed its Monday yet.
 - **A gate GitHub has no workflow for** fails the run. That is the branch case, and from here it is
@@ -425,7 +425,7 @@ because a certificate was missing, or a copy whose signature broke in transit.
 
 Releases are published to **`ivy00johns/alltherepos-releases`** — a public repo
 holding nothing but the binaries and `latest-mac.yml` — while the source stays
-private. That split is the point: a public feed means a shipped copy can check
+private. A public feed means a shipped copy can check
 for updates with an anonymous request, so it works for anyone who installs the
 app rather than only on the machine that built it. The app carries no token and
 reads none from the environment (`services/updater.ts`).
@@ -459,8 +459,7 @@ pnpm test:packaged-update   # launches both, against the live feed
 ```
 
 It needs a **published release** and the **network**: it really does call the
-GitHub API, with no token in the child environment, which is the whole point of
-the assertion.
+GitHub API, with no token in the child environment.
 
 The release workflow runs this spec itself, and tells it which half to assert
 through the environment:

@@ -46,11 +46,10 @@ native ABI flips on this machine. New since Wave 5: ATR-056/057/058.
 **Build health (verified 2026-10-06, after the related-repos follow-up):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
 `vitest` **1004 passed / 0 failed / 0 skipped** (45 files) · **Electron E2E 7/7** (1.4 min).
-Fonts (IBM Plex Sans) load at runtime. Note `pnpm test` only works when the tree already sits
-in the host ABI — flipping it is broken (ATR-057).
+Fonts (IBM Plex Sans) load at runtime.
 
 > ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
-> finishes booting. Known, measured, and filed — expect a slow first paint until it lands.
+> finishes booting. Filed as ATR-055; expect a slow first paint until it lands.
 
 ## Run it
 
@@ -70,9 +69,10 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
   and `pnpm test` / `test:full` fail unless the tree already matches. Workaround:
   `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`.
 
-- ~~**`pnpm test` needs host-ABI natives.**~~ **Fixed (ATR-016).** Every test script now
-  runs `scripts/ensure-native-abi.mjs` first and rebuilds only on a real mismatch, so the
-  suites can be run in any order. Only `better-sqlite3` actually flips —
+- ~~**`pnpm test` needs host-ABI natives.**~~ **Automated (ATR-016)** — though the flip
+  itself is what ATR-057 breaks, so the suites can be run in any order only while the tree
+  already matches. Every test script now runs `scripts/ensure-native-abi.mjs` first and
+  rebuilds only on a real mismatch. Only `better-sqlite3` actually flips —
   `find-git-repositories` ships per-ABI builds and works under both runtimes.
 - **Bare `node`/`npx`/`npm` recurse** (broken nvm wrapper in the dotfiles). Use `~/.nvm/versions/node/v22.22.3/bin/node`, or fix the dotfile (ATR-024).
 - **Commits don't sign non-interactively** — 1Password SSH-agent signing fails headless; this session's commits used `--no-gpg-sign` (ATR-025).

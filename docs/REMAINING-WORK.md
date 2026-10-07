@@ -170,7 +170,7 @@ not by running a documented command on one machine:
   packaged app's anonymous check was verified from the real bundle — it reports *You're on the
   latest release*, and against an older build it offers the update
   (`tests/e2e/packaged-update-check.spec.ts`).
-- **CI now genuinely runs on a runner** (PR #1, both jobs green): `typecheck` + 49 files /
+- **CI now runs on a runner** (PR #1, both jobs green): `typecheck` + 49 files /
   1055 tests, and the Electron suite 8 passed / 2 skipped on `macos-14`. **The release workflow
   is still unverified**, and not merely for lack of a tag: a tag push does not evaluate the
   workflow at the tagged commit, so `.github/workflows/` has to be on the default branch before

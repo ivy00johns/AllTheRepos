@@ -1,6 +1,6 @@
 # Building a developer repo management hub
 
-**No tool today unifies local repo discovery, GitHub metadata, and AI-powered search into a single developer hub — which makes this a genuinely open niche worth filling.** The existing landscape is fragmented across 30+ tools that each solve one slice: lazygit (63K stars) excels at single-repo TUI operations, gita handles batch CLI commands across repos, GitKraken offers multi-repo workspaces behind a paywall, and Backstage provides enterprise software catalogs that take weeks to configure. None of them combines filesystem scanning, remote API enrichment, semantic search, relationship mapping, and a personal knowledge base. The recommended stack is **Tauri 2.0 + Vite/React + SQLite (via Drizzle ORM) + LanceDB + Claude API**, prototyped first as a **Next.js localhost app** for rapid iteration.
+**No tool today unifies local repo discovery, GitHub metadata, and AI-powered search into a single developer hub — which makes this a genuinely open niche worth filling.** Existing tools are fragmented across 30+ projects that each solve one slice: lazygit (63K stars) excels at single-repo TUI operations, gita handles batch CLI commands across repos, GitKraken offers multi-repo workspaces behind a paywall, and Backstage provides enterprise software catalogs that take weeks to configure. None of them combines filesystem scanning, remote API enrichment, semantic search, relationship mapping, and a personal knowledge base. The recommended stack is **Tauri 2.0 + Vite/React + SQLite (via Drizzle ORM) + LanceDB + Claude API**, prototyped first as a **Next.js localhost app** for rapid iteration.
 
 ---
 
@@ -18,7 +18,7 @@ The repo management tool ecosystem splits into five categories, none of which ov
 
 **Raycast/Alfred extensions** enable fast repo opening — the Raycast Repository Manager even pulls from GitHub/GitLab/Bitbucket remotes — but these are launch-and-forget tools with no persistent state, no analysis, and no search.
 
-Seven concrete gaps emerge from this landscape that a custom tool would fill: no unified local-plus-remote view, no semantic search across a repo portfolio, no personal knowledge base or wiki layer, no relationship mapping between repos, no AI-powered auto-tagging across local and remote repos, no personal repo health dashboard aggregating stale branches and uncommitted changes, and no tool that bridges CLI efficiency with GUI richness.
+Seven concrete gaps emerge from that survey that a custom tool would fill: no unified local-plus-remote view, no semantic search across a repo portfolio, no personal knowledge base or wiki layer, no relationship mapping between repos, no AI-powered auto-tagging across local and remote repos, no personal repo health dashboard aggregating stale branches and uncommitted changes, and no tool that bridges CLI efficiency with GUI richness.
 
 ---
 

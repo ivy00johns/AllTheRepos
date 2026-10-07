@@ -6,7 +6,7 @@ on "what makes the app usable now." Promote an item into the ledger when it beco
 
 ## Phase 4 — Intelligence layer
 
-The "make the app opinionated" phase. None of this exists yet (correctly — it's post-MVP).
+The "make the app opinionated" phase. None of this is built yet; it is post-MVP.
 
 - **Dependency intelligence** — parse all major lockfiles into a `repo_dependencies` table.
 - **Vulnerability scanning** — OSV-Scanner shell-out with a `dep_versions_cache`.
@@ -33,11 +33,11 @@ The "make the app opinionated" phase. None of this exists yet (correctly — it'
   than left out: `@main/services/signing` reads the running bundle's signature and Gatekeeper's
   verdict, `autoDownload` is turned on only when both pass, and the UI offers **Restart to
   install** there and the release page — with the reason — everywhere else. What is missing is
-  a certificate for the build to be signed with, not the code.
+  a Developer ID certificate for the build to be signed with.
 - First-run onboarding window (scan-path selection, default editor/terminal, hotkey).
 - Branded DMG background + custom installer layout.
 
-## Phase 6 — Cross-platform & advanced (someday / maybe)
+## Phase 6 — Cross-platform & advanced (not scheduled)
 
 - Linux + Windows builds; port `lsof` process detection to `ss` / `Get-NetTCPConnection`.
 - Git worktree + submodule UI.

@@ -23,7 +23,7 @@ plus "professional, easy to use: lists with description, details, last opened."
   the detail view omits `description`, the grid silently caps at 200, and manual groups
   can be created but never populated.
 
-Highest-leverage fixes, in order: identity-based repo matching on scan (DS-1), a
+The fixes that matter most, in order: identity-based repo matching on scan (DS-1), a
 stale-row reconcile + delete surface (DS-2), pre-expanding scan roots / wrapping the
 native walker (SC-1), stamping `last_opened_at` in the launcher (DS-4), and wiring the
 already-existing sort/`lastOpened` machinery into the catalog header (UX-1/2).
