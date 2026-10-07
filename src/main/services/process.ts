@@ -5,9 +5,15 @@
  * snapshot is rebuilt from `lsof -nP -iTCP -sTCP:LISTEN -F pcnTL` on a
  * cadence-driven interval (3000ms focused / 15000ms blurred / paused
  * after 60s with no `process:list` consumer activity). Repo binding is
- * done by looking up each PID's cwd (via `lsof -p <pid> -F n -d cwd`)
- * in a prefix trie built from the catalog's `repos.full_path` column,
- * with a fallback walk up the ppid chain (cap 10 hops).
+ * done by looking up each PID's cwd in a prefix trie built from the
+ * catalog's `repos.full_path` column, with a fallback walk up the ppid
+ * chain (cap 10 hops). Both sides of that match are canonicalised with
+ * `realpath`, because a cwd arrives as the path the kernel resolved
+ * while a catalog row holds whatever the scanner was given.
+ *
+ * A tick is three subprocess rounds — the listening sweep and the `ps`
+ * parent map together, then a batched cwd lookup, then the walk in
+ * memory — rather than a `ps` and an `lsof` per hop per listener.
  *
  * The kill state machine is SIGINT -> SIGTERM -> SIGKILL with
  * `escalateMs` between each step (default 3000ms; 1000ms grace after
@@ -25,6 +31,7 @@
 
 import { EventEmitter } from "node:events";
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { promisify } from "node:util";
 
 import type {
@@ -58,6 +65,13 @@ const LSOF_TIMEOUT_MS = 1000;
 const CWD_BATCH_SIZE = 32;
 const CWD_BATCH_CONCURRENCY = 4;
 const LSOF_BATCH_TIMEOUT_MS = 5000;
+/**
+ * Cap on the `realpath` memo. Repo roots are re-inserted into the trie on
+ * every tick, so without a memo a library of N repos would cost N stat calls
+ * per tick; clearing wholesale at the cap is fine because resolving is
+ * idempotent and the entries are only ever an optimisation.
+ */
+const REALPATH_MEMO_MAX = 4096;
 
 // ---------------------------------------------------------------------------
 // lsof parsers
@@ -261,6 +275,47 @@ export class RepoPathTrie {
 // ---------------------------------------------------------------------------
 
 /**
+ * `realpath` for path matching, falling back to the input for a path that no
+ * longer exists (a repo that has been moved away, a cwd whose process is
+ * gone — the caller's lookup simply misses, as it did before).
+ *
+ * This is what makes a repo registered through a symlink match its own
+ * listeners. The catalog stores whatever path the scanner walked — `~/Code`
+ * symlinked onto another volume, or anything under `/tmp` on macOS — while
+ * `lsof` reports the cwd the kernel resolved. Comparing them unresolved means
+ * such a repo never matches, and the port panel silently shows no repo at all.
+ * Both sides therefore go through here before they are compared.
+ *
+ * Exported for unit testing.
+ */
+export function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * Repo slug for a cwd, tolerating a symlinked form on either side: the cwd as
+ * reported first, then its resolved form. `resolve` is injectable so tests can
+ * pin the fallback without touching the filesystem.
+ *
+ * Exported for unit testing.
+ */
+export function lookupRepoSlug(
+  trie: RepoPathTrie | null,
+  cwd: string,
+  resolve: (path: string) => string = resolveRealPath,
+): string | null {
+  if (!trie) return null;
+  const direct = trie.lookup(cwd);
+  if (direct) return direct;
+  const resolved = resolve(cwd);
+  return resolved === cwd ? null : trie.lookup(resolved);
+}
+
+/**
  * Every PID whose cwd {@link resolveRepoSlugFor} could consult for these
  * listener PIDs: the listeners themselves, plus up to `PPID_WALK_HOPS`
  * ancestors each.
@@ -409,7 +464,9 @@ class ProcessService {
   private lastConsumerAt = 0;
   private booted = false;
   private appWired = false;
-  private tickInFlight = false;
+  private inFlight: Promise<void> | null = null;
+  /** Memo for `resolveRealPath` — see {@link REALPATH_MEMO_MAX}. */
+  private readonly realPaths = new Map<string, string>();
 
   /**
    * Idempotent: build the catalog trie and prime the snapshot once.
@@ -431,7 +488,7 @@ class ProcessService {
     // case without priming is that the FIRST `process:list` call pays for
     // one tick instead of startup paying for it. Errors are non-fatal — the
     // next tick recovers.
-    void this.tick().catch((err: unknown) => {
+    void this.tickOnce().catch((err: unknown) => {
       console.error("[backend] processService.boot prime tick failed", err);
     });
   }
@@ -447,15 +504,32 @@ class ProcessService {
     this.ensurePolling();
     if (this.snapshot.snapshotAt === 0) {
       try {
-        await this.tick();
+        await this.tickOnce();
       } catch (err) {
         console.error("[backend] processService.list initial tick failed", err);
       }
     }
-    return {
-      processes: this.snapshot.processes.slice(),
-      snapshotAt: this.snapshot.snapshotAt,
-    };
+    return this.snapshotResult();
+  }
+
+  /**
+   * Sweep now, then resolve with the snapshot that sweep produced.
+   *
+   * This is what the process panel's Refresh action calls, and what the panel
+   * calls when it mounts: reading the cached snapshot cannot show a server
+   * that started after the last tick, and the next tick is up to 15s away when
+   * the app is blurred. A failed sweep still resolves — the caller gets the
+   * last good snapshot rather than an error, the same as `list`.
+   */
+  async refresh(): Promise<ListProcessesResult> {
+    this.lastConsumerAt = Date.now();
+    this.ensurePolling();
+    try {
+      await this.tickOnce();
+    } catch (err) {
+      console.error("[backend] processService refresh tick failed", err);
+    }
+    return this.snapshotResult();
   }
 
   /**
@@ -590,15 +664,37 @@ class ProcessService {
       }
       return;
     }
-    if (this.tickInFlight) return;
-    this.tickInFlight = true;
+    // Nobody is waiting on an interval tick, so skip one that will not fit
+    // rather than queue it behind the sweep already running.
+    if (this.inFlight) return;
     try {
-      await this.tick();
+      await this.tickOnce();
     } catch (err) {
       console.error("[backend] processService tick failed", err);
-    } finally {
-      this.tickInFlight = false;
     }
+  }
+
+  /**
+   * Run a sweep, or join the one already running. `refresh` must not resolve
+   * with the snapshot that was current *before* it was asked to look, and two
+   * concurrent sweeps would both multiply the subprocess load and race to
+   * publish — the slower one overwriting the fresher result.
+   */
+  private tickOnce(): Promise<void> {
+    if (this.inFlight) return this.inFlight;
+    const inFlight = this.tick().finally(() => {
+      this.inFlight = null;
+    });
+    this.inFlight = inFlight;
+    return inFlight;
+  }
+
+  /** A copy of the current snapshot, as every read path returns it. */
+  private snapshotResult(): ListProcessesResult {
+    return {
+      processes: this.snapshot.processes.slice(),
+      snapshotAt: this.snapshot.snapshotAt,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -640,7 +736,8 @@ class ProcessService {
       ),
     );
     const cwdOf = (pid: number): string | null => cwdByPid.get(pid) ?? null;
-    const lookup = (cwd: string): string | null => trie?.lookup(cwd) ?? null;
+    const lookup = (cwd: string): string | null =>
+      lookupRepoSlug(trie, cwd, (path) => this.resolvedPath(path));
 
     const next: ProcessInfo[] = [];
     const seenSig = new Set<string>();
@@ -708,7 +805,10 @@ class ProcessService {
       const trie = new RepoPathTrie();
       for (const row of rows) {
         if (row.full_path && row.slug) {
-          trie.insert(row.full_path, row.slug);
+          // Keyed on the resolved path: the cwd being matched against it is
+          // the one the kernel reports, and a symlinked scan root would
+          // otherwise never line up with it. See `resolveRealPath`.
+          trie.insert(this.resolvedPath(row.full_path), row.slug);
         }
       }
       this.trie = trie;
@@ -753,6 +853,16 @@ class ProcessService {
    * every listener's parent walk. A failed scan yields an empty map, which
    * makes every `ppidOf` return 0 and simply skips the walks this tick.
    */
+  /** {@link resolveRealPath}, memoised for the lifetime of the service. */
+  private resolvedPath(path: string): string {
+    const hit = this.realPaths.get(path);
+    if (hit !== undefined) return hit;
+    const resolved = resolveRealPath(path);
+    if (this.realPaths.size >= REALPATH_MEMO_MAX) this.realPaths.clear();
+    this.realPaths.set(path, resolved);
+    return resolved;
+  }
+
   private async readProcessTree(): Promise<Map<number, number>> {
     try {
       const { stdout } = await execFileP("ps", ["-axo", "pid=,ppid="], {

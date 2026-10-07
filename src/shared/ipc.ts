@@ -266,6 +266,13 @@ export const IPC = {
     /** Subset of LIST scoped to one repo by slug. */
     LIST_FOR_REPO: "process:listForRepo",
     /**
+     * Sweep now instead of waiting for the poll interval, then resolve
+     * with the resulting snapshot (same shape as LIST). A server started
+     * seconds ago is otherwise invisible until the next tick, which is up
+     * to 15s away while the app is blurred.
+     */
+    REFRESH: "process:refresh",
+    /**
      * Graceful kill: SIGINT → SIGTERM (after `escalateMs`, default
      * 3000ms) → SIGKILL (after another `escalateMs`, default 8000ms
      * total). Resolves when PID no longer listening or timeout.

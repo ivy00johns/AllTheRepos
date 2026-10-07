@@ -96,20 +96,24 @@ background can invoke it.
 
 ### 3.1 Process discovery — automatic, read-only
 
-Run on a timer to show which projects have something running.
-`services/process.ts:570` notes that every one of these uses `execFile`
+Run on a timer — and on demand, when the process panel mounts or its
+Refresh action is pressed (`process:refresh`) — to show which projects have
+something running.
+`services/process.ts:824` notes that every one of these uses `execFile`
 with a literal argument array — never a shell string — so no argument
 can be interpreted as a shell command.
 
 | Command | Purpose | Source |
 | --- | --- | --- |
-| `lsof -nP -iTCP -sTCP:LISTEN -F pcnTL` | Find listening ports | `process.ts:729` |
-| `ps -axo pid=,ppid=` | Read the whole parent map in one call | `process.ts:758` |
-| `lsof -a -p <pids> -F pn -d cwd` | Map processes to repos | `process.ts:800` |
-| `ps -p <pid> -o pid=` | Liveness check | `process.ts:815` |
+| `lsof -nP -iTCP -sTCP:LISTEN -F pcnTL` | Find listening ports | `process.ts:829` |
+| `ps -axo pid=,ppid=` | Read the whole parent map in one call | `process.ts:868` |
+| `lsof -a -p <pids> -F pn -d cwd` | Map processes to repos | `process.ts:910` |
+| `ps -p <pid> -o pid=` | Liveness check | `process.ts:925` |
 
 Poll interval: 3s focused, 15s unfocused, paused after 60s idle
-(`process.ts:46-47`). A tick is three rounds: the listening sweep and the
+(`process.ts:53-54`) — the on-demand path above runs the same sweep, so the
+timer is the floor rather than the only way a scan happens. A tick is three
+rounds: the listening sweep and the
 parent map run together, then the cwd lookups are batched 32 PIDs per
 call, up to 4 calls at once (`process.ts` `CWD_BATCH_SIZE` /
 `CWD_BATCH_CONCURRENCY`). Single-PID probes have a 1s timeout, a batched
@@ -189,7 +193,7 @@ process is lost — this is the same as pressing Ctrl-C then `kill -9`.
 
 **Killing a process** from the process panel escalates
 `SIGINT → SIGTERM → SIGKILL` with a wait between each
-(`process.ts:329-383`). Same caveat.
+(`process.ts:554-612`). Same caveat.
 
 ### 3.4 Opening editors and terminals — you initiate
 

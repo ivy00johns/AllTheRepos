@@ -7,6 +7,7 @@
  *   - parsePsTree     (`ps -axo pid=,ppid=` → pid → ppid)
  *   - cwdCandidates / resolveRepoSlugFor (the parent-walk pair — the
  *     resolver must only ever ask for PIDs the candidate set fetched)
+ *   - resolveRealPath / lookupRepoSlug (symlinked paths on either side)
  *   - RepoPathTrie   (deepest-prefix slug lookup)
  *   - snapshot equality (signature stability across input order)
  *   - kill state machine (SIGINT → SIGTERM → SIGKILL via global process.kill)
@@ -18,6 +19,11 @@
  * Owner: qe-agent (Phase 3a).
  */
 
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("electron", () => ({
@@ -27,9 +33,17 @@ vi.mock("electron", () => ({
   },
 }));
 
+/**
+ * The catalog rows `rebuildTrie` reads. Mutable so a test can seed the trie
+ * with a repo path — including a symlinked one — without a database.
+ */
+const dbState = vi.hoisted(() => ({
+  rows: [] as Array<{ slug: string; full_path: string }>,
+}));
+
 vi.mock("@main/db/client", () => ({
   getSqlite: () => ({
-    prepare: () => ({ all: () => [] }),
+    prepare: () => ({ all: () => dbState.rows }),
   }),
 }));
 
@@ -39,12 +53,15 @@ import {
   parsePsTree,
   cwdCandidates,
   resolveRepoSlugFor,
+  resolveRealPath,
+  lookupRepoSlug,
   RepoPathTrie,
   processService,
 } from "@main/services/process";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dbState.rows = [];
 });
 
 afterEach(() => {
@@ -488,6 +505,117 @@ describe("resolveRepoSlugFor", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Symlinked repo paths
+//
+// A cwd arrives as the path the kernel resolved; a catalog row holds whatever
+// the scanner was handed. When those differ — a `~/Code` symlinked onto
+// another volume, anything under `/tmp` on macOS — an unresolved comparison
+// never matches, and the port silently shows no repo. The trie is keyed on
+// resolved paths and a cwd is resolved before the fallback probe, which is
+// what these pin.
+// ---------------------------------------------------------------------------
+
+describe("resolveRealPath", () => {
+  it("resolves a symlink to its target", () => {
+    const root = mkdtempSync(join(tmpdir(), "atr-realpath-"));
+    try {
+      const target = join(root, "real-repo");
+      mkdirSync(target, { recursive: true });
+      const link = join(root, "linked-repo");
+      symlinkSync(target, link);
+
+      expect(resolveRealPath(link)).toBe(resolveRealPath(target));
+      expect(resolveRealPath(link)).not.toBe(link);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns the path unchanged when it cannot be resolved", () => {
+    const missing = join(tmpdir(), "atr-does-not-exist-9f3a1c");
+    expect(resolveRealPath(missing)).toBe(missing);
+  });
+});
+
+describe("lookupRepoSlug", () => {
+  it("returns null without a trie", () => {
+    expect(lookupRepoSlug(null, "/anything")).toBeNull();
+  });
+
+  it("prefers the cwd as reported", () => {
+    const trie = new RepoPathTrie();
+    trie.insert("/repos/foo", "foo");
+    expect(lookupRepoSlug(trie, "/repos/foo/src")).toBe("foo");
+  });
+
+  it("falls back to the resolved cwd when the reported one misses", () => {
+    const trie = new RepoPathTrie();
+    trie.insert("/private/var/repos/foo", "foo");
+    const resolve = (path: string) => path.replace("/var/", "/private/var/");
+    expect(lookupRepoSlug(trie, "/var/repos/foo", resolve)).toBe("foo");
+  });
+
+  it("does not re-probe when the resolver is the identity", () => {
+    const trie = new RepoPathTrie();
+    const seen: string[] = [];
+    const spy = new Proxy(trie, {
+      get(target, prop, receiver) {
+        if (prop === "lookup") {
+          return (path: string) => {
+            seen.push(path);
+            return target.lookup(path);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as RepoPathTrie;
+    expect(lookupRepoSlug(spy, "/elsewhere", (path) => path)).toBeNull();
+    expect(seen).toEqual(["/elsewhere"]);
+  });
+});
+
+describe("symlinked repo matching (catalog path -> listener cwd)", () => {
+  it("matches a repo registered through a symlink from the canonical cwd", () => {
+    const root = mkdtempSync(join(tmpdir(), "atr-symlink-"));
+    try {
+      const realRepo = join(root, "real-repo");
+      mkdirSync(join(realRepo, "src", "lib"), { recursive: true });
+      const linkedRepo = join(root, "linked-repo");
+      symlinkSync(realRepo, linkedRepo);
+
+      // What the scanner stored: the symlinked path. (On macOS `/var` is
+      // itself a symlink, so even this is not the canonical form.)
+      const trie = new RepoPathTrie();
+      trie.insert(resolveRealPath(linkedRepo), "slug");
+
+      // What lsof reports for a server running in that repo: the resolved cwd.
+      const listenerCwd = resolveRealPath(join(linkedRepo, "src", "lib"));
+      expect(lookupRepoSlug(trie, listenerCwd)).toBe("slug");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("would not match without resolution — the raw paths differ", () => {
+    const root = mkdtempSync(join(tmpdir(), "atr-symlink-raw-"));
+    try {
+      const realRepo = join(root, "real-repo");
+      mkdirSync(realRepo, { recursive: true });
+      const linkedRepo = join(root, "linked-repo");
+      symlinkSync(realRepo, linkedRepo);
+
+      // The trie keyed on the raw catalog path is the pre-fix behaviour: the
+      // listener's canonical cwd is a different string, so nothing matches.
+      const trie = new RepoPathTrie();
+      trie.insert(linkedRepo, "slug");
+      expect(trie.lookup(resolveRealPath(linkedRepo))).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Snapshot equality (signature derivation)
 //
 // The service emits an `update` event when its (pid, port, repoSlug)
@@ -541,6 +669,117 @@ describe("Snapshot equality (signature)", () => {
   it("compares equal on an empty snapshot", () => {
     expect(signatureFor([])).toBe(signatureFor([]));
   });
+});
+
+// ---------------------------------------------------------------------------
+// refresh()
+//
+// Real subprocesses on purpose, like the kill machine below: the point of
+// refresh is that it sweeps rather than reading the cache, and a mocked sweep
+// would prove nothing. Cheap now that a tick is three batched rounds.
+// ---------------------------------------------------------------------------
+
+describe("refresh", () => {
+  it("sweeps and resolves with a fresh snapshot", async () => {
+    const result = await processService.refresh();
+    expect(Array.isArray(result.processes)).toBe(true);
+    expect(result.snapshotAt).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("resolves the same way when a sweep is already in flight", async () => {
+    // Two callers at once must join one sweep rather than stack two.
+    const [a, b] = await Promise.all([
+      processService.refresh(),
+      processService.refresh(),
+    ]);
+    expect(a.snapshotAt).toBeGreaterThan(0);
+    expect(b.snapshotAt).toBeGreaterThan(0);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Binding end to end (mocked catalog, real lsof/ps)
+//
+// The pieces above are tested in isolation; this drives the whole path through
+// the service — catalog row -> trie -> the cwd lsof reports for a real
+// listener — which is the only place the wiring itself is covered. It is also
+// the test that notices if `rebuildTrie` stops keying on resolved paths.
+// ---------------------------------------------------------------------------
+
+/** A child that listens on an ephemeral port and prints it. */
+function spawnListener(cwd: string): Promise<{ child: ChildProcess; port: number }> {
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      "const s=require('http').createServer((q,r)=>r.end('ok'));s.listen(0,()=>{console.log('PORT='+s.address().port);});",
+    ],
+    { cwd, stdio: ["ignore", "pipe", "ignore"] },
+  );
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("listener never printed PORT")),
+      5_000,
+    );
+    child.stdout!.on("data", (buf: Buffer) => {
+      const m = buf.toString("utf8").match(/PORT=(\d+)/);
+      if (m?.[1]) {
+        clearTimeout(timer);
+        resolve({ child, port: parseInt(m[1], 10) });
+      }
+    });
+    child.once("error", reject);
+  });
+}
+
+describe("listener binding through the service", () => {
+  it("binds a listener to the repo it runs in", async () => {
+    const root = mkdtempSync(join(tmpdir(), "atr-bind-"));
+    let child: ChildProcess | null = null;
+    try {
+      const repo = join(root, "plain-repo");
+      mkdirSync(repo, { recursive: true });
+      dbState.rows = [{ slug: "plain-slug", full_path: repo }];
+
+      const spawned = await spawnListener(repo);
+      child = spawned.child;
+
+      const result = await processService.refresh();
+      const row = result.processes.find((p) => p.port === spawned.port);
+      expect(row, `no row for port ${spawned.port}`).toBeDefined();
+      expect(row!.repoSlug).toBe("plain-slug");
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("binds a listener in a repo the catalog holds via a symlink", async () => {
+    const root = mkdtempSync(join(tmpdir(), "atr-bind-link-"));
+    let child: ChildProcess | null = null;
+    try {
+      const realRepo = join(root, "real-repo");
+      mkdirSync(realRepo, { recursive: true });
+      const linkedRepo = join(root, "linked-repo");
+      symlinkSync(realRepo, linkedRepo);
+
+      // The catalog holds the path the scanner walked — the symlink.
+      dbState.rows = [{ slug: "linked-slug", full_path: linkedRepo }];
+
+      const spawned = await spawnListener(linkedRepo);
+      child = spawned.child;
+
+      const result = await processService.refresh();
+      const row = result.processes.find((p) => p.port === spawned.port);
+      expect(row, `no row for port ${spawned.port}`).toBeDefined();
+      // lsof reports the kernel's path, which is not the catalog's string.
+      expect(row!.cwd).toBe(resolveRealPath(linkedRepo));
+      expect(row!.repoSlug).toBe("linked-slug");
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------

@@ -6,15 +6,22 @@
  * `__root.tsx` (single-column layout, no detail panel).
  *
  * The actual table lives in `<ProcessList />` — this route file
- * owns only page chrome (title, breadcrumb back-button, bridge
- * fallback message).
+ * owns only page chrome (title, breadcrumb back-button, Refresh action,
+ * bridge fallback message).
+ *
+ * Opening the page runs one sweep (`useRefreshProcesses`), because reading
+ * the cached snapshot cannot show a server that started after the last tick.
+ * The Refresh button is the same sweep on demand.
  */
 
 import { Link, createRoute } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
+import * as React from "react";
 
 import { ProcessList } from "@renderer/components/process/process-list";
 import { Button } from "@renderer/components/ui/button";
+import { useRefreshProcesses } from "@renderer/hooks/use-processes";
+import { cn } from "@renderer/lib/cn";
 import { getAtr } from "@renderer/lib/atr";
 
 import { Route as RootRoute } from "./__root";
@@ -27,6 +34,14 @@ export const Route = createRoute({
 
 function ProcessesPage() {
   const bridgeAvailable = typeof window !== "undefined" && Boolean(getAtr());
+  const refresh = useRefreshProcesses();
+  const { mutate: refreshNow } = refresh;
+
+  // One sweep per visit: the snapshot the panel opens on was produced by an
+  // earlier tick, and a dev server started since then would not be in it.
+  React.useEffect(() => {
+    if (bridgeAvailable) refreshNow();
+  }, [bridgeAvailable, refreshNow]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,12 +54,30 @@ function ProcessesPage() {
             Listening dev servers detected across all configured repos.
           </p>
         </div>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/">
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            Back
-          </Link>
-        </Button>
+        <div className="flex items-center gap-1">
+          {bridgeAvailable ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => refreshNow()}
+              disabled={refresh.isPending}
+              aria-busy={refresh.isPending}
+              title="Scan for listening servers now"
+            >
+              <RefreshCw
+                className={cn("h-4 w-4", refresh.isPending && "animate-spin")}
+                aria-hidden
+              />
+              Refresh
+            </Button>
+          ) : null}
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/">
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              Back
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {bridgeAvailable ? (

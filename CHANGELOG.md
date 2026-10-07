@@ -27,6 +27,11 @@ source of truth for the current version.
   24–45s on a developer Mac and is now ~0.5s of subprocess work, so the process panel
   answers within a poll interval rather than most of a minute. The `process-flow` spec's
   detection leg went from 30s to 13ms and that spec from 1.1m to 13s.
+- The process panel sweeps on demand instead of waiting for the poll interval. It now asks
+  main for a fresh scan when it mounts and when its **Refresh** action is pressed
+  (`process:refresh`), so a server started a moment ago is visible immediately rather than
+  after the next tick — which was up to 15s away while the app was blurred. Concurrent
+  callers join one sweep instead of doubling the subprocess load.
 
 ### Fixed
 
@@ -51,6 +56,11 @@ source of truth for the current version.
   catalog, and the suite depended on whose machine it ran. Global setup now claims both
   legacy sentinels before the first boot and canonicalises the temp root, so the seeded
   repo paths match the cwd the kernel reports to `lsof`.
+- A repo reached through a symlink now matches its own listeners. The catalog stores
+  whatever path the scanner walked — `~/Code` symlinked onto another volume, or anything
+  under `/tmp` on macOS — while `lsof` reports the cwd the kernel resolved, so comparing
+  them unresolved meant those ports showed no repo at all. Both sides are canonicalised
+  now (memoised, so a large library does not pay for it on every scan).
 
 ## [0.1.3] - 2026-10-06
 

@@ -11,6 +11,14 @@
  *      one of the seeded repos and assert that its row — repo, port and PID —
  *      reaches the table, then that killing it clears the row.
  *
+ * ## Neither leg waits out the poll interval
+ *
+ * The panel refreshes on mount and offers a Refresh action, both of which ask
+ * main for a sweep instead of reading the snapshot the last tick produced
+ * (`process:refresh`). This spec uses that: a server started a moment ago is
+ * otherwise invisible for up to 15s while the app is blurred, which is long
+ * enough to look like detection failing.
+ *
  * ## Why leg 2 pins the repo and not just the PID
  *
  * The pid and port come straight out of the `lsof` sweep. The repo does not:
@@ -47,14 +55,17 @@ const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
 const SEEDED_REPO = "demo-cli";
 
 /**
- * Both ceilings are the poller's cadence, not the cost of a tick: detecting a
- * listener is now a fraction of a second of `lsof`/`ps` work, but the app only
- * ticks on an interval (3s focused, 15s blurred), so a row that appears
- * between ticks waits for the next one. Measured on a developer Mac: the row
- * lands in ~25ms when a tick catches it, and clears ~3s after the kill.
+ * Both ceilings sit far above one on-demand sweep (~0.5s of `lsof`/`ps` work
+ * here, with the row landing in 40-80ms) and below the 15s blurred poll
+ * interval, so the panel showing the host is what is being asserted — not the
+ * suite waiting out the poller. They are not tight enough to prove the row
+ * arrived *because* of the refresh rather than a tick; the unit specs pin that
+ * `refresh` sweeps rather than reading the cache.
  */
-const DETECTION_TIMEOUT_MS = 30_000;
-const CLEAR_TIMEOUT_MS = 30_000;
+const DETECTION_TIMEOUT_MS = 10_000;
+const CLEAR_TIMEOUT_MS = 10_000;
+/** How long a killed child gets to actually exit before the sweep looks. */
+const EXIT_TIMEOUT_MS = 10_000;
 
 /** Where `_global-setup.ts` put the seeded repos. */
 function seededRepoDir(name: string): string {
@@ -207,20 +218,26 @@ test.describe("Phase 3a process flow", () => {
         win.getByRole("heading", { name: /^processes$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
-      // 3. The row has to arrive. Match on cells rather than `has-text` on the
-      //    <tr>: a bare substring lets a 4-digit port match a longer one (port
-      //    5000 lives inside port 15000). The port renders inside its own
-      //    <span> next to a decorative dot; the PID cell holds only the number.
+      // 3. Ask for a sweep rather than waiting out the poll interval.
+      const refreshBtn = win.getByRole("button", { name: /^refresh$/i });
+      await expect(refreshBtn).toBeVisible({ timeout: 5_000 });
+      await expect(refreshBtn).toBeEnabled({ timeout: 10_000 });
+
+      // The row has to arrive. Match on cells rather than `has-text` on the
+      // <tr>: a bare substring lets a 4-digit port match a longer one (port
+      // 5000 lives inside port 15000). The port renders inside its own <span>
+      // next to a decorative dot; the PID cell holds only the number.
       const rowSelector = win
         .locator("tbody tr")
         .filter({ has: win.locator(`span:text-is("${port}")`) })
         .filter({ has: win.locator(`td:text-is("${pid}")`) });
 
       const detectedAt = Date.now();
+      await refreshBtn.click();
       await expect(
         rowSelector,
-        `expected PID ${pid} on port ${port} to appear in the /processes table. ` +
-          `The main-side lsof poller never surfaced it within ${DETECTION_TIMEOUT_MS}ms.`,
+        `expected PID ${pid} on port ${port} to appear in the /processes table ` +
+          `within ${DETECTION_TIMEOUT_MS}ms of asking for a fresh sweep.`,
       ).toHaveCount(1, { timeout: DETECTION_TIMEOUT_MS });
       const detectionMs = Date.now() - detectedAt;
 
@@ -243,19 +260,31 @@ test.describe("Phase 3a process flow", () => {
       });
       await expect(killBtn).toBeVisible({ timeout: 5_000 });
 
-      // The kill handler opens window.confirm; auto-accept.
+      // The kill handler opens window.confirm; auto-accept. The click returns
+      // as soon as it dispatches, so wait for the child itself to go before
+      // sweeping — a sweep that ran early would be right to still list it.
       win.once("dialog", (d) => {
         void d.accept();
       });
       await killBtn.click();
+      const exitDeadline = Date.now() + EXIT_TIMEOUT_MS;
+      while (child.exitCode === null && child.signalCode === null) {
+        if (Date.now() > exitDeadline) break;
+        await win.waitForTimeout(50);
+      }
+      expect(
+        child.exitCode !== null || child.signalCode !== null,
+        `PID ${pid} had not exited ${EXIT_TIMEOUT_MS}ms after the kill was confirmed`,
+      ).toBe(true);
 
-      // 6. The row clears on the next snapshot — the poller runs again without
-      //    the dead child in it.
+      // 6. The row clears on a fresh sweep.
       const killedAt = Date.now();
+      await expect(refreshBtn).toBeEnabled({ timeout: 10_000 });
+      await refreshBtn.click();
       await expect(
         rowSelector,
         `PID ${pid} was killed but its row is still in the /processes table ` +
-          `after ${CLEAR_TIMEOUT_MS}ms — the poller is not refreshing.`,
+          `after a fresh sweep + ${CLEAR_TIMEOUT_MS}ms.`,
       ).toHaveCount(0, { timeout: CLEAR_TIMEOUT_MS });
 
       // eslint-disable-next-line no-console

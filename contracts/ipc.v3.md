@@ -38,9 +38,10 @@ through `openExternalAllowlisted` from `src/main/security/allowlist.ts`.
 - **Input schema:** `ListProcessesInputSchema` (empty object)
 - **Output schema:** `ListProcessesResultSchema`
 - **Behavior:** returns the current in-memory snapshot from
-  `ProcessService`. If no scan has run yet, triggers a synchronous
-  one (blocking for ~100ms typical, capped at 1000ms — if lsof
-  hangs, returns the empty snapshot and logs a warning).
+  `ProcessService`. If no sweep has run yet, triggers one and waits for
+  it — three subprocess rounds (~0.5s typical on a developer Mac, each
+  round carrying its own timeout); a sweep that fails still resolves
+  with the last good snapshot and logs.
 
 ### `process:listForRepo`
 
@@ -50,6 +51,17 @@ through `openExternalAllowlisted` from `src/main/security/allowlist.ts`.
 - **Behavior:** filters `process:list`'s snapshot to rows whose
   `repoSlug` matches. Returns empty list (NOT 404) when no matches —
   "no dev server running for this repo" is the common case.
+
+### `process:refresh` (added after the Phase 3a freeze)
+
+- **Input:** `ListProcessesInputSchema` (empty object)
+- **Output:** `ListProcessesResultSchema`
+- **Behavior:** sweeps the host now instead of waiting for the poll
+  interval, then resolves with the snapshot that sweep produced. The
+  process panel calls it when it mounts and when Refresh is pressed,
+  because reading the cached snapshot cannot show a server that started
+  after the last tick — up to 15s away while the app is blurred. A
+  sweep already in flight is joined, not doubled.
 
 ### `process:kill`
 
@@ -163,6 +175,7 @@ schema-version bump — Zod accepts the extra keys via optional fields.
 | ------------------------- | ------------------------------- | --------------------------------- | ---------------------------------- |
 | `process:list`            | `IPC.PROCESS.LIST`              | `ListProcessesInputSchema`        | `ListProcessesResultSchema`        |
 | `process:listForRepo`     | `IPC.PROCESS.LIST_FOR_REPO`     | `ListProcessesForRepoInputSchema` | `ListProcessesForRepoResultSchema` |
+| `process:refresh`         | `IPC.PROCESS.REFRESH`           | `ListProcessesInputSchema`        | `ListProcessesResultSchema`        |
 | `process:kill`            | `IPC.PROCESS.KILL`              | `KillProcessInputSchema`          | `KillProcessResultSchema`          |
 | `process:on:update`       | `IPC.PROCESS.ON_UPDATE`         | —                                 | `ProcessUpdateEventSchema`         |
 | `launcher:detect`         | `IPC.LAUNCHER.DETECT`           | `DetectLauncherInputSchema`       | `DetectLauncherResultSchema`       |

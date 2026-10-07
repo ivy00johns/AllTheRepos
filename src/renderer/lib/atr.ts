@@ -338,6 +338,8 @@ export interface AtrBridge {
     listForRepo(
       input: ListProcessesForRepoInput,
     ): Promise<ListProcessesForRepoResult>;
+    /** Sweep now rather than waiting for the poll interval. */
+    refresh(): Promise<ListProcessesResult>;
     kill(input: KillProcessInput): Promise<KillProcessResult>;
     onUpdate(cb: (payload: ProcessUpdateEvent) => void): () => void;
   };

@@ -123,7 +123,7 @@ flowchart LR
     lance[("🧭 LanceDB<br/>vectors")]
     disk["📁 Your repositories"]
 
-    ui -- "69 typed IPC channels" --> bridge
+    ui -- "70 typed IPC channels" --> bridge
     bridge --> main
     main --> db
     main --> lance
@@ -137,7 +137,7 @@ flowchart LR
 | **`src/preload/`** | `contextBridge.exposeInMainWorld('atr', …)`. The renderer reaches the main process **only** through `window.atr.<namespace>.<method>()`. |
 | **`src/renderer/`** | A pure web app: Vite + React 19 + Tailwind 4 + shadcn primitives + TanStack Router (memory history) + TanStack Query + Zustand. |
 
-**16 namespaces and 69 IPC channels** are wired, each with Zod-validated input *and* output plus a frame-origin check. See [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md) (current) and [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md).
+**16 namespaces and 70 IPC channels** are wired, each with Zod-validated input *and* output plus a frame-origin check. See [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md) (current) and [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md).
 
 ### Routes
 

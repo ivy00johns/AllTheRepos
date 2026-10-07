@@ -553,6 +553,15 @@ export const api = {
   process: {
     list: (): Promise<ListProcessesResult> =>
       ipcRenderer.invoke(IPC.PROCESS.LIST, {}) as Promise<ListProcessesResult>,
+    /**
+     * Sweep now instead of waiting for the poll interval. Resolves with the
+     * snapshot the sweep produced.
+     */
+    refresh: (): Promise<ListProcessesResult> =>
+      ipcRenderer.invoke(
+        IPC.PROCESS.REFRESH,
+        {},
+      ) as Promise<ListProcessesResult>,
     listForRepo: (
       input: ListProcessesForRepoInput,
     ): Promise<ListProcessesForRepoResult> =>

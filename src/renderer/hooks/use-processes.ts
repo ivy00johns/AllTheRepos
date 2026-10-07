@@ -125,6 +125,34 @@ export function useProcessCount(): number {
 }
 
 /**
+ * On-demand sweep. The 5s query above is a heartbeat — it reads whatever the
+ * main-side poller last produced, so a server started a moment ago stays
+ * invisible until the next tick (3s focused, 15s blurred). This asks main to
+ * scan now and writes the result straight into the cache, so the panel shows
+ * the host as it is at the moment someone looks. Concurrent callers join the
+ * same sweep on the main side.
+ */
+export function useRefreshProcesses(): UseMutationResult<
+  ListProcessesResult,
+  Error,
+  void
+> {
+  const queryClient = useQueryClient();
+  return useMutation<ListProcessesResult, Error, void>({
+    mutationFn: async () => {
+      const atr = getAtr();
+      if (!atr) {
+        throw new Error("Preload bridge unavailable — cannot refresh processes.");
+      }
+      return atr.process.refresh();
+    },
+    onSuccess: (snapshot) => {
+      queryClient.setQueryData<ListProcessesResult>(PROCESSES_KEY, snapshot);
+    },
+  });
+}
+
+/**
  * Kill mutation. Resolves with the main-side `KillProcessResult`.
  * On settle the snapshot is invalidated so the table reflects the
  * gap before the next poll/push event arrives.

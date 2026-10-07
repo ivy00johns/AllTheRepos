@@ -22,7 +22,7 @@
  *   - `window.atr.app.{onMenuCommand,onDeepLink,onTrayOpenRepo}` (push streams)
  *
  * Phase 3a (process + launcher):
- *   - `window.atr.process.{list,listForRepo,kill,onUpdate}`
+ *   - `window.atr.process.{list,listForRepo,refresh,kill,onUpdate}`
  *   - `window.atr.launcher.{detect,openInEditor,openInTerminal,openInFinder,openRemote,copyPath}`
  *
  * Phase 3b (Claude Code integration):

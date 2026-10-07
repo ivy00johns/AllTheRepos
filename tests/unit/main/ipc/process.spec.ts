@@ -20,6 +20,7 @@ vi.mock("@main/services/process", () => ({
   processService: {
     list: vi.fn(),
     listForRepo: vi.fn(),
+    refresh: vi.fn(),
     kill: vi.fn(),
     boot: vi.fn(),
     events: { on: vi.fn(), off: vi.fn(), emit: vi.fn() },
@@ -30,6 +31,7 @@ import { processService } from "@main/services/process";
 import {
   handleProcessList,
   handleProcessListForRepo,
+  handleProcessRefresh,
   handleProcessKill,
 } from "@main/ipc/process";
 
@@ -121,6 +123,46 @@ describe("handleProcessListForRepo", () => {
       handleProcessListForRepo({ slug: "foo", wat: 1 }),
     ).rejects.toThrow();
     expect(processService.listForRepo).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleProcessRefresh
+// ---------------------------------------------------------------------------
+
+describe("handleProcessRefresh", () => {
+  it("sweeps via processService.refresh and returns the fresh snapshot", async () => {
+    vi.mocked(processService.refresh).mockResolvedValue({
+      processes: [fixtureRow],
+      snapshotAt: 1_700_000_002_000,
+    });
+    const out = await handleProcessRefresh({});
+    expect(processService.refresh).toHaveBeenCalledTimes(1);
+    expect(out.processes[0]!.repoSlug).toBe("foo");
+    expect(out.snapshotAt).toBe(1_700_000_002_000);
+  });
+
+  it("tolerates a null payload by defaulting to {}", async () => {
+    vi.mocked(processService.refresh).mockResolvedValue({
+      processes: [],
+      snapshotAt: 0,
+    });
+    const out = await handleProcessRefresh(null);
+    expect(processService.refresh).toHaveBeenCalledTimes(1);
+    expect(out.processes).toEqual([]);
+  });
+
+  it("rejects extra keys before any sweep runs", async () => {
+    await expect(handleProcessRefresh({ wat: 1 })).rejects.toThrow();
+    expect(processService.refresh).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the service returns a result that violates the schema", async () => {
+    vi.mocked(processService.refresh).mockResolvedValue({
+      processes: [{ ...fixtureRow, port: 70000 }],
+      snapshotAt: 0,
+    } as unknown as Awaited<ReturnType<typeof processService.refresh>>);
+    await expect(handleProcessRefresh({})).rejects.toThrow();
   });
 });
 
