@@ -103,7 +103,7 @@ Application menu and MUST NOT appear in the main-window in-app palette.
 ## Shortcut format
 
 `Action.shortcut` is an **Electron Accelerator string** as documented at
-<https://www.electronjs.org/docs/latest/api/accelerator>. Examples:
+<https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts>. Examples:
 
 - `CmdOrCtrl+K`
 - `CmdOrCtrl+Shift+Space`

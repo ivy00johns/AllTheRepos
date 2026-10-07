@@ -70,15 +70,27 @@ git tag v0.2.0 && git push origin v0.2.0
 6. **Verifies the published release** — `pnpm release:verify`, the same check in the state
    users actually see: `releases/latest` resolves, and the feed the updater reads is the
    thing being asserted on.
+7. **Deletes the draft again if the run failed.** A final step that runs only on a failure or
+   a cancel reads the release back and removes it *while it is still a draft*, so a run that
+   died partway — the assets uploaded, the notes not attached — cannot leave an invisible
+   release behind for someone to find later, or for the next run to silently reuse. It does
+   not try to publish instead: the assets of a run that failed partway are the ones there is
+   least reason to trust. A **published** release is never touched (the verification steps
+   above can fail too, and that release is what people are downloading), and neither is the
+   tag — it lives in the source repo, so `--cleanup-tag` would aim at the wrong one. If the
+   delete does not take, the step fails and says to remove it by hand.
 
 Two phases on purpose: `releases/latest` ignores drafts, so a job that dies between
 "assets uploaded" and "notes attached" leaves an invisible draft rather than an empty
 release the updater would happily offer. The verification steps bracket that: a broken
 upload fails while it is still invisible, and the published release is checked again
-because that is the one an update check will actually resolve.
+because that is the one an update check will actually resolve. The last step then takes the
+invisible draft away as well, so a red build leaves nothing behind.
 
-Re-running is safe while the release is still a draft — electron-builder reuses it and
-re-uploads. Once published it will not touch it; see the two-hour rule below.
+Re-running is safe. While the release is still a draft, electron-builder reuses it and
+re-uploads — though a failed run will have deleted it first, so a re-run after a failure
+starts from nothing rather than carrying whatever the failed attempt had uploaded. Once
+published, electron-builder will not touch it; see the two-hour rule below.
 
 ### What `release:verify` checks
 
@@ -288,7 +300,10 @@ bundle that fails `codesign --verify`.
 ## Things that will bite you
 
 - **A draft release is invisible to the updater.** `releases/latest`
-  skips drafts. Publish it.
+  skips drafts. Publish it. A failed CI run deletes the draft it left, so a stale
+  one should not outlive a red build — but a draft you made by hand
+  (`EP_DRAFT=true pnpm release`) is yours to clean up, and the next run for that
+  tag will *reuse* it rather than replace it.
 - **Re-running the workflow for a tag whose release is already published uploads
   nothing — and still passes.** electron-publish only reuses an existing release
   when its type matches the one it was asked to publish: with `EP_DRAFT=true`

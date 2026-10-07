@@ -247,7 +247,8 @@ function unreleasedRegion(changelog) {
 
 /**
  * Put the new section under `[Unreleased]`, move the link references along,
- * and point every version link at the repo releases are actually published to.
+ * and repoint the version links that releases have moved away from — and only
+ * those, so a link somebody chose on purpose survives a bump.
  */
 export function applyToChangelog(
   changelog,
@@ -275,9 +276,19 @@ export function applyToChangelog(
     /^\[Unreleased\]:.*$/m,
     (line) => `${line}\n[${version}]: ${releasesBase}/releases/tag/v${version}`,
   );
-  next = next.replace(
-    /^\[(\d+\.\d+\.\d+)\]:[^\S\n]*\S+$/gm,
-    (_line, tag) => `[${tag}]: ${releasesBase}/releases/tag/v${tag}`,
+  // Older links are corrected only when they are the ones this repo moved
+  // *away* from: `<source>/releases/tag/v1.2.3` is what the changelog carried
+  // while releases lived in the source repo, and it does not resolve there any
+  // more. Everything else is left exactly as written — a link already at the
+  // releases repo, a version that was never published and points at a commit or
+  // a compare by hand, anything. Sweeping every `[x.y.z]:` line was how the one
+  // version with no release ended up pointing at a tag URL that 404s, and it
+  // would re-break that link on the very next bump.
+  const versionLink = /^\[(\d+\.\d+\.\d+)\]:[^\S\n]*(\S+)$/gm;
+  next = next.replace(versionLink, (line, tag, url) =>
+    url === `${compareRepo}/releases/tag/v${tag}`
+      ? `[${tag}]: ${releasesBase}/releases/tag/v${tag}`
+      : line,
   );
   return { changelog: next, linkRefs: true };
 }

@@ -294,6 +294,31 @@ describe("applyToChangelog", () => {
     expect(changelog).not.toContain("github.com/acme/fixture/releases/tag");
   });
 
+  test("keeps a link that is not a release this repo moved away from", () => {
+    // The shape a never-published version has: no release page, so it points at
+    // the source repo's own compare by hand.
+    const unpublished = CHANGELOG_FIXTURE.replace(
+      "[0.1.0]: https://github.com/acme/fixture/releases/tag/v0.1.0",
+      "[0.1.0]: https://github.com/acme/fixture/compare/v0.0.9...abc1234",
+    );
+    const { changelog } = release.applyToChangelog(unpublished, {
+      version: "0.2.0",
+      date: "2026-10-06",
+      sections: [{ heading: "Added", bullets: ["add folders"] }],
+      compareRepo: "https://github.com/acme/fixture",
+      releasesRepo: "acme/fixture-releases",
+    });
+
+    // Rewriting it at the releases repo would point it at a tag nobody ever
+    // published — the dangling link this guard exists to stop coming back.
+    expect(changelog).toContain(
+      "[0.1.0]: https://github.com/acme/fixture/compare/v0.0.9...abc1234",
+    );
+    expect(changelog).not.toContain(
+      "[0.1.0]: https://github.com/acme/fixture-releases",
+    );
+  });
+
   test("leaves the references alone when there is no remote to point at", () => {
     const { changelog, linkRefs } = release.applyToChangelog(CHANGELOG_FIXTURE, {
       version: "0.2.0",

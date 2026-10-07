@@ -11,6 +11,39 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- The release workflow deletes the draft it leaves behind when a run fails partway.
+  A release that only ever reached a draft is invisible to `releases/latest` and to
+  `GET /releases/tags/{tag}`, so the half-uploaded state that a red build left was
+  never seen by anyone — which is how `v0.1.1` sat as a draft until it was found by
+  hand. A final step, on failure or cancel only, reads the release back and removes
+  it while it is still a draft. A published release is never touched, and neither is
+  the tag, which lives in the source repo rather than the releases repo.
+- `pnpm links:check` resolves every external link in the tracked Markdown and fails on a
+  404 — the failure mode that let a changelog entry point at a deleted release and a
+  contract cite a page upstream had moved, for as long as anyone can tell. GitHub URLs go
+  through the API, so a private repository's links are judged with a credential instead of
+  being guessed at, and anything that could not be judged — a rate limit, a bot wall, a
+  timeout — is reported without failing the run. It is its own CI job, because it is the
+  one gate that talks to the internet.
+- The release workflow's cleanup step is now guarded by a test: the step, its
+  `failure() || cancelled()` trigger, and the fact that it deletes only while the API still
+  reports a **draft** are asserted, and the step's own shell is run against a stub `gh` so a
+  published release is proven untouched rather than assumed.
+
+### Fixed
+
+- The changelog's link for the one version that was never published points somewhere
+  real again. `[0.1.1]` aimed at a release tag that does not exist, because the
+  release was deleted along with its tag; it now compares against the release commit
+  in the source repository. It would have been re-broken on the next bump, so
+  `release:next` no longer rewrites every version link — only the ones pointing at a
+  release the source repo moved away from — and a destination chosen by hand survives.
+- `contracts/actions.v1.md` cited Electron's accelerator page, which upstream has since
+  moved; it points at the current keyboard-shortcuts page. Found by `pnpm links:check` on
+  its first run.
+
 ## [0.1.4] - 2026-10-07
 
 ### Changed
@@ -104,6 +137,10 @@ source of truth for the current version.
 
 ## [0.1.1] - 2026-10-06
 
+> **Never published.** This version's assets only ever reached a draft, which was
+> deleted along with its tag, so the link below compares against the release commit
+> in the source repository rather than a release page that does not exist.
+
 ### Added
 
 - `pnpm release:next` derives the next version and its changelog section from
@@ -181,5 +218,5 @@ well before this file existed; this entry is the backfill.
 [0.1.4]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
-[0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
+[0.1.1]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.0...2669d50b6405a84a6d9a6b5f5109750df2041f96
 [0.1.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.0
