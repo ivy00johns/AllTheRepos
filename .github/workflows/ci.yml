@@ -10,7 +10,7 @@
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
-#   pnpm typecheck · pnpm lint · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
+#   pnpm typecheck · pnpm lint · pnpm lint:prose · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
 # and, for a job that has to package the app before it can run at all:
 #   pnpm electron:pack · pnpm test:packaged-update-refused
 #
@@ -76,6 +76,24 @@ jobs:
       # 27 of them did, naming rules that left with the Next-era linter, and
       # nothing noticed until they were read by hand.
       - run: pnpm lint
+      # The prose, and the AI tells it must not carry. Python stdlib only, no
+      # network, no build — the same shape as the checks above it, so it belongs
+      # in the fast job.
+      #
+      # The checker is vendored at `scripts/check-prose-slop.py`, because the
+      # skill it comes from is installed outside this repository and a runner has
+      # no copy of it. Every rule comes from `.prose-guard.json` at the root: this
+      # project decided there that em dashes are house style, so `no-em-dash` is
+      # the skill's one rule at `warn` instead of its default `error` — 1,200-odd
+      # of them are deliberate and none of them fails the build. A banned phrase,
+      # AI vocabulary or a sycophantic opener is still an error, and the gate is
+      # proved able to fail rather than only able to pass.
+      #
+      # `CHANGELOG.md` is scanned rather than skipped, deliberately: it is
+      # outward prose this project writes and releases, so it was taken out of
+      # the skill's default `skipPaths`.
+      - name: The prose, and the AI tells it must not carry
+        run: pnpm lint:prose
       # The first-launch instructions are rendered from one source
       # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
       # paragraph and the CI warning. This fails if that file has drifted from what

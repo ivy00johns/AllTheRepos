@@ -9,6 +9,7 @@
     "start": "pnpm electron:preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint .",
+    "lint:prose": "python3 scripts/check-prose-slop.py --root .",
     "db:generate": "drizzle-kit generate",
     "test": "node scripts/ensure-native-abi.mjs host && vitest run",
     "test:watch": "node scripts/ensure-native-abi.mjs host && vitest",
