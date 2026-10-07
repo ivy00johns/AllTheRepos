@@ -11,8 +11,12 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-07
+
 ### Added
 
+- read the update feed the way the app does, and rehearse a release
+- generate the tests badge, prove the draft cleanup on demand, check links inside the repo
 - The update feed is checked the way a shipped app reads it. `pnpm release:verify` inspects the
   manifest with a credential, at the moment of publishing, against the release it was just
   uploaded with — and an install does the opposite of all three: anonymously, through
@@ -45,9 +49,9 @@ source of truth for the current version.
   leaves a real draft (and an asset) in the releases repo, runs the same
   `scripts/discard-draft-release.mjs` a failed release would, and fails the job if the draft
   survives; then it publishes a **pre-release**, runs the cleanup again and fails if that
-  release was touched. Pre-release on purpose: `releases/latest` skips those, so a drill can
-  never become the release the app offers. A dispatch cannot publish anything — the release
-  job is gated to tag pushes.
+  release was touched. Pre-release on purpose: `releases/latest` skips those, so a drill can    never become the release the app offers. A plain dispatch cannot publish anything — the
+    release job is reachable from one only with `rehearse=true`, and what that builds stays a
+    draft.
 - `pnpm links:check` resolves relative links too, and runs on a schedule. A target that is not
   in the repository — or that climbs out of it — is dead, resolved from the file that names it,
   because the same `./PLAN.md` means two different files in two directories. The check moved
@@ -55,8 +59,14 @@ source of truth for the current version.
   **weekly**: a page upstream can rot, and a published release can be deleted, without a commit
   here, and a push trigger can never see that.
 
+### Changed
+
+- correct the README's test count to what CI ran
+
 ### Fixed
 
+- make the release drill's cleanup actually reach its scratch release
+- stop the link check failing on the version being released
 - The release drill failed on its first dispatch, for the two reasons a drill exists to find,
   and both are now fixed. A step cannot hand `scripts/discard-draft-release.mjs` a scratch tag
   through the environment: `GITHUB_`-prefixed names are reserved, so GitHub silently keeps the
@@ -286,7 +296,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
