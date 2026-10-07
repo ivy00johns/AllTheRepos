@@ -81,6 +81,10 @@ function commands(text: string): string {
 
 const cleanup = stepBlock(CLEANUP_STEP);
 const drill = jobBlock(DRILL_JOB);
+const feed = jobBlock("feed");
+const releaseJob = jobBlock("release");
+const SETTLE_STEP = "Settle the version, the tag, and whether this publishes";
+const settle = stepBlock(SETTLE_STEP);
 
 describe("the draft cleanup step", () => {
   test("exists, and runs only when the build failed or was cancelled", () => {
@@ -119,9 +123,14 @@ describe("the draft cleanup step", () => {
 });
 
 describe("the workflow can prove the cleanup on demand", () => {
-  test("a manual dispatch cannot publish — the release job needs a tag push", () => {
+  test("a plain dispatch cannot even reach the release job", () => {
+    // The `rehearse` input is the only door from a dispatch into that job, and
+    // what it does once inside is a rehearsal — see the block below.
     expect(workflow).toMatch(/^  workflow_dispatch:/m);
-    expect(jobBlock("release")).toMatch(/if: github\.event_name == 'push'/);
+    expect(workflow).toMatch(/^      rehearse:/m);
+    expect(jobBlock("release")).toMatch(
+      /if: github\.event_name == 'push' \|\| github\.event\.inputs\.rehearse == 'true'/,
+    );
   });
 
   test("the drill exists, and only runs when dispatched", () => {
@@ -190,5 +199,93 @@ describe("the workflow can prove the cleanup on demand", () => {
     expect(drill).toMatch(
       /DRILL_PUBLISHED: drill-published-\$\{\{ github\.run_id \}\}/,
     );
+  });
+});
+
+describe("rehearsing a release without publishing one", () => {
+  const publish = stepBlock(PUBLISH_STEP);
+
+  test("the draft flag is the one thing that decides whether anything shows", () => {
+    // One flag, set in one place, one value per branch: `true` for a rehearsal,
+    // `false` for a tag push. Nothing else about the two runs differs.
+    const [rehearsal, push] = settle.split("\n          else\n");
+
+    expect(rehearsal).toContain("DRAFT=true");
+    expect(rehearsal).not.toContain("DRAFT=false");
+    expect(push).toContain("DRAFT=false");
+    expect(push).not.toContain("DRAFT=true");
+
+    expect(publish).toContain('--draft="$DRAFT"');
+    expect(publish).not.toContain("--draft=false");
+  });
+
+  test("a rehearsal's version is one no install would ever be offered", () => {
+    // `0.0.0-rehearse.<run id>`: valid semver, and semver compares the
+    // major.minor.patch triple before it looks at any pre-release tag, so this
+    // sorts below every 0.1.x this project has released. Even the runaway case
+    // — a scratch release somehow escaping into `releases/latest` — could not be
+    // offered to an install as an update.
+    expect(releaseJob).toMatch(
+      /SCRATCH_VERSION: 0\.0\.0-rehearse\.\$\{\{ github\.run_id \}\}/,
+    );
+  });
+
+  test("is the same pipeline, not a copy of it", () => {
+    // A rehearsal that ran its own steps could drift from the ones that ship,
+    // which is the thing it exists to prevent. It runs this job, and this job
+    // names the version and the tag in one place.
+    const afterSettle = releaseJob.slice(
+      releaseJob.indexOf(settle) + settle.length,
+    );
+
+    expect(afterSettle).not.toContain("GITHUB_REF_NAME");
+    expect(afterSettle).not.toContain("require('./package.json').version");
+    // Stamping the build is what aims the upload at a scratch channel instead
+    // of at the tag a real release would be using.
+    expect(releaseJob).toContain('-c.extraMetadata.version="$BUILD_VERSION"');
+  });
+
+  test("verifies its own draft, and never the release that is live", () => {
+    expect(stepBlock("Verify the draft has all three assets")).toContain(
+      'release:verify --allow-draft --tag "$TAG" --version "$BUILD_VERSION"',
+    );
+    // `releases/latest` still points at the previous release, so asserting on it
+    // during a rehearsal would be asserting on somebody else's work.
+    expect(stepBlock("Verify the published release")).toMatch(/if:.*REHEARSE/);
+  });
+
+  test("takes its scratch release away whether it passed or failed", () => {
+    const rehearsalCleanup = stepBlock(
+      "Delete the scratch release a rehearsal created",
+    );
+
+    expect(rehearsalCleanup).toMatch(/if:.*always\(\)/);
+    expect(rehearsalCleanup).toMatch(/REHEARSE/);
+    expect(rehearsalCleanup).toContain("gh release delete");
+    // The draft lesson again: a release the drill creates with `--draft` has no
+    // tag of its own, and `--cleanup-tag` on one answers 422.
+    expect(commands(rehearsalCleanup)).not.toContain("--cleanup-tag");
+  });
+});
+
+describe("the updater feed drill", () => {
+  test("exists, and runs on demand", () => {
+    expect(feed).toContain("feed:");
+    expect(feed).toMatch(/if: github\.event_name == 'workflow_dispatch'/);
+  });
+
+  test("reads the feed with no credential, because that is the whole claim", () => {
+    // The app has no token. A credentialed read would pass on the runner and
+    // fail for every install — the failure this drill exists to catch — so the
+    // step is handed nothing it could use by accident.
+    expect(feed).toContain("node scripts/check-updater-feed.mjs");
+    expect(feed).not.toContain("GH_TOKEN");
+    expect(feed).not.toContain("secrets.");
+    expect(feed).not.toContain("contents: write");
+  });
+
+  test("needs nothing built, because it reads a release that already exists", () => {
+    expect(feed).toContain("runs-on: ubuntu-latest");
+    expect(feed).not.toContain("pnpm install");
   });
 });

@@ -47,7 +47,7 @@ import { readReleasesRepo } from "./release-config.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The manifest asset, by the name electron-builder gives it. */
-const MANIFEST_ASSET = "latest-mac.yml";
+export const MANIFEST_ASSET = "latest-mac.yml";
 
 /**
  * The handful of fields `latest-mac.yml` carries — without a YAML parser.
@@ -56,6 +56,12 @@ const MANIFEST_ASSET = "latest-mac.yml";
  * `url`/`sha512`/`size`, and a top-level `path` naming the file the manifest
  * refers to. Anything that does not match is left null and reported as a
  * failure by `auditRelease` rather than guessed at here.
+ *
+ * `sha512` is read here although `auditRelease` does not compare it: checking it
+ * against real bytes needs the bytes, which is what
+ * `scripts/check-updater-feed.mjs` downloads. One parser for one format — a
+ * second one in that file is how the two would come to disagree about what the
+ * manifest says.
  */
 export function parseManifest(text) {
   const manifest = { version: null, path: null, files: [] };
@@ -64,13 +70,21 @@ export function parseManifest(text) {
   for (const line of text.split("\n")) {
     const item = /^\s+-\s+url:\s*(\S+)\s*$/.exec(line);
     if (item) {
-      current = { url: item[1], size: null };
+      current = { url: item[1], size: null, sha512: null };
       manifest.files.push(current);
       continue;
     }
     const size = /^\s+size:\s*(\d+)\s*$/.exec(line);
     if (size && current) {
       current.size = Number(size[1]);
+      continue;
+    }
+    // Only inside a `files` entry: the manifest also carries a top-level
+    // `sha512` for the `path` above, and reading that as a file's digest would
+    // compare the right digest against the wrong file.
+    const digest = /^\s+sha512:\s*(\S+)\s*$/.exec(line);
+    if (digest && current) {
+      current.sha512 = digest[1];
       continue;
     }
     const version = /^version:\s*(\S+)\s*$/.exec(line);

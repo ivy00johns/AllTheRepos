@@ -13,6 +13,10 @@ pnpm release:verify # check a published release: all three assets, and coherent
 pnpm icons          # regenerate resources/icon.icns from the design tokens
 pnpm electron:dist  # build a local DMG + ZIP into release/ (no publishing)
 pnpm release        # build AND publish to GitHub Releases (runs release:check first)
+
+gh workflow run release.yml                  # prove the feed, and the draft cleanup
+node scripts/check-updater-feed.mjs          # ... the feed check on its own
+gh workflow run release.yml -f rehearse=true # run the whole pipeline, publish nothing
 ```
 
 `release/` output:
@@ -126,8 +130,53 @@ place to be careful with it: a `--draft` release has no tag of its own — GitHu
 under a placeholder like `untagged-2da6…` — so the step deletes the draft by release alone,
 and only cleans a tag up for the pre-release, which does own one.
 
-A dispatch cannot publish anything: the `release` job is gated to tag pushes, so
-`workflow_dispatch` reaches the drill and nothing else.
+A dispatch without the `rehearse` input cannot reach the `release` job at all, so the drill and
+the feed check are everything a plain dispatch can do.
+
+### Rehearsing a release
+
+The whole pipeline can be run without publishing anything:
+
+```bash
+gh workflow run release.yml -f rehearse=true
+```
+
+That runs the same job a tag push runs — the tag/version guard, typecheck, the unit suite, the
+native rebuild, packaging, the upload, `release:verify` against its own draft, and the notes and
+release body a real release would attach — with the version, the tag and the draft flag settled
+differently. The build is stamped `0.0.0-rehearse.<run id>` and uploaded under that tag, the
+release stays a **draft**, and the run deletes the draft when it is finished, so a botched
+rehearsal leaves no more trace than a clean one.
+
+Two reasons that is safe. `releases/latest` skips drafts, so nothing a rehearsal creates can
+reach the update feed at all; and `0.0.0-rehearse.<run id>` sorts below every released `0.1.x`,
+because semver compares the version before it looks at any pre-release tag — so even a scratch
+release that somehow escaped could not be offered to an install as an update.
+
+It is the *same* job rather than a copy of it on purpose. A rehearsal that ran its own steps
+could drift from the ones that ship, which is the thing it exists to prevent.
+
+### Checking the update feed
+
+```bash
+node scripts/check-updater-feed.mjs    # or: gh workflow run release.yml
+```
+
+`release:verify` inspects the manifest with a credential, at the moment of publishing, against
+the release it was just uploaded with. An install does the opposite of all three: anonymously,
+through `releases/latest`, weeks later — and it refuses the archive unless the sha512 in the
+manifest matches the bytes it downloaded. Nothing here read the feed that way, so it could rot
+in the gap between those two reads: the release deleted, the assets re-uploaded under new names,
+the repo turned private. The first symptom would be somebody's app reporting that nothing has
+ever been published.
+
+So the `feed` job performs that read on demand: `GET /releases/latest` with **no credential at
+all**, the live `latest-mac.yml`, and the archive it names, downloaded and hashed. Exit `0` means
+the feed is usable, `1` means it is broken (every reason printed), and `2` means the check could
+not run — GitHub rate-limits anonymous reads to 60 an hour per address, so a refusal says
+nothing about the feed. Its unit tests assert that no request carries an `authorization` header
+even when the environment holds a token, because a check that passes merely because the machine
+running it is authenticated is the exact failure being guarded against.
 
 ### What `release:verify` checks
 

@@ -31,11 +31,17 @@ on:
   push:
     tags:
       - "v*"
-  # On demand, for one thing only: the `drill` job at the bottom of this file,
-  # which proves the draft cleanup against a real draft. The cleanup is the
-  # failure path, so nothing else would ever run it. A dispatch deliberately
-  # cannot publish — the release job below is gated to tag pushes.
+  # On demand, for the three things that otherwise never run: `feed`, which reads
+  # the update feed the way a shipped app reads it; `drill`, which proves the
+  # draft cleanup against a real draft; and the release pipeline itself, through
+  # the `rehearse` input below — which builds the same artifacts under a scratch
+  # version and publishes none of them.
   workflow_dispatch:
+    inputs:
+      rehearse:
+        description: "Run the whole release pipeline into a scratch channel, publishing nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,11 +58,25 @@ concurrency:
 
 jobs:
   release:
-    name: build and publish
-    # A tag push is the only thing that publishes. This gate is what makes
-    # `workflow_dispatch` safe to offer: a manual run can only reach the drill.
-    if: github.event_name == 'push'
+    name: ${{ github.event.inputs.rehearse == 'true' && 'rehearse into a scratch channel' || 'build and publish' }}
+    # A tag push is the only thing that publishes. A dispatch reaches this job
+    # only through `rehearse`, which builds the same artifacts under a scratch
+    # version and leaves the release a **draft** — and a draft is invisible to
+    # `releases/latest`, which is the only place an update check looks.
+    #
+    # `github.event.inputs` rather than the `inputs` context on purpose: on a
+    # push there are no inputs at all, and an absent value is exactly what this
+    # needs to see.
+    if: github.event_name == 'push' || github.event.inputs.rehearse == 'true'
     runs-on: macos-14
+    env:
+      # Reads as `false` on a tag push, where there is no input at all.
+      REHEARSE: ${{ github.event.inputs.rehearse == 'true' }}
+      # Valid semver, and deliberately *lower* than anything released. Even in
+      # the failure this whole design exists to avoid — a scratch release
+      # escaping into `releases/latest` — a 0.1.x install would read it as older
+      # than itself and be offered nothing.
+      SCRATCH_VERSION: 0.0.0-rehearse.${{ github.run_id }}
     steps:
       - name: Check the publishing credential
         env:
@@ -77,6 +97,37 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      # Everything below asks these five names instead of working them out, so a
+      # rehearsal and a release differ in one place rather than in nine steps.
+      #
+      # A rehearsal has no tag to be named by — a dispatch runs on a branch — so
+      # it builds under a scratch version and what it creates stays a draft. The
+      # version the *changelog* is written for is still `package.json`'s, which
+      # is what keeps the guard below honest: a rehearsal still fails on a
+      # missing changelog section for the version being built.
+      - name: Settle the version, the tag, and whether this publishes
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$REHEARSE" = "true" ]; then
+            BUILD_VERSION="$SCRATCH_VERSION"
+            TAG="v$SCRATCH_VERSION"
+            GUARD_TAG="v$VERSION"
+            DRAFT=true
+          else
+            BUILD_VERSION="$VERSION"
+            TAG="$GITHUB_REF_NAME"
+            GUARD_TAG="$GITHUB_REF_NAME"
+            DRAFT=false
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "BUILD_VERSION=$BUILD_VERSION"
+            echo "TAG=$TAG"
+            echo "GUARD_TAG=$GUARD_TAG"
+            echo "DRAFT=$DRAFT"
+          } >> "$GITHUB_ENV"
+          echo "building $BUILD_VERSION, releasing as $TAG, guarding $GUARD_TAG, draft=$DRAFT"
+
       # Guard first, deliberately: a tag that disagrees with package.json, or a
       # version with no changelog section, fails here in seconds — before the
       # natives are rebuilt and before anything is uploaded. The notes land in
@@ -88,7 +139,7 @@ jobs:
       # instead of a changelog.
       - name: Guard the tag and collect the release notes
         run: |
-          pnpm --silent release:check "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          pnpm --silent release:check "$GUARD_TAG" > "$RUNNER_TEMP/notes.md"
           echo "--- release notes ---"
           cat "$RUNNER_TEMP/notes.md"
 
@@ -109,11 +160,17 @@ jobs:
       # plus latest-mac.yml, which is generated from the ZIP target and is what
       # an update check reads. `publish always` is what lets this run outside a
       # local tag push, where electron-builder would otherwise decline.
+      #
+      # `-c.extraMetadata.version` is what makes a rehearsal possible at all:
+      # electron-builder uploads to `v<version>`, so stamping the build with a
+      # scratch version aims it at a scratch channel instead of at the tag a real
+      # release would be using. On a tag push the value is the version
+      # `package.json` already carries, so this is the same command as before.
       - name: Package and upload as a draft
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           EP_DRAFT: "true"
-        run: pnpm exec electron-builder --mac --publish always
+        run: pnpm exec electron-builder --mac --publish always -c.extraMetadata.version="$BUILD_VERSION"
 
       # Read the draft back before it can be seen. An upload that dropped the
       # ZIP, or wrote a manifest naming a version nobody built, fails the job
@@ -122,7 +179,7 @@ jobs:
       - name: Verify the draft has all three assets
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: pnpm release:verify --allow-draft
+        run: pnpm release:verify --allow-draft --tag "$TAG" --version "$BUILD_VERSION"
 
       # Publishing the draft is the last step, so the release appears complete:
       # assets up, notes on, then visible.
@@ -133,16 +190,19 @@ jobs:
       # which is exactly how the first published release was misread. A named,
       # linked .dmg at the top removes the guesswork, and the paragraph under it
       # says what the other three assets are and why they exist.
+      # A rehearsal runs this too, and stops one flag short: `--draft="$DRAFT"`
+      # leaves its scratch release a draft, so the rehearsal covers the notes,
+      # the DMG link and the checksum line exactly as a release does without any
+      # of it becoming visible.
       - name: Attach the notes and publish the draft
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          DMG="AllTheRepos-${VERSION}-arm64.dmg"
+          DMG="AllTheRepos-${BUILD_VERSION}-arm64.dmg"
           {
             echo "## 📦 Download"
             echo
-            echo "**[${DMG}](https://github.com/${RELEASES_REPO}/releases/download/${GITHUB_REF_NAME}/${DMG})** — the macOS installer (Apple silicon, $(du -h "release/${DMG}" | cut -f1))."
+            echo "**[${DMG}](https://github.com/${RELEASES_REPO}/releases/download/${TAG}/${DMG})** — the macOS installer (Apple silicon, $(du -h "release/${DMG}" | cut -f1))."
             echo
             echo "Open the DMG, drag **AllTheRepos** into Applications, then right-click the app →"
             echo "**Open** once. It is ad-hoc signed and **not notarised**, so the first launch has to"
@@ -159,22 +219,27 @@ jobs:
             echo
             cat "$RUNNER_TEMP/notes.md"
           } > "$RUNNER_TEMP/release-body.md"
-          gh release edit "$GITHUB_REF_NAME" \
+          gh release edit "$TAG" \
             --repo "$RELEASES_REPO" \
-            --title "$GITHUB_REF_NAME" \
-            --draft=false \
+            --title "$TAG" \
+            --draft="$DRAFT" \
             --notes-file "$RUNNER_TEMP/release-body.md"
-          gh release view "$GITHUB_REF_NAME" --repo "$RELEASES_REPO" \
+          gh release view "$TAG" --repo "$RELEASES_REPO" \
             --json tagName,isDraft,assets \
             --jq '{tag: .tagName, draft: .isDraft, assets: [.assets[].name]}'
 
       # ... and once more in the state users actually see. The draft check ran
       # against a draft, where `releases/latest` does not apply; this is the
       # release an update check will resolve, so it is the one worth failing on.
+      #
+      # Not for a rehearsal: it published nothing, so `releases/latest` is still
+      # the previous release and asserting on it would be asserting on somebody
+      # else's work.
       - name: Verify the published release
+        if: ${{ env.REHEARSE != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: pnpm release:verify
+        run: pnpm release:verify --tag "$TAG"
 
       # A run that dies between the upload and the publish leaves its assets on
       # a DRAFT — invisible to `releases/latest` and to `GET /releases/tags/{tag}`,
@@ -192,6 +257,32 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: node scripts/discard-draft-release.mjs
+
+      # A rehearsal leaves a scratch release that nothing else will ever remove:
+      # the step above looks for the tag a real release would have been tagged
+      # with, and a rehearsal's is not that tag. So take it away here, whether the
+      # rehearsal passed or failed — a botched rehearsal should leave no more
+      # trace than a clean one.
+      - name: Delete the scratch release a rehearsal created
+        if: ${{ always() && env.REHEARSE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            # No `--cleanup-tag`: a rehearsal's release is a draft, and a draft
+            # has no tag of its own — GitHub files it under a placeholder like
+            # `untagged-2da6…`, which is exactly what made the `drill` job below
+            # fail with a 422 the first time it was dispatched.
+            gh release delete "$TAG" --repo "$RELEASES_REPO" --yes
+            echo "removed the scratch release $TAG"
+          else
+            echo "no scratch release $TAG to remove"
+          fi
+          # And the tag, if this is the other kind of draft and one exists.
+          # Best effort on purpose: a draft normally has no ref at all, and a
+          # dangling tag is a cosmetic annoyance in a repo nobody browses, while
+          # a failed cleanup here would be a red run for no reason.
+          gh api -X DELETE "repos/$RELEASES_REPO/git/refs/tags/$TAG" >/dev/null 2>&1 || true
 
   # The cleanup above is the failure path: it only ever runs after a release has
   # already gone wrong, which means it can sit for months without being
@@ -310,3 +401,33 @@ jobs:
               fi
             fi
           done
+
+  # The feed is the one part of a release that has to keep working after the
+  # release does, and nothing here had ever read it the way an install reads it.
+  # `release:verify` inspects the manifest with a credential, at the moment of
+  # publishing, against the release it was just uploaded with. An install does
+  # the opposite of all three: anonymously, through `releases/latest`, weeks
+  # later, and it refuses the archive unless the manifest's sha512 matches the
+  # bytes it downloaded.
+  #
+  # So the difference between those two reads is drift nothing watches — the
+  # release deleted, the assets re-uploaded under new names, the repo turned
+  # private — and the first symptom would be somebody's app reporting that
+  # nothing has ever been published. This reads it the app's way, on demand.
+  #
+  # No token, deliberately, and no `pnpm install` either: the script imports
+  # nothing but Node and two files from this repo. A credentialed read would pass
+  # here and fail everywhere else, which is the specific failure being guarded
+  # against, so the step is handed no credential to accidentally use.
+  feed:
+    name: prove the updater feed
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-updater-feed.mjs

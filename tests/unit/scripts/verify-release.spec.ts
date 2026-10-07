@@ -39,7 +39,7 @@ const SCRIPT = path.resolve(
 interface Manifest {
   version: string | null;
   path: string | null;
-  files: Array<{ url: string; size: number | null }>;
+  files: Array<{ url: string; size: number | null; sha512: string | null }>;
 }
 
 interface Audit {
@@ -112,14 +112,26 @@ function audit(
 }
 
 describe("parseManifest", () => {
-  test("reads the version, the followed file and each file's size", () => {
+  test("reads the version, the followed file, its size and its digest", () => {
     const manifest = verify.parseManifest(MANIFEST);
 
     expect(manifest.version).toBe("0.2.0");
     expect(manifest.path).toBe("AllTheRepos-0.2.0-arm64-mac.zip");
     expect(manifest.files).toEqual([
-      { url: "AllTheRepos-0.2.0-arm64-mac.zip", size: 121 },
+      { url: "AllTheRepos-0.2.0-arm64-mac.zip", size: 121, sha512: "PmVmFye/abc==" },
     ]);
+  });
+
+  test("does not read the top-level sha512 as a file's digest", () => {
+    // The manifest carries one for the `path` line as well, and it is a
+    // different number. Reading it here would compare the right digest against
+    // the wrong file, and `scripts/check-updater-feed.mjs` hashes real bytes
+    // against whatever this returns.
+    const manifest = verify.parseManifest(
+      "files:\n  - url: a.zip\n    sha512: file-digest==\npath: a.zip\nsha512: top-level-digest==\n",
+    );
+
+    expect(manifest.files[0].sha512).toBe("file-digest==");
   });
 
   test("returns nulls rather than throwing on an unfamiliar manifest", () => {

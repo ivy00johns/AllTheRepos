@@ -13,6 +13,27 @@ source of truth for the current version.
 
 ### Added
 
+- The update feed is checked the way a shipped app reads it. `pnpm release:verify` inspects the
+  manifest with a credential, at the moment of publishing, against the release it was just
+  uploaded with — and an install does the opposite of all three: anonymously, through
+  `releases/latest`, weeks later, refusing the archive unless the sha512 in the manifest matches
+  the bytes it downloaded. Nothing read the feed that way, so it could rot in that gap — the
+  release deleted, the assets re-uploaded under new names, the repo turned private — and the
+  first symptom would be somebody's app saying nothing had ever been published.
+  `scripts/check-updater-feed.mjs` now performs exactly that read, on demand (a `feed` job,
+  dispatched like the drill): no credential at all, the live `latest-mac.yml`, and the archive it
+  names, downloaded and hashed. Its tests assert that no request carries an `authorization`
+  header even when the environment holds a token, because a check that passes only because the
+  machine running it is authenticated is the failure being guarded.
+- A release can be **rehearsed**. `gh workflow run release.yml -f rehearse=true` runs the whole
+  pipeline — the tag/version guard, typecheck, the unit suite, the native rebuild, packaging,
+  the upload, `release:verify` against its own draft, and the notes and release body a real
+  release would attach — under a scratch version, leaving the result a draft that the same run
+  deletes. `releases/latest` skips drafts, so nothing it creates can reach the update feed, and
+  `0.0.0-rehearse.<run id>` sorts below every released `0.1.x`, so even a scratch release that
+  escaped could not be offered to an install as an update. It is the same job as a release, with
+  the version, the tag and the draft flag settled in one place, rather than a copy of it that
+  could drift from the steps that actually ship.
 - The tests badge in the README is generated instead of typed. `pnpm test:report` writes the
   suite's own totals and `pnpm badges` draws `docs/images/tests.svg` from them, and CI does
   the same thing on every push to `main` and commits the result when the counts move — so the
