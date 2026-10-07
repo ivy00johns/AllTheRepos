@@ -206,7 +206,7 @@ flowchart LR
 │   ├── e2e/               # Playwright Electron specs
 │   └── helpers/
 ├── resources/             # icon.icns, tray art, entitlements
-├── .github/workflows/     # ci.yml, release.yml
+├── .github/workflows/     # ci.yml, release.yml, doc-links.yml, updater-feed.yml
 └── electron-builder.yml   # DMG + ZIP packaging and the update feed
 ```
 
@@ -229,6 +229,8 @@ Current status: the unit suite and `typecheck` are green on every push and pull 
 The **tests badge above is generated, not typed.** `pnpm test:report` writes the report and `pnpm badges` renders `docs/images/tests.svg` from it, and CI does the same thing on every push to `main` and commits the result when the counts move — so the number cannot drift the way a hand-written one does, and it goes red when anything fails. A red badge here now means a red suite rather than a forgotten edit.
 
 `pnpm links:check` is the one gate that needs the internet, so it lives in its own workflow ([`.github/workflows/doc-links.yml`](./.github/workflows/doc-links.yml)) rather than in `ci.yml`. It resolves both kinds of link and fails on either: an external one answering **404**, which is how a changelog entry pointing at a deleted release or a contract citing a page upstream moved out from under it gets caught; and a relative one whose file is not there, which is how the two archived plans that had been pointing at documents since moved were caught. A rate limit, a bot wall or a timeout is reported and does not fail — a check that could not run is not a verdict. It runs on Markdown changes **and weekly**, because a page upstream can rot without a commit here, and that is the one failure a push trigger can never see.
+
+`node scripts/check-updater-feed.mjs` is the other gate that needs the internet, and it has its own workflow ([`.github/workflows/updater-feed.yml`](./.github/workflows/updater-feed.yml)) for the same reason. It reads the update feed exactly the way a shipped app does — **no credential at all**, `releases/latest`, the live `latest-mac.yml`, and the archive it names, downloaded and hashed. That is not what `pnpm release:verify` checks: that reads the same manifest with a token, at publish time, against the release it was just uploaded with, and the gap between those two reads is where a feed rots — a release deleted, its assets re-uploaded under new names, the releases repo turned private. So this one runs on any change to what it reads, and **weekly**, half an hour behind the link check.
 
 ### The dual-rebuild dance
 

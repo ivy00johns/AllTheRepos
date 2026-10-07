@@ -1,0 +1,77 @@
+# Updater feed — read the update feed the way a shipped app reads it, on a
+# change to anything it depends on and on a schedule.
+#
+# Its own workflow rather than a job in release.yml, for the reason the link
+# check left ci.yml. It is a gate that has to run when *nothing here changed*: a
+# feed rots without a commit — the release deleted, its assets re-uploaded under
+# new names, the releases repo turned private — and every one of those is
+# invisible to a trigger that only fires on a push. release.yml is tag-push and
+# dispatch, so a schedule there would mean the whole release workflow waking up
+# once a week to fire a single job that needs nothing built.
+#
+# What it checks is deliberately not what `release:verify` checks. That one runs
+# with a credential, at the moment of publishing, against the release it was just
+# uploaded with. An install does the opposite of all three: anonymously, through
+# `releases/latest`, weeks later, and it refuses the archive unless the sha512 in
+# the manifest matches the bytes it downloaded. So this performs that read, and
+# the credential is the part that has to be absent — a token here would pass on
+# the runner and fail for everyone who installed the app, which is precisely the
+# failure the check exists to catch. Nothing in this file hands out one.
+#
+# `scripts/check-updater-feed.mjs` does the work, and its unit tests cover every
+# branch, including that no request carries an `authorization` header.
+name: Updater feed
+
+on:
+  push:
+    paths:
+      - "scripts/check-updater-feed.mjs"
+      # It reuses this one's manifest parser and this one's repo lookup, so a
+      # change to either changes what the feed check is reading.
+      - "scripts/verify-release.mjs"
+      - "scripts/release-config.mjs"
+      # The publish block is the feed's address, and the app's own constants are
+      # pinned to it by tests/unit/main/services/updater-feed.spec.ts.
+      - "electron-builder.yml"
+      - ".github/workflows/updater-feed.yml"
+  pull_request:
+    paths:
+      - "scripts/check-updater-feed.mjs"
+      - "scripts/verify-release.mjs"
+      - "scripts/release-config.mjs"
+      - "electron-builder.yml"
+      - ".github/workflows/updater-feed.yml"
+  schedule:
+    # Mondays, 13:30 UTC — the same weekly sweep as the link check, deliberately
+    # half an hour behind it so the two do not queue together. A feed that rots
+    # between releases is the failure a push trigger can never see, which is why
+    # the clock is here at all. A failing scheduled run notifies whoever last
+    # touched this file.
+    - cron: "30 13 * * 1"
+  # By hand: after publishing a release, or to re-check after a GitHub outage
+  # that made the last run say nothing about the feed rather than failing it.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: updater-feed-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  feed:
+    name: anonymous read of the live feed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No `pnpm install`: the checker imports nothing but Node and two files
+      # from this repository. No `GH_TOKEN` either, anywhere above — the read has
+      # to be the one an install with no account can make.
+      - name: Read the feed the way the app does
+        run: node scripts/check-updater-feed.mjs

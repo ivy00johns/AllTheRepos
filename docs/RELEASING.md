@@ -14,8 +14,9 @@ pnpm icons          # regenerate resources/icon.icns from the design tokens
 pnpm electron:dist  # build a local DMG + ZIP into release/ (no publishing)
 pnpm release        # build AND publish to GitHub Releases (runs release:check first)
 
-gh workflow run release.yml                  # prove the feed, and the draft cleanup
-node scripts/check-updater-feed.mjs          # ... the feed check on its own
+gh workflow run release.yml                  # prove the draft cleanup
+gh workflow run updater-feed.yml             # read the live update feed the way the app does
+node scripts/check-updater-feed.mjs          # ... the same check, on this machine
 gh workflow run release.yml -f rehearse=true # run the whole pipeline, publish nothing
 ```
 
@@ -130,8 +131,8 @@ place to be careful with it: a `--draft` release has no tag of its own — GitHu
 under a placeholder like `untagged-2da6…` — so the step deletes the draft by release alone,
 and only cleans a tag up for the pre-release, which does own one.
 
-A dispatch without the `rehearse` input cannot reach the `release` job at all, so the drill and
-the feed check are everything a plain dispatch can do.
+A dispatch without the `rehearse` input cannot reach the `release` job at all, so the drill is
+everything a plain dispatch of that workflow can do.
 
 ### Rehearsing a release
 
@@ -159,7 +160,8 @@ could drift from the ones that ship, which is the thing it exists to prevent.
 ### Checking the update feed
 
 ```bash
-node scripts/check-updater-feed.mjs    # or: gh workflow run release.yml
+node scripts/check-updater-feed.mjs    # by hand
+gh workflow run updater-feed.yml       # the same check, on a runner
 ```
 
 `release:verify` inspects the manifest with a credential, at the moment of publishing, against
@@ -170,11 +172,20 @@ in the gap between those two reads: the release deleted, the assets re-uploaded 
 the repo turned private. The first symptom would be somebody's app reporting that nothing has
 ever been published.
 
-So the `feed` job performs that read on demand: `GET /releases/latest` with **no credential at
-all**, the live `latest-mac.yml`, and the archive it names, downloaded and hashed. Exit `0` means
-the feed is usable, `1` means it is broken (every reason printed), and `2` means the check could
-not run — GitHub rate-limits anonymous reads to 60 an hour per address, so a refusal says
-nothing about the feed. Its unit tests assert that no request carries an `authorization` header
+So `.github/workflows/updater-feed.yml` performs that read — `GET /releases/latest` with **no
+credential at all**, the live `latest-mac.yml`, and the archive it names, downloaded and hashed.
+Exit `0` means the feed is usable, `1` means it is broken (every reason printed), and `2` means
+the check could not run — GitHub rate-limits anonymous reads to 60 an hour per address, so a
+refusal says nothing about the feed.
+
+It has its own workflow rather than a job in `release.yml`, for the reason `pnpm links:check`
+left `ci.yml`: it is a gate that has to run when **nothing here changed**, and a feed rots
+without a commit — a release deleted, its assets re-uploaded under new names, the releases repo
+turned private. `release.yml` is tag-push and dispatch, so a schedule there would wake the whole
+release pipeline weekly to fire one job that needs nothing built. So this one runs **weekly** —
+Mondays, 13:30 UTC, half an hour behind the link check's own sweep — and on any change to what
+it reads: the check itself, the manifest parser and repo lookup it reuses, and the
+`electron-builder.yml` publish block that is the feed's address. Its unit tests assert that no request carries an `authorization` header
 even when the environment holds a token, because a check that passes merely because the machine
 running it is authenticated is the exact failure being guarded against.
 

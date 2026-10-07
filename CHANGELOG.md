@@ -11,6 +11,19 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- The update feed is checked on a schedule as well as on demand. It has its own workflow,
+  `.github/workflows/updater-feed.yml`, for the reason the link check left `ci.yml`: it is a gate
+  that has to run when *nothing here changed*, because a feed rots on its own — a release
+  deleted, its assets re-uploaded under new names, the releases repo turned private — and every
+  one of those is invisible to a trigger that only fires on a push. `release.yml` is tag-push
+  and dispatch, so a schedule there would wake the whole release pipeline once a week to fire
+  one job that needs nothing built. It now runs weekly (Mondays, 13:30 UTC, half an hour behind
+  the link check's own sweep) and on any change to what it reads: the check itself, the manifest
+  parser and repo lookup it reuses, and the `electron-builder.yml` publish block that is the
+  feed's address. Running it by hand is `gh workflow run updater-feed.yml`.
+
 ## [0.1.6] - 2026-10-07
 
 ### Added

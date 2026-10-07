@@ -31,11 +31,15 @@ on:
   push:
     tags:
       - "v*"
-  # On demand, for the three things that otherwise never run: `feed`, which reads
-  # the update feed the way a shipped app reads it; `drill`, which proves the
-  # draft cleanup against a real draft; and the release pipeline itself, through
-  # the `rehearse` input below — which builds the same artifacts under a scratch
-  # version and publishes none of them.
+  # On demand, for the two things that otherwise never run: `drill`, which proves
+  # the draft cleanup against a real draft, and the release pipeline itself,
+  # through the `rehearse` input below — which builds the same artifacts under a
+  # scratch version and publishes none of them.
+  #
+  # The updater feed check used to be a third job here. It has its own workflow
+  # now (`.github/workflows/updater-feed.yml`), because it also has to run on a
+  # schedule: a feed can rot without a commit in this repository, and a tag-push
+  # trigger cannot see that.
   workflow_dispatch:
     inputs:
       rehearse:
@@ -402,32 +406,3 @@ jobs:
             fi
           done
 
-  # The feed is the one part of a release that has to keep working after the
-  # release does, and nothing here had ever read it the way an install reads it.
-  # `release:verify` inspects the manifest with a credential, at the moment of
-  # publishing, against the release it was just uploaded with. An install does
-  # the opposite of all three: anonymously, through `releases/latest`, weeks
-  # later, and it refuses the archive unless the manifest's sha512 matches the
-  # bytes it downloaded.
-  #
-  # So the difference between those two reads is drift nothing watches — the
-  # release deleted, the assets re-uploaded under new names, the repo turned
-  # private — and the first symptom would be somebody's app reporting that
-  # nothing has ever been published. This reads it the app's way, on demand.
-  #
-  # No token, deliberately, and no `pnpm install` either: the script imports
-  # nothing but Node and two files from this repo. A credentialed read would pass
-  # here and fail everywhere else, which is the specific failure being guarded
-  # against, so the step is handed no credential to accidentally use.
-  feed:
-    name: prove the updater feed
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: node scripts/check-updater-feed.mjs

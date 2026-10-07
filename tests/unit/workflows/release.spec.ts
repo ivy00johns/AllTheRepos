@@ -81,7 +81,6 @@ function commands(text: string): string {
 
 const cleanup = stepBlock(CLEANUP_STEP);
 const drill = jobBlock(DRILL_JOB);
-const feed = jobBlock("feed");
 const releaseJob = jobBlock("release");
 const SETTLE_STEP = "Settle the version, the tag, and whether this publishes";
 const settle = stepBlock(SETTLE_STEP);
@@ -268,24 +267,14 @@ describe("rehearsing a release without publishing one", () => {
   });
 });
 
-describe("the updater feed drill", () => {
-  test("exists, and runs on demand", () => {
-    expect(feed).toContain("feed:");
-    expect(feed).toMatch(/if: github\.event_name == 'workflow_dispatch'/);
-  });
-
-  test("reads the feed with no credential, because that is the whole claim", () => {
-    // The app has no token. A credentialed read would pass on the runner and
-    // fail for every install — the failure this drill exists to catch — so the
-    // step is handed nothing it could use by accident.
-    expect(feed).toContain("node scripts/check-updater-feed.mjs");
-    expect(feed).not.toContain("GH_TOKEN");
-    expect(feed).not.toContain("secrets.");
-    expect(feed).not.toContain("contents: write");
-  });
-
-  test("needs nothing built, because it reads a release that already exists", () => {
-    expect(feed).toContain("runs-on: ubuntu-latest");
-    expect(feed).not.toContain("pnpm install");
+describe("where the update feed check lives", () => {
+  test("not here any more — it has a workflow that can also run on a clock", () => {
+    // `release.yml` is tag-push and dispatch, so a schedule here would wake the
+    // whole release workflow weekly to fire one job. The check, and the
+    // reasoning for every assertion that used to be in this file, moved to
+    // `tests/unit/workflows/updater-feed.spec.ts` with it.
+    expect(workflow).not.toMatch(/^  feed:/m);
+    expect(workflow).not.toContain("check-updater-feed");
+    expect(workflow).toContain(".github/workflows/updater-feed.yml");
   });
 });
