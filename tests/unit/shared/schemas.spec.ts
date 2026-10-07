@@ -13,7 +13,6 @@ import {
   TagSourceSchema,
   TagSchema,
   LanguageBytesSchema,
-  RepoSchema,
   SmartFilterSchema,
   GroupSchema,
   ScanEventSchema,

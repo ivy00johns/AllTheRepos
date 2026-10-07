@@ -12,12 +12,14 @@
  * stuck at the one moment nothing in the app could help them: the app is not
  * running yet.
  *
- * Two of those surfaces are now rendered from a single source
- * (`scripts/first-launch.mjs`), which is what stops them disagreeing. This is the
- * other half: the surfaces that are still hand-written — `README.md`,
- * `docs/RELEASING.md`, the changelog, the in-app notice — plus the one source
- * itself, so a well-meaning edit to a hand-written page, or to the sentences the
- * renderers compose, fails here rather than on a stranger's desktop.
+ * Four of those surfaces are now rendered from a single source
+ * (`scripts/first-launch.mjs`) — the file inside the DMG, the release-note
+ * paragraph, the CI warning, and the in-app notice, the last of them through the
+ * generated `src/shared/adhoc-notice.ts` — which is what stops them disagreeing.
+ * This is the other half: the surfaces that are still hand-written — `README.md`,
+ * `docs/RELEASING.md`, the changelog — plus the one source itself, so a
+ * well-meaning edit to a hand-written page, or to the sentences the renderers
+ * compose, fails here rather than on a stranger's desktop.
  *
  * ## What counts as stale, and why the rule is shaped this way
  *
@@ -78,7 +80,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { releaseNoteParagraph, renderReadMeFirst, workflowWarning } from "./first-launch.mjs";
+import {
+  noticeText,
+  releaseNoteParagraph,
+  renderReadMeFirst,
+  workflowWarning,
+} from "./first-launch.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -269,7 +276,7 @@ export function scannedFiles(root = ROOT) {
  * The surfaces a single source renders, read back as if they were files.
  *
  * The renderers compose the facts, so a bad edit to `scripts/first-launch.mjs`
- * would reach all three at once — and the file on disk would still match what it
+ * would reach all four at once — and the files on disk would still match what it
  * renders, which is why the freshness check in `first-launch.mjs` cannot see it.
  * Scanning what it prints closes that hole.
  */
@@ -277,6 +284,7 @@ export function renderedSurfaces() {
   return [
     { file: "scripts/first-launch.mjs (--print read-me)", text: renderReadMeFirst() },
     { file: "scripts/first-launch.mjs (--print release-note)", text: releaseNoteParagraph() },
+    { file: "scripts/first-launch.mjs (--print notice)", text: noticeText() },
     { file: "scripts/first-launch.mjs (--print warning)", text: workflowWarning() },
   ];
 }
@@ -335,7 +343,8 @@ export function run({ root = ROOT, files, verbose = false, log = console.log, er
     "[check-first-launch-advice] FAILED — Apple removed that Finder override in macOS 15, so it is " +
       "a step that does not exist. The procedure that works is System Settings → Privacy & " +
       "Security → Open Anyway, written once in `scripts/first-launch.mjs` and rendered from " +
-      "there into the DMG's file, the release notes and the CI warning. Point this paragraph at " +
+      "there into the DMG's file, the release notes, the in-app notice and the CI warning. " +
+      "Point this paragraph at " +
       "it, or say the right-click is gone if that is the point being made.",
   );
   return 1;

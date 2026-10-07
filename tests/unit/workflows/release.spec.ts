@@ -519,6 +519,62 @@ describe("signing and notarising a release", () => {
   });
 });
 
+/**
+ * The DMG is the artifact a person installs, and for a long time it was the one
+ * thing the pipeline never opened.
+ *
+ * `release:verify` reads the three assets back from GitHub and "Verify what was
+ * signed" runs `codesign` against the bundle on the runner, so both halves of
+ * the upload were covered — and neither of them looks *inside* the disk image.
+ * `dmg.contents` replaces electron-builder's defaults, so dropping the
+ * `READ-ME-FIRST.txt` entry there ships a DMG missing the only instructions that
+ * exist before the app can run, and nothing would say so. It was found by hand.
+ */
+describe("what a published DMG has to contain", () => {
+  const DMG_STEP = "Verify what the DMG contains";
+
+  test("the step exists, and names the image it is checking", () => {
+    const contents = stepBlock(DMG_STEP);
+    expect(commands(contents)).toContain("pnpm verify:dmg");
+    expect(commands(contents)).toContain(
+      "AllTheRepos-${BUILD_VERSION}-arm64.dmg",
+    );
+  });
+
+  test("it runs before the release can be seen, and after the image exists", () => {
+    // After packaging, because there is nothing to open until then — and before
+    // the publish, so a DMG that lost its instructions fails the job while the
+    // release is still a draft nobody can download.
+    expect(stepIndex(DMG_STEP)).toBeGreaterThan(stepIndex(PACKAGE_STEP));
+    expect(stepIndex(DMG_STEP)).toBeLessThan(stepIndex(PUBLISH_STEP));
+  });
+
+  test("it is told which version to expect, because a rehearsal builds a scratch one", () => {
+    // `package.json` still carries the real version during a rehearsal, so a
+    // check that read it would compare the 0.0.0 bundle against it and fail
+    // every rehearsal — which is the only place this step gets exercised before
+    // it matters.
+    expect(commands(stepBlock(DMG_STEP))).toContain('--version "$BUILD_VERSION"');
+  });
+
+  test("the image it opens is the one `verify-dmg.mjs` would default to", () => {
+    // The workflow names the path because a rehearsal builds under a scratch
+    // version, so it cannot use the default — but the two have to be the same
+    // file, or somebody running `pnpm verify:dmg` by hand would be checking a
+    // different image than the pipeline checks.
+    const contents = commands(stepBlock(DMG_STEP));
+    const image = /--dmg "([^"]+)"/.exec(contents)?.[1] ?? "";
+
+    expect(image).toBe("release/AllTheRepos-${BUILD_VERSION}-arm64.dmg");
+    // ... and that shape is electron-builder's own: `dmg` is configured for
+    // arm64 only, and its default artifact name is `${productName}-${version}-
+    // ${arch}.dmg`, which is what the released assets are called.
+    const builder = fs.readFileSync(path.join(ROOT, "electron-builder.yml"), "utf8");
+    expect(builder).toMatch(/^\s*-\s*target: dmg$/m);
+    expect(image.endsWith("-arm64.dmg")).toBe(true);
+  });
+});
+
 describe("the mac build configuration", () => {
   const builder = fs.readFileSync(
     path.join(ROOT, "electron-builder.yml"),

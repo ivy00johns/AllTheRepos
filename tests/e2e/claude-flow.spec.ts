@@ -160,7 +160,6 @@ test.describe("Phase 3b Claude flow", () => {
 
         // Which state the tab rendered decides how much of this spec actually
         // ran, so say it out loud rather than leaving a green run ambiguous.
-        // eslint-disable-next-line no-console
         console.log(
           `[claude-flow] Claude tab state: ${
             launchVisible

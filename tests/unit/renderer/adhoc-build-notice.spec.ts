@@ -16,13 +16,55 @@
  * thing added to the settings blob in a while, and `settings.json` files in the
  * wild do not have it. A missing key has to mean `false` — not "invalid file,
  * fall back to defaults", which would silently reset someone's scan roots.
+ *
+ * The notice's *words* are not its decision, so they are not written here either:
+ * they are generated into `@shared/adhoc-notice` from the same source as the file
+ * inside the DMG, and the assertions below are about the two files agreeing — the
+ * generated heading and the matcher one release check looks it up by.
  */
+
+import fs from "node:fs";
+import path from "node:path";
 
 import { describe, expect, test } from "vitest";
 
+import {
+  AD_HOC_NOTICE_BODY,
+  AD_HOC_NOTICE_TITLE,
+} from "@shared/adhoc-notice";
 import { SettingsSchema } from "@shared/schemas";
 
 import { shouldShowAdHocNotice } from "@renderer/components/layout/adhoc-build-notice";
+
+const ROOT = path.resolve(__dirname, "..", "..", "..");
+
+describe("the notice's words, which are rendered rather than written", () => {
+  test("they name the procedure the rest of the application names", () => {
+    // Interpolated from `scripts/first-launch.mjs` rather than pasted, so these
+    // cannot describe a different macOS than the file inside the DMG does.
+    expect(AD_HOC_NOTICE_TITLE).toMatch(/first launch/i);
+    expect(AD_HOC_NOTICE_BODY).toContain("System Settings");
+    expect(AD_HOC_NOTICE_BODY).toContain("Open Anyway");
+    expect(AD_HOC_NOTICE_BODY).toMatch(/ad-hoc signed/);
+  });
+
+  test("the packaged launch check still finds the banner by the words it renders", () => {
+    const spec = fs.readFileSync(
+      path.join(ROOT, "tests", "e2e", "packaged-update-check.spec.ts"),
+      "utf8",
+    );
+
+    // That spec looks the banner up by its heading, which means a reworded notice
+    // turns a *release run* red rather than a test — one Gatekeeper dialog away
+    // from where anybody would look for it. So every text matcher in that file is
+    // tried against the generated heading, and the two agree here or not at all.
+    const matchers = [...spec.matchAll(/getByText\(\s*\/([^/\n]+)\/i\s*,?\s*\)/g)].map(
+      (match) => new RegExp(match[1], "i"),
+    );
+    expect(matchers.length).toBeGreaterThan(0);
+    expect(matchers.some((matcher) => matcher.test(AD_HOC_NOTICE_TITLE))).toBe(true);
+  });
+});
 
 describe("whether the ad-hoc build notice is shown", () => {
   test("shows on an ad-hoc signed build — the case it exists for", () => {

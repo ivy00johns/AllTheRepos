@@ -66,7 +66,6 @@ test.describe("Phase 3a launcher flow", () => {
       });
       const editorCount = await editorBtns.count();
       if (editorCount === 0) {
-        // eslint-disable-next-line no-console
         console.warn(
           "[launcher-flow] no seeded repos in local catalog — skipping aria-label assertions. Run a scan to seed the catalog before running this suite for full coverage.",
         );

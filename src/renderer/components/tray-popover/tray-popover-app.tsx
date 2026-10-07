@@ -69,7 +69,6 @@ function openRepoFromPopover(slug: string): void {
     }
   }
   if (import.meta.env?.DEV) {
-    // eslint-disable-next-line no-console
     console.info(
       `[tray-popover] picked repo "${slug}" (no openRepo bridge sender; ` +
         `main forwarder ready on tray:request-open-repo)`,

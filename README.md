@@ -217,14 +217,18 @@ flowchart LR
 ```bash
 pnpm test                  # Vitest, the whole unit layer (flips natives to host ABI first)
 pnpm typecheck             # tsc over all three tsconfigs
+pnpm lint                  # ESLint (flat config) — the same command CI runs
 pnpm test:electron-e2e     # Playwright against a real Electron window
 pnpm test:packaged-update  # opt-in: the packaged .app's anonymous update check
+pnpm test:packaged-update-refused # the same check, against a GitHub that answers 403 (needs `pnpm electron:pack`)
 pnpm test:full             # unit + Electron E2E
 pnpm badges                # re-run the suite and redraw docs/images/tests.svg from its totals
 pnpm links:check           # resolve every link in the Markdown, out to the web and in to the repo
 ```
 
-Current status: the unit suite and `typecheck` are green on every push and pull request, both verified locally, and the Electron E2E job on `macos-14` finishes **8 passed, 2 skipped** (10 tests) — that suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
+Current status: the unit suite, `typecheck` and `pnpm lint` are green on every push and pull request, all three verified locally, and the Electron E2E job on `macos-14` finishes **8 passed, 2 skipped** (10 tests) — that suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
+
+`pnpm test:packaged-update-refused` is the third job in `ci.yml`, and it covers the branch a green run would otherwise skip through. It builds **two** bundles, because it asserts every test that reads the feed — including the one that only does so after finding a build that is behind the release. Dispatching the workflow (`gh workflow run ci.yml`) runs one more job on top: a `drill` that throws the refusal mock (`ATR_REFUSE_GITHUB=off`) and asserts the check comes back **failed**, since the regression worth fearing is the quiet one — the mock loading, refusing nothing, and the gate staying green while it stops being worth anything. When GitHub declines an anonymous read the update check **stops with a reason instead of failing** — a 403 says nothing about the release — and a skip path nobody runs cannot be told apart from a guard that stopped guarding. So the refusal is arranged rather than awaited: a committed mock answers every `github.com` read with GitHub's own 403, and the job fails unless the tests that read the feed stopped *because of that refusal*, left a `::warning::`, and nothing else in the suite failed. It has its own job because it packages the app rather than only building it, and because it is the one job here whose apparatus has to lie about the network.
 
 The **tests badge above is generated, not typed.** `pnpm test:report` writes the report and `pnpm badges` renders `docs/images/tests.svg` from it, and CI does the same thing on every push to `main` and commits the result when the counts move — so the number cannot drift the way a hand-written one does, and it goes red when anything fails. A red badge here now means a red suite rather than a forgotten edit.
 

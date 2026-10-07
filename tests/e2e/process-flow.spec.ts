@@ -287,7 +287,6 @@ test.describe("Phase 3a process flow", () => {
           `after a fresh sweep + ${CLEAR_TIMEOUT_MS}ms.`,
       ).toHaveCount(0, { timeout: CLEAR_TIMEOUT_MS });
 
-      // eslint-disable-next-line no-console
       console.log(
         `[process-flow] PID ${pid} on port ${port} appeared as ${repoSlug} after ${detectionMs}ms; ` +
           `row cleared ${Date.now() - killedAt}ms after the kill`,

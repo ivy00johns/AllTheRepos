@@ -28,8 +28,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { app } from "electron";
-
 import { getSqlite } from "@main/db/client";
 import { catalogService } from "@main/services/catalog";
 import { invalidateCover } from "@main/services/cover";
@@ -40,8 +38,6 @@ import {
   findEntry,
   lastEntry,
   removeBatch,
-  writeJournal,
-  readJournal,
   type RepoMoveRecord,
 } from "./relocation-journal";
 

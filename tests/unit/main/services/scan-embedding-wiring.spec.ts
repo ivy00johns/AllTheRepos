@@ -28,8 +28,8 @@ import type { EventEmitter as NodeEventEmitter } from "node:events";
 // EventEmitter INSIDE the factory because ESM import bindings are not yet
 // initialized when the hoisted block runs.
 const { FakeWorker } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { EventEmitter } =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- inside `vi.hoisted`, before ESM bindings exist
     require("node:events") as typeof import("node:events");
   class FakeWorker extends EventEmitter {
     static last: (NodeEventEmitter & { send(msg: unknown): void }) | null =

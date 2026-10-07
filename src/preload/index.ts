@@ -22,6 +22,5 @@ try {
 } catch (err) {
   // If contextIsolation is somehow off (a regression bug elsewhere),
   // we still want to fail loudly rather than silently leaking globals.
-  // eslint-disable-next-line no-console
   console.error("[preload] contextBridge.exposeInMainWorld failed", err);
 }

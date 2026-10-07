@@ -2,15 +2,15 @@
  * Unit test for `scripts/first-launch.mjs` — the one place the first-launch
  * instructions are written down.
  *
- * The failure this guards is not a crash. It is three surfaces that used to agree
+ * The failure this guards is not a crash. It is four surfaces that used to agree
  * because a person kept them in step, and did not: the file inside the DMG, the
- * release-note paragraph and the CI warning all told people to right-click the app
- * and choose **Open**, an override Apple had removed in macOS 15. Nothing failed,
- * because nothing was comparing them — the copy that was missed is the one a
- * person reads while stuck at a launch macOS refused.
+ * release-note paragraph, the CI warning and the in-app notice all told people to
+ * right-click the app and choose **Open**, an override Apple had removed in macOS
+ * 15. Nothing failed, because nothing was comparing them — the copy that was
+ * missed is the one a person reads while stuck at a launch macOS refused.
  *
- * So the assertions here are about **agreement**, not wording. That the file on
- * disk is byte-for-byte what the source renders, is what makes the other two
+ * So the assertions here are about **agreement**, not wording. That each file on
+ * disk is byte-for-byte what the source renders, is what makes the other
  * statements true by construction rather than by review. And that every surface
  * names the procedure Apple documents — and names the removed shortcut only as
  * something that does not work — is the part a reader actually depends on.
@@ -43,14 +43,25 @@ interface CheckResult {
   actual?: string;
 }
 
+interface RenderedFile {
+  ok: boolean;
+  file: string;
+  target: string;
+  reason: string;
+  expected?: string;
+  actual?: string;
+}
+
 interface FirstLaunchModule {
   READ_ME_FIRST: string;
+  NOTICE_MODULE: string;
   APP_NAME: string;
   INSTALL_PATH: string;
   SETTINGS_PATH: readonly string[];
   SHORTCUT_REMOVED_IN: string;
   QUARANTINE_COMMAND: string;
   REFUSAL_QUOTE: string;
+  CANNOT_INSTALL_UPDATES: string;
   ARROW: Readonly<{ plain: string; rich: string }>;
   PRINTS: Record<string, () => string>;
   removedShortcut(arrow?: string): string;
@@ -58,7 +69,13 @@ interface FirstLaunchModule {
   releaseNoteParagraph(): string;
   workflowWarning(): string;
   renderReadMeFirst(): string;
+  noticeTitle(): string;
+  noticeBody(): string;
+  noticeText(): string;
+  renderNoticeModule(): string;
+  RENDERED_FILES: ReadonlyArray<{ file: string; render: () => string }>;
   checkReadMeFirst(options?: { root?: string }): CheckResult;
+  checkRenderedFiles(options?: { root?: string }): RenderedFile[];
   firstDifference(
     expected: string,
     actual: string,
@@ -161,11 +178,12 @@ describe("the DMG's file is rendered, not maintained by hand", () => {
   });
 });
 
-describe("the three surfaces agree because they share the facts", () => {
+describe("the four surfaces agree because they share the facts", () => {
   const surfaces = () => ({
     "the release note": firstLaunch.releaseNoteParagraph(),
     "the CI warning": firstLaunch.workflowWarning(),
     "the DMG's file": firstLaunch.renderReadMeFirst(),
+    "the in-app notice": firstLaunch.noticeText(),
   });
 
   test("every surface names the procedure Apple documents", () => {
@@ -261,6 +279,99 @@ describe("the three surfaces agree because they share the facts", () => {
   });
 });
 
+describe("the in-app notice is rendered, not written into the component", () => {
+  test("every file the source renders is current, and there are two of them", () => {
+    const results = firstLaunch.checkRenderedFiles({ root: ROOT });
+
+    // Named rather than counted as "no failures": a renderer dropped from
+    // `RENDERED_FILES` is invisible to a loop over what is left, and that is
+    // exactly how the fifth hand-written copy would come back.
+    expect(results.map((entry) => entry.file).sort()).toEqual(
+      [firstLaunch.NOTICE_MODULE, firstLaunch.READ_ME_FIRST].sort(),
+    );
+    for (const result of results) {
+      expect(result.reason, result.file).toBe("matches");
+    }
+  });
+
+  test("the words live where the renderer can import them", () => {
+    // `src/shared/` because both TypeScript projects include it — the renderer's
+    // for the component, the root one for this spec — and a generated file
+    // nothing typechecks is a generated file nobody notices.
+    const tsconfig = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "tsconfig.web.json"), "utf8"),
+    ) as { include: string[] };
+    expect(firstLaunch.NOTICE_MODULE.startsWith("src/shared/")).toBe(true);
+    expect(tsconfig.include).toContain("src/shared/**/*.ts");
+
+    // The module is the notice, so the export it generates has to be the words
+    // the other surfaces were checked against.
+    const module = firstLaunch.renderNoticeModule();
+    expect(module).toContain(JSON.stringify(firstLaunch.noticeTitle()));
+    expect(module).toContain(JSON.stringify(firstLaunch.noticeBody()));
+  });
+
+  test("the component renders the generated words instead of holding a copy", () => {
+    const component = fs.readFileSync(
+      path.join(ROOT, "src/renderer/components/layout/adhoc-build-notice.tsx"),
+      "utf8",
+    );
+    expect(component).toContain("@shared/adhoc-notice");
+    expect(component).toContain("AD_HOC_NOTICE_TITLE");
+    expect(component).toContain("AD_HOC_NOTICE_BODY");
+    // The half that catches a paste-back: had the sentence returned to the
+    // component, the generated module would still be current and every other
+    // assertion in this file would pass.
+    expect(component).not.toContain(
+      "macOS asked you to confirm the first launch",
+    );
+  });
+
+  test("the notice composes the shared facts rather than restating them", () => {
+    // What makes this a rendered surface rather than a moved one: the procedure
+    // is interpolated, so the day that path is named differently the notice
+    // follows without anybody remembering it exists.
+    expect(firstLaunch.noticeBody()).toContain(firstLaunch.settingsPath());
+    expect(firstLaunch.noticeBody()).toContain(
+      firstLaunch.CANNOT_INSTALL_UPDATES,
+    );
+    expect(firstLaunch.noticeTitle().toLowerCase()).toContain("first launch");
+
+    // ... and it explains rather than instructs, because the person reading it
+    // has already been through the steps.
+    expect(firstLaunch.noticeBody()).not.toMatch(/\n\s*\d\./);
+  });
+
+  test("drift in the generated module is drift, and it does not hide the other file", () => {
+    const root = withTempRoot();
+    try {
+      fs.mkdirSync(path.join(root, "src", "shared"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, firstLaunch.NOTICE_MODULE),
+        firstLaunch
+          .renderNoticeModule()
+          .replace("Open Anyway", "Some Other Button"),
+      );
+
+      const results = firstLaunch.checkRenderedFiles({ root });
+      const notice = results.find(
+        (entry) => entry.file === firstLaunch.NOTICE_MODULE,
+      );
+      expect(notice?.ok).toBe(false);
+      expect(notice?.reason).toContain("not what this file renders");
+
+      // Both are reported: a run that stopped at the first problem would leave
+      // the other to be discovered on the next push, and one flag fixes both.
+      expect(results.every((entry) => !entry.ok)).toBe(true);
+      expect(results.map((entry) => entry.file)).toContain(
+        firstLaunch.READ_ME_FIRST,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("the CLI", () => {
   test("--print read-me is byte-for-byte the file it describes", () => {
     const printed = runCli(["--print", "read-me"]);
@@ -272,13 +383,14 @@ describe("the CLI", () => {
     );
   });
 
-  test("--print writes each of the three surfaces, and only those", () => {
+  test("--print writes each of the four surfaces, and only those", () => {
     for (const mode of Object.keys(firstLaunch.PRINTS)) {
       const printed = runCli(["--print", mode]);
       expect(printed.status, `--print ${mode}`).toBe(0);
       expect(printed.stdout.trim().length).toBeGreaterThan(0);
     }
     expect(Object.keys(firstLaunch.PRINTS).sort()).toEqual([
+      "notice",
       "read-me",
       "release-note",
       "warning",
@@ -313,6 +425,31 @@ describe("the CLI", () => {
       // A failure that does not name the fix is a failure that comes back.
       expect(checked.stderr).toContain("--write");
       expect(checked.stderr).toContain("line 1");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("--write puts every rendered file back, and --check then agrees", () => {
+    // From a copy of the script in an empty tree, so `--write` has to create the
+    // directories it writes into: a repair that only works in a checkout is not a
+    // repair. Both files, because one flag fixes both and a half-written pair is
+    // the drift this exists to prevent.
+    const root = withTempRoot();
+    try {
+      const script = path.join(root, "scripts", "first-launch.mjs");
+      fs.mkdirSync(path.dirname(script), { recursive: true });
+      fs.copyFileSync(SCRIPT, script);
+
+      const written = runCli(["--write"], { cwd: root, script });
+      expect(written.status).toBe(0);
+      expect(written.stdout).toContain(firstLaunch.NOTICE_MODULE);
+      expect(
+        fs.existsSync(path.join(root, firstLaunch.NOTICE_MODULE)),
+      ).toBe(true);
+
+      const checked = runCli(["--check"], { cwd: root, script });
+      expect(checked.status).toBe(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

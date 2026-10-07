@@ -32,14 +32,12 @@ export function useActionRegistration(): void {
         const result = await atr.app.registerActions(payload);
         if (cancelled) return;
         if (import.meta.env?.DEV && result.skipped > 0) {
-          // eslint-disable-next-line no-console
           console.warn(
             `[actions] main skipped ${result.skipped} action(s) — see ipc.v1.md §app:registerActions`,
           );
         }
       } catch (err) {
         if (import.meta.env?.DEV) {
-          // eslint-disable-next-line no-console
           console.warn("[actions] registerActions failed:", err);
         }
       }

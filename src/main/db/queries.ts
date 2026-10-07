@@ -40,7 +40,6 @@ import {
   repoGroups,
   repos as reposTable,
   scanPaths as scanPathsTable,
-  settings as settingsTable,
   type GroupRow,
   type RepoRow,
 } from "./schema";

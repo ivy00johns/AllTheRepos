@@ -58,7 +58,6 @@ export function checkFolderName(raw: string): FolderNameCheck {
   if (new TextEncoder().encode(normalized).length > MAX_NAME_LENGTH) {
     return fail("too-long");
   }
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(normalized)) return fail("control-chars");
   if (normalized.includes(":")) return fail("colon");
   // A trailing space or dot is legal on APFS but invisible, and it breaks

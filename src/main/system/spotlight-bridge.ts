@@ -28,7 +28,7 @@ function loadSpotlight(): SpotlightApi | null {
   if (attempted) return null;
   attempted = true;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- a module that may not be in the tree yet; see the header
     const mod = require("@main/window/spotlight") as
       | { spotlightWindow?: SpotlightApi }
       | undefined;

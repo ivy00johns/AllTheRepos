@@ -11,6 +11,95 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- The release pipeline opens the DMG before it publishes it. Every other gate looked at the upload or
+  at the bundle on the runner — `release:verify` reads the three assets back from GitHub, and "Verify
+  what was signed" runs `codesign` against `release/mac-arm64/AllTheRepos.app` — and neither of them
+  ever opened the disk image, which is the one artifact a person actually installs. The failure that
+  hides there is quiet: `dmg.contents` is a config block that replaces electron-builder's defaults,
+  so dropping the `READ-ME-FIRST.txt` entry ships a DMG whose only instructions on a refused first
+  launch are simply absent, and the first symptom would be somebody stuck at a Gatekeeper dialog with
+  nothing to read. `pnpm verify:dmg` mounts the image read-only and checks that the app, the
+  `/Applications` link and a `READ-ME-FIRST.txt` byte-identical to what `scripts/first-launch.mjs`
+  renders are all inside it, that the bundle carries the version being released, and that it passes
+  `codesign --verify --deep --strict` — then detaches the volume, because a runner that leaves one
+  mounted fails the next step with a message about the disk. The release workflow runs it between the
+  signing check and the draft read-back, so a bad image leaves a draft rather than a release. It was
+  found by hand: v0.1.7's DMG was downloaded and mounted to confirm the file had made it in, because
+  no step could answer that question.
+- A release run no longer goes red because GitHub declined to answer. The launch check reads the feed
+  anonymously — that is the property under test, which is why nothing in it carries a token — and an
+  unauthenticated address gets 60 API requests an hour, shared with every other job on the runner. So
+  a 403 or a 429 is GitHub refusing to answer rather than a verdict on the release, and the check now
+  stops with a reason and a `::warning::` instead of failing: on the feed read, on the app's own read,
+  and on the manifest and archive downloads. That is the rule `scripts/check-updater-feed.mjs` already
+  applied — a refusal is exit 2 there and not a failure — and the same distinction the app itself
+  makes when it says an anonymous check is rate-limited rather than that nothing has been published.
+  What it gives up, that *this* release is the one being offered, is asserted authenticated by
+  `release:verify` in the step before. It is not hypothetical: it is what turned the v0.1.7 release
+  run red while the release itself was complete and correct.
+- The in-app first-launch notice is rendered from the one source the other three surfaces are, so the
+  last hand-written copy of those sentences is gone. Its heading and body are written once in
+  `scripts/first-launch.mjs` and generated into `src/shared/adhoc-notice.ts`, which the component
+  imports, and `pnpm first-launch:check` fails when that module has drifted — the same byte-for-byte
+  guard the DMG's file has had since the instructions were unified. It is generated rather than
+  imported because the source reads `node:fs` to compare the DMG's copy and a Chromium bundle cannot
+  load that, and it lives in `src/shared/` because it is the one directory both TypeScript projects
+  include. The notice composes the shared facts rather than restating them — it interpolates the
+  System Settings path — so the day that procedure is named differently, all four surfaces follow:
+  the file inside the DMG, the paragraph the release notes carry, the CI warning, and the notice.
+- The rate-limit branch of the packaged update check is exercised on every push instead of whenever
+  a runner happens to be out of API allowance. The check stops with a reason — not a failure — when
+  GitHub declines an anonymous read, because a 403 says nothing about a release, and that bargain has
+  one hole in it: a skip is not a pass, and the branch that skips is the branch nothing runs.
+  `pnpm test:packaged-update-refused` closes it by arranging the refusal instead of awaiting it.
+  `scripts/refuse-github.cjs` is required into the Playwright worker and answers every GitHub read
+  with GitHub's own rate-limit 403, leaving the spec byte for byte the file the release runs — a spec
+  that knew it was mocked would be a second code path, taken only here. `scripts/refused-update-check.mjs`
+  then reads Playwright's own JSON report rather than the log, and fails unless the tests that read
+  the feed stopped because of that refusal, said so with a `::warning::`, and nothing else in the
+  suite failed. A run that skipped for the ordinary reason, or that never reached the mock, is a
+  failure — which is the whole difference between covering a skip path and appearing to. It is a new
+  job in `ci.yml` beside the Electron suite, because it packages the app rather than only building
+  it, and because it is the one job whose apparatus has to lie about the network. One detail of the
+  mock is not cosmetic: every diagnostic goes to **stderr**. Loading a file into every Node process
+  in the tree also loads it into the short-lived ones other tools use for command substitution, and
+  `binding.gyp` resolves an include directory with `<!@(node -p …)`, so a marker on stdout became
+  part of the path handed to the compiler — the rebuild failed with `'napi.h' file not found`, which
+  reads like a broken dependency and was really the mock talking.
+- The rule for "GitHub declined to answer" is defined once instead of three times. The update check is
+  anonymous — that is what makes it work on somebody else's machine rather than only on the one that
+  built the app — so an exhausted hourly allowance comes back `403`/`429` instead of an answer about
+  the release, and three separate places had to agree about what that means: the app shows a person a
+  sentence for it, `scripts/check-updater-feed.mjs` exits "could not run" rather than failing, and the
+  packaged update check stops with a reason rather than failing. They agreed by convention — a copied
+  `isRefusal` here, another there, and a `raw.includes("401")` chain in the app — which is a three-way
+  drift waiting for its first edit. `src/shared/github-refusal.json` now holds the statuses and the two
+  sentences, `src/shared/github-refusal.ts` is the typed, commented view of them, and all four readers
+  read it. Data rather than a module because two of those readers are plain Node scripts with no build
+  step, and Node cannot import a `.ts` file on the versions this project supports: the data file is the
+  one shape a script and the bundled app can both read.
+- The rate-limit check now covers every test that reads the feed, and its own failure path is proven on
+  a runner. The third update-check test — the one that offers a release to a build that is behind it —
+  only reads the feed once it has found a bundle that is genuinely older, so the refusal job builds
+  `electron:pack-older` as well and demands that this one stop for the refusal too; a missing bundle
+  now fails the job rather than quietly reducing what it asserts. And because the regression worth
+  fearing is the quiet one — the mock loads, refuses nothing, and every test goes green for its
+  ordinary reasons — `gh workflow run ci.yml` additionally dispatches a `drill` job that runs the same
+  command with `ATR_REFUSE_GITHUB=off`, and asserts the check comes back *failed*, naming the refusal.
+  A check that passed, or that failed because a bundle was missing, is a failed drill.
+- There is a linter (ATR-054). `lint` was `next lint`, it left with the Next stack, and `ci.yml`
+  carried a comment explaining why it ran no linter at all. `eslint.config.mjs` is a flat config on
+  `typescript-eslint`'s recommended set, wired into the fast job as `pnpm lint` — no build, no network,
+  no native rebuild. Type-aware rules and nothing else: `eslint:recommended`'s `no-undef` on a codebase
+  whose globals come from three tsconfigs and two Electron processes reports noise rather than
+  findings, and the type-checked set is deliberately left for whoever wants to pay a second per file
+  for it. The first run found fourteen real things — unused imports, a `require` reached for out of
+  habit, four empty input interfaces that accept `0`, a string and an array — and twenty-seven
+  `eslint-disable` comments naming rules belonging to the linter that no longer exists. All of them are
+  fixed or gone, so the gate starts clean rather than starting ignored.
+
 ## [0.1.7] - 2026-10-07
 
 ### Added

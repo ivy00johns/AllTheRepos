@@ -428,14 +428,13 @@ class GraphService {
      * every pair.
      */
     const distinctiveCount = new Map<string, number>();
-    for (const [dep, slugs] of depToRepos) {
+    for (const slugs of depToRepos.values()) {
       for (const slug of slugs) {
         distinctiveCount.set(slug, (distinctiveCount.get(slug) ?? 0) + 1);
       }
-      void dep;
     }
     const rawDep = new Map<string, number>();
-    for (const [dep, slugs] of depToRepos) {
+    for (const slugs of depToRepos.values()) {
       const idf = Math.log(total / slugs.length);
       const sorted = [...slugs].sort();
       for (let i = 0; i < sorted.length; i++) {

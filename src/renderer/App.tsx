@@ -81,7 +81,6 @@ class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // eslint-disable-next-line no-console
     console.error("Renderer crashed:", error, info);
   }
 

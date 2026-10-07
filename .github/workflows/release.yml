@@ -330,6 +330,22 @@ jobs:
           xcrun stapler validate "$APP"
           spctl --assess --type execute --verbose=4 "$APP"
 
+      # ... and what is *inside* the artifact a person installs. The checks
+      # around this one look at the upload and at the bundle on the runner, and
+      # neither of them ever opens the disk image — while `dmg.contents` is a
+      # config block that replaces electron-builder's defaults, so an entry
+      # dropped there ships an image whose only instructions on a refused first
+      # launch are simply absent. That was found by hand: v0.1.7's DMG was
+      # downloaded and mounted to confirm `READ-ME-FIRST.txt` had made it in,
+      # because no step in this workflow could answer the question. Now one can,
+      # and it runs before the release is visible so a bad image leaves a draft.
+      #
+      # `--version $BUILD_VERSION` rather than letting it read `package.json`:
+      # a rehearsal builds under a scratch version, and comparing the bundle
+      # against the version in the tree would fail every rehearsal.
+      - name: Verify what the DMG contains
+        run: pnpm verify:dmg --dmg "release/AllTheRepos-${BUILD_VERSION}-arm64.dmg" --version "$BUILD_VERSION"
+
       # Read the draft back before it can be seen. An upload that dropped the
       # ZIP, or wrote a manifest naming a version nobody built, fails the job
       # while the release is still invisible — the whole reason the draft comes

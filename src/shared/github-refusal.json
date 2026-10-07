@@ -1,0 +1,5 @@
+{
+  "refusedStatuses": [401, 403, 429],
+  "anonymousRead": "GitHub refused the anonymous read",
+  "requestRefused": "GitHub refused the request — an anonymous check is rate-limited. Try again later."
+}

@@ -59,6 +59,24 @@ import { MANIFEST_ASSET, parseManifest } from "./verify-release.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
+ * The statuses that mean GitHub declined to answer, and the words for it.
+ *
+ * Read from the shared definition rather than decided here a fourth time. This
+ * is a plain Node script — no build step, no `pnpm install` — so it cannot
+ * import the TypeScript module beside the app, which is exactly why the
+ * definition is data: it is the one shape a script and the bundled app can both
+ * read. The app shows a person the sentence in there for the same statuses, and
+ * `tests/e2e/packaged-update-check.spec.ts` skips on them; a `403` has to mean
+ * the same thing in all three or the three are lying to each other.
+ */
+const REFUSAL = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, "src", "shared", "github-refusal.json"),
+    "utf8",
+  ),
+);
+
+/**
  * Headers for every request this file makes — or rather, the one header.
  *
  * Deliberately without `authorization`, and this is the whole point of the file:
@@ -214,7 +232,7 @@ async function get(fetchImpl, url, shape) {
 
 /** A status GitHub returns when it is refusing to answer, not reporting rot. */
 function isRefusal(status) {
-  return status === 403 || status === 429;
+  return REFUSAL.refusedStatuses.includes(status);
 }
 
 /**
@@ -249,7 +267,7 @@ export async function runFeedCheck({
 
   if (isRefusal(latest.status)) {
     error(
-      `[check-updater-feed] GitHub refused the anonymous read (${latest.status}) — an unauthenticated address gets 60 requests an hour, and a runner shares its address. Try again later; this says nothing about the feed.`,
+      `[check-updater-feed] ${REFUSAL.anonymousRead} (${latest.status}) — an unauthenticated address gets 60 requests an hour, and a runner shares its address. Try again later; this says nothing about the feed.`,
     );
     return 2;
   }

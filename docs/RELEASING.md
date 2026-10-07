@@ -27,8 +27,9 @@ node scripts/check-schedule-health.mjs       # ... the same digest, on this mach
 
 node scripts/first-launch.mjs --print read-me  # the file the DMG ships, from its one source
 node scripts/first-launch.mjs --print release-note  # the paragraph the release notes carry
-pnpm first-launch:check   # guard: that file is current, and no page gives the removed advice
-pnpm first-launch:write   # rewrite it after an edit to the source
+node scripts/first-launch.mjs --print notice  # the words of the in-app notice
+pnpm first-launch:check   # guard: those files are current, and no page gives the removed advice
+pnpm first-launch:write   # rewrite them after an edit to the source
 ```
 
 `release/` output:
@@ -498,6 +499,45 @@ version is already cached — a spoofed version is simply never read.
 which is what puts the app behind the feed and makes the update affordances
 appear.
 
+### The branch that stops instead of failing
+
+When GitHub declines an anonymous read — a 403, which on a runner usually means
+somebody else spent the address's hourly allowance — the spec stops with a reason
+rather than failing, because that status says nothing about the release. Right
+bargain, one hole: a skip is not a pass, and the branch that skips is the branch
+nothing exercises. So the refusal is arranged instead of awaited, on every push:
+
+```bash
+pnpm electron:pack                  # the spec launches a packaged bundle
+pnpm test:packaged-update-refused   # the same spec, against a GitHub that answers 403
+```
+
+`scripts/refuse-github.cjs` is required into the Playwright worker and answers
+every `github.com` read with GitHub's own rate-limit 403. The spec is not told:
+it stays the file the release runs, byte for byte, because a spec that knew would
+be a second code path taken only here. `scripts/refused-update-check.mjs` then
+reads Playwright's own JSON report — the skip reason each test recorded, not a
+grep of the log — and fails unless the tests that read the feed stopped *because
+of that refusal*, said so with a `::warning::`, and nothing else in the suite
+failed. A run that skipped for the ordinary reason, or that never reached the
+mock, is a failure: that is the difference between covering a skip path and
+appearing to. It runs in `ci.yml` beside the Electron suite, which is also why
+its own job exists — it packages the app rather than only building it, and it is
+the one job here whose apparatus has to lie about the network.
+
+The job builds **two** bundles, and needs both. The test that checks a release is
+*offered* only reads the feed once it has found a build that is behind it, which
+is what `pnpm electron:pack-older` produces (the same app stamped `0.0.1`). The
+check fails when a test that reads the feed does not stop for the refusal, so a
+missing bundle fails the run rather than quietly narrowing it.
+
+Dispatching the workflow (`gh workflow run ci.yml`) runs one more job: a **drill**
+that runs the same command with the mock thrown — `ATR_REFUSE_GITHUB=off`, which
+installs it and refuses nothing — and asserts the check comes back **failed**,
+naming the refusal. It is the only way to prove the check is still load-bearing:
+a mock that quietly stopped refusing would leave every push green, with a gate
+that had stopped being worth anything, and nothing else would say so.
+
 ---
 
 ## Signing, notarising, and installing
@@ -684,21 +724,30 @@ but not enough for Gatekeeper to trust a copy that was downloaded.
 
 The words above are not written here a second time. The procedure lives in
 `scripts/first-launch.mjs`, the only place in the repository that knows it, and
-three surfaces render from there: `READ-ME-FIRST.txt` inside the DMG
+four surfaces render from there: `READ-ME-FIRST.txt` inside the DMG
 (`--print read-me`), the paragraph the release notes carry (`--print
-release-note`), and the `::warning::` a certificate-less CI run prints (`--print
-warning`). Each used to be its own hand-written copy of the same sentences,
-which is how all three spent several releases advising a right-click → **Open**
-override Apple had removed in macOS 15 — and the copy that was missed is the one
-a person reads while stuck at a launch macOS refused. `pnpm first-launch:check`
-fails if the file on disk has drifted from what the source renders
-(`pnpm first-launch:write` is the repair), and also if any page a person can read
-still offers that shortcut. It runs in `ci.yml` on every push and pull request.
+release-note`), the `::warning::` a certificate-less CI run prints (`--print
+warning`), and the one-time notice the app shows once somebody is inside it
+(`--print notice`). Each used to be its own hand-written copy of the same
+sentences, which is how all of them spent several releases advising a right-click
+→ **Open** override Apple had removed in macOS 15 — and the copy that was missed
+is the one a person reads while stuck at a launch macOS refused. `pnpm
+first-launch:check` fails if a rendered file on disk has drifted from what the
+source renders (`pnpm first-launch:write` is the repair), and also if any page a
+person can read still offers that shortcut. It runs in `ci.yml` on every push and
+pull request.
 
-The in-app notice is the one surface that is still written by hand — it is a
-React component, and an explanation of something that already happened rather
-than a set of steps — so it is covered by that second check rather than by the
-source.
+The notice is the one of the four the renderer imports rather than one the
+workflow runs, so it travels as a generated TypeScript module,
+`src/shared/adhoc-notice.ts`, holding the heading and the body the component
+renders. It is generated rather than imported directly because
+`scripts/first-launch.mjs` reads `node:fs` to compare the DMG's copy of the
+instructions, and a Chromium bundle cannot load that — and it lives in
+`src/shared/` because that is the one directory both `tsconfig.json` and
+`tsconfig.web.json` include, so a generated file nobody typechecks cannot
+happen. `first-launch:check` compares it byte for byte like the DMG's file, which
+is what stops the sentences quietly moving back into the component the next time
+somebody edits it.
 
 Ad-hoc signing (`identity: "-"`) is deliberate and not the same as no
 signing. Apple Silicon refuses to execute an arm64 binary with no

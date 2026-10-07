@@ -49,7 +49,6 @@ export function useTrayOpenRepoBus(): void {
       unsubscribe = atr.app.onOpenRepo(handler);
     } else {
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
         console.warn(
           "[actions] tray.onOpenRepo subscription unavailable on preload bridge",
         );

@@ -249,12 +249,14 @@ describe("it reads what it says it reads", () => {
   test("the surfaces a single source renders are scanned as well as the files", () => {
     const surfaces = advice.renderedSurfaces();
     const names = surfaces.map((surface) => surface.file).join("\n");
-    // The freshness check cannot catch a bad edit *inside* the source — the file
+    // The freshness check cannot catch a bad edit *inside* the source — the files
     // on disk would still match what it renders — so the rendered text is scanned
     // too. If the sentence in `first-launch.mjs` ever becomes the old instruction,
-    // this is what fails.
+    // this is what fails. All four surfaces, including the in-app notice, which
+    // reaches the renderer through the generated `src/shared/adhoc-notice.ts`.
     expect(names).toContain("--print read-me");
     expect(names).toContain("--print release-note");
+    expect(names).toContain("--print notice");
     expect(names).toContain("--print warning");
   });
 
@@ -269,6 +271,7 @@ describe("it reads what it says it reads", () => {
     expect(files).toContain("docs/RELEASING.md");
     expect(files).toContain("resources/READ-ME-FIRST.txt");
     expect(files).toContain("src/renderer/components/layout/adhoc-build-notice.tsx");
+    expect(files).toContain("src/shared/adhoc-notice.ts");
     expect(files).toContain(".github/workflows/release.yml");
     expect(files.some((file) => file.includes("node_modules"))).toBe(false);
   });
@@ -283,12 +286,16 @@ describe("it reads what it says it reads", () => {
     expect(files.some((file) => file.startsWith("tests/"))).toBe(false);
     expect(files).not.toContain("scripts/check-first-launch-advice.mjs");
 
-    // Still read: everything a person could actually learn the procedure from.
+    // Still read: everything a person could actually learn the procedure from —
+    // including the generated notice module, because a file that is imported by
+    // the app is a surface however it was written, and this is the check that
+    // cannot be reached by regenerating it.
     expect(files).toContain("scripts/first-launch.mjs");
     expect(files).toContain("README.md");
     expect(files).toContain("docs/RELEASING.md");
     expect(files).toContain("resources/READ-ME-FIRST.txt");
     expect(files).toContain("src/renderer/components/layout/adhoc-build-notice.tsx");
+    expect(files).toContain("src/shared/adhoc-notice.ts");
 
     expect(advice.isAdviceSurface("README.md")).toBe(true);
     expect(advice.isAdviceSurface("tests/unit/scripts/anything.spec.ts")).toBe(false);

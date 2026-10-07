@@ -20,7 +20,7 @@
 import { createInterface } from "node:readline";
 import fs from "node:fs";
 
-import type { ClaudeSession, TokenUsage, TranscriptEvent } from "@shared/types";
+import type { TokenUsage, TranscriptEvent } from "@shared/types";
 import { TranscriptEventSchema } from "@shared/schemas";
 
 // ---------------------------------------------------------------------------

@@ -409,6 +409,14 @@ describe("runFeedCheck", () => {
     expect(status).toBe(2);
   });
 
+  test("and 401 is the same answer, because the shared rule says so", async () => {
+    // Which statuses count is not decided here any more: the set lives in
+    // `src/shared/github-refusal.json`, and the app shows a person the same words
+    // for the same statuses. This asserts the check actually reads it rather than
+    // carrying its own pair of numbers.
+    expect((await run({ latestStatus: 401 })).status).toBe(2);
+  });
+
   test("a missing manifest fails, and so does a broken archive download", async () => {
     expect((await run({ manifestStatus: 404 })).status).toBe(1);
     expect((await run({ archiveStatus: 500 })).status).toBe(1);

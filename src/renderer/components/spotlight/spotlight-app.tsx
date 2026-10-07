@@ -53,7 +53,6 @@ import * as React from "react";
 // import below is `any`-typed to keep the build green pre-install).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let uFuzzyCtor: any = null;
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
 (async () => {
   try {
     const mod = await import("@leeoniya/ufuzzy");
@@ -105,7 +104,6 @@ function forwardOpenRepo(atr: AtrBridge, slug: string): void {
     }
   }
   if (import.meta.env?.DEV) {
-    // eslint-disable-next-line no-console
     console.info(
       `[spotlight] picked repo "${slug}" (no openRepo bridge sender; ` +
         `main forwarder ready on tray:request-open-repo)`,
@@ -340,7 +338,6 @@ export function SpotlightApp() {
         // IPC actions. For now we just dispatch on the side and log
         // in dev.
         if (import.meta.env?.DEV) {
-          // eslint-disable-next-line no-console
           console.info(`[spotlight] action "${row.action.id}" picked`);
         }
       }

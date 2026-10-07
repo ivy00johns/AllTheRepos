@@ -28,7 +28,6 @@ import type {
   ListReposInput,
   ListReposResult,
   OpenInEditorInput,
-  OpenInEditorResult,
   RescanRepoResult,
   ScanEvent,
   ScanStatusResult,

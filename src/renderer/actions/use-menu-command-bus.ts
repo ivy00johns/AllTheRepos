@@ -94,7 +94,6 @@ export function useMenuCommandBus(): void {
       unsubscribe = atr.app.onMenuCommand(handler);
     } else {
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
         console.warn(
           "[actions] menu.onCommand subscription unavailable on preload bridge",
         );

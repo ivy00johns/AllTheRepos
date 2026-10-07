@@ -296,7 +296,6 @@ export const actions: RegisteredAction[] = [
         slug: ctx.currentRepoSlug,
       });
       if (!result.ok && isDev) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[actions] repo.open-in-editor failed: ${result.reason ?? "unknown"}`,
         );
@@ -321,7 +320,6 @@ export const actions: RegisteredAction[] = [
         slug: ctx.currentRepoSlug,
       });
       if (!result.ok && isDev) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[actions] repo.open-in-finder failed: ${result.reason ?? "unknown"}`,
         );
@@ -423,7 +421,6 @@ export function dispatchAction(id: string, ctx: ActionContext): void {
   const action = findAction(id);
   if (!action) {
     if (isDev) {
-      // eslint-disable-next-line no-console
       console.warn(
         `dispatchAction: unknown action id "${id}". Has the registry drifted?`,
       );
@@ -434,7 +431,6 @@ export function dispatchAction(id: string, ctx: ActionContext): void {
   // wait on them at the dispatch site so a slow handler can't block
   // the menu / palette UI.
   void Promise.resolve(action.handler(ctx)).catch((err) => {
-    // eslint-disable-next-line no-console
     console.error(`action "${id}" handler threw:`, err);
   });
 }

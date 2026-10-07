@@ -41,6 +41,10 @@
 import { app } from "electron";
 import electronUpdater from "electron-updater";
 
+import {
+  isRefusalText,
+  REFUSED_REQUEST_MESSAGE,
+} from "@shared/github-refusal";
 import type { InstallUpdateResult, UpdateStatus } from "@shared/types";
 
 import {
@@ -79,6 +83,12 @@ export type UpdateStatusListener = (status: UpdateStatus) => void;
  * pre-releases. The rate-limit branch exists because the check is anonymous:
  * GitHub allows 60 requests an hour per address, shared with whatever else
  * is using the connection.
+ *
+ * Which statuses count as that refusal — and the sentence shown for it — come
+ * from `@shared/github-refusal`, the same definition the weekly feed check and
+ * the packaged update check read. They used to be a copied `isRefusal` and a
+ * hand-written literal in three files, which is a three-way drift waiting for
+ * its first edit.
  */
 function describeError(error: unknown): Partial<UpdateStatus> {
   const raw = error instanceof Error ? error.message : String(error);
@@ -89,12 +99,8 @@ function describeError(error: unknown): Partial<UpdateStatus> {
   if (raw.includes("ENOTFOUND") || raw.includes("ECONNREFUSED")) {
     return { state: "unavailable", message: "No network connection." };
   }
-  if (raw.includes("401") || raw.includes("403") || raw.includes("429")) {
-    return {
-      state: "unavailable",
-      message:
-        "GitHub refused the request — an anonymous check is rate-limited. Try again later.",
-    };
+  if (isRefusalText(raw)) {
+    return { state: "unavailable", message: REFUSED_REQUEST_MESSAGE };
   }
 
   // Unrecognised: keep the first line, drop the header dump and stack.

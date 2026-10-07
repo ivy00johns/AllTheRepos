@@ -1,4 +1,4 @@
-# CI — the three gates, on every push and pull request (ATR-047).
+# CI — the gates, on every push and pull request (ATR-047).
 #
 # macOS on Apple silicon only. The app is macOS-only (`electron-builder
 # --mac`, `identity: "-"`, an arm64 bundle) and its native modules
@@ -8,7 +8,9 @@
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
-#   pnpm typecheck · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
+#   pnpm typecheck · pnpm lint · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
+# and, for a job that has to package the app before it can run at all:
+#   pnpm electron:pack · pnpm test:packaged-update-refused
 #
 # `pnpm badges` is `pnpm test` plus a JSON report, and the badge the README
 # shows is drawn from that same run — which is what stops the test count being
@@ -17,13 +19,20 @@
 # The link check is NOT here: it needs the network and a schedule, so it lives
 # in `.github/workflows/doc-links.yml`.
 #
-# A lint step belongs here once ATR-054 adds a config; there is no linter in
-# the repo today, so the workflow does not pretend to run one.
+# The lint step is ATR-054's flat config (`eslint.config.mjs`), which landed
+# after the rest of this file did, and runs on the fast job: no build, no network,
+# no native rebuild — the same command a developer runs.
 name: CI
 
 on:
   push:
   pull_request:
+  # A dispatch runs every job in this file, the drill at the bottom included.
+  # That is the point rather than an oversight: the drill's subject is the gate
+  # the other jobs are running, and `gh workflow run ci.yml` is how a person
+  # proves on a runner that the refusal check can still fail without waiting for
+  # a push to do it for them.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -54,6 +63,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # TypeScript says the program is coherent; this says the parts of it that
+      # compile anyway are the parts somebody meant to write — an import nothing
+      # uses, a `require` reached for out of habit, a type that accepts `0` where
+      # the comment says "empty". See `eslint.config.mjs` for what it is not
+      # (type-aware, stylistic) and why.
+      - run: pnpm lint
       # The first-launch instructions are rendered from one source
       # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
       # paragraph and the CI warning. This fails if that file has drifted from what
@@ -113,3 +128,81 @@ jobs:
           name: playwright-traces
           path: test-results/
           if-no-files-found: ignore
+
+  # The packaged update check, run against a GitHub that refuses to answer.
+  #
+  # When GitHub declines an anonymous read — 403, an allowance spent by somebody
+  # else sharing the runner's address — the spec stops with a reason instead of
+  # failing, because that status says nothing about the release. Right bargain,
+  # one hole: **a skip is not a pass**, and the branch that skips is the branch
+  # nothing exercises. The guard could stop guarding entirely and this pipeline
+  # would look the same — green, with less and less behind the number.
+  #
+  # So the refusal is arranged instead of awaited. `scripts/refuse-github.cjs` is
+  # required into the Playwright worker and answers every GitHub read with
+  # GitHub's own 403, and `scripts/refused-update-check.mjs` fails this job unless
+  # the tests that read the feed stopped *for that reason*, said so with a
+  # `::warning::`, and nothing else in the suite failed. A run that skips for some
+  # other reason, or that never reaches the mock at all, is a failure here —
+  # which is the whole difference between covering a skip path and appearing to.
+  #
+  # Its own job rather than a step in `e2e`, for two reasons: it packages the app
+  # rather than only building it, and it is the one job whose apparatus has to lie
+  # about the network — a failure in it should not be read as one in the suite
+  # next door. The two run in parallel, so what this costs is a runner, not time
+  # on the clock.
+  refusal:
+    name: packaged update check, refused
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The spec launches real bundled apps, so there have to be two of them: the
+      # current build, for the branch that asks whether the app is up to date,
+      # and `electron:pack-older`'s — the same app stamped `0.0.1`, genuinely
+      # below every release — for the branch that asks whether an update is
+      # offered. A missing bundle is not a smaller run: the check below fails
+      # unless every test that reads the feed stopped for the refusal, so skipping
+      # either build fails the job rather than quietly reducing it.
+      - run: pnpm electron:pack
+      - run: pnpm electron:pack-older
+      - name: The update check, against a GitHub that refuses to answer
+        run: pnpm test:packaged-update-refused
+
+  # The job above can stop noticing anything — the mock loaded, it refused
+  # nothing, every test went green for its ordinary reasons, and the only thing
+  # that changed is how much the gate is worth. Nothing about a passing run says
+  # otherwise.
+  #
+  # So this proves the other half: the same command, the same spec, with the mock
+  # deliberately thrown (`ATR_REFUSE_GITHUB=off`), and
+  # `scripts/drill-refused-update-check.mjs` asserting the check comes back
+  # *failed*, naming the refusal. A check that passed, or that failed because a
+  # bundle was missing, is a failed drill.
+  #
+  # On demand only. It rebuilds the two bundles rather than reusing the job
+  # above's, because a job gets a fresh runner: the alternative is uploading two
+  # hundred megabytes of .app between jobs to save a minute of a run a person
+  # asked for by hand.
+  drill:
+    name: prove the refusal check can fail
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The drilled command is the real one, so it needs what the real one needs.
+      - run: pnpm electron:pack
+      - run: pnpm electron:pack-older
+      - name: The refusal check, against a mock that refuses nothing
+        run: node scripts/drill-refused-update-check.mjs

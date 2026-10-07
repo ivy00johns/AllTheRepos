@@ -66,6 +66,10 @@ const INPUTS = [
   '"scripts/verify-release.mjs"',
   '"scripts/release-config.mjs"',
   '"electron-builder.yml"',
+  // The statuses that mean "GitHub declined to answer": the check reads them out
+  // of the shared definition the app and the update check read too, so a change
+  // to that rule changes what this check does.
+  '"src/shared/github-refusal.json"',
   '".github/workflows/updater-feed.yml"',
 ];
 

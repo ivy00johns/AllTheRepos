@@ -21,10 +21,19 @@
  *     standing warning, so dismissing it is remembered in Settings and it does
  *     not come back. A banner that reappears every launch is one people learn
  *     to ignore, which would cost more than it explains.
+ *
+ * What it *says* is not decided here. This is the fourth surface rendered from
+ * `scripts/first-launch.mjs` — the file inside the DMG, the paragraph the
+ * release notes carry, the `::warning::` a certificate-less CI run prints, and
+ * this — so it names the same procedure as the instructions somebody read on the
+ * way in, and `pnpm first-launch:check` fails if the generated
+ * `@shared/adhoc-notice` has drifted from the source. What is left in this file
+ * is the decision: when to show it, and how it is dismissed.
  */
 
 import { ShieldAlert, X } from "lucide-react";
 
+import { AD_HOC_NOTICE_BODY, AD_HOC_NOTICE_TITLE } from "@shared/adhoc-notice";
 import type { UpdateStatus } from "@shared/types";
 
 import { useSettings, useUpdateSettings } from "@renderer/hooks/use-settings";
@@ -82,15 +91,8 @@ export function AdHocBuildNotice() {
     >
       <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
       <div className="flex flex-col gap-1">
-        <span className="font-medium">
-          macOS asked you to confirm the first launch — here is why
-        </span>
-        <span className="text-muted-foreground">
-          This build is ad-hoc signed and not notarised by Apple, so macOS
-          refused it until you allowed it in System Settings &rarr; Privacy
-          &amp; Security. The same fact is why the app checks for new releases
-          but does not install them: a notarised build removes both steps.
-        </span>
+        <span className="font-medium">{AD_HOC_NOTICE_TITLE}</span>
+        <span className="text-muted-foreground">{AD_HOC_NOTICE_BODY}</span>
       </div>
       <button
         type="button"

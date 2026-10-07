@@ -109,7 +109,6 @@ export function useDeepLinkBus(): void {
       }
 
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
         console.warn(`[deep-link] unknown path "${path}"`);
       }
     };
@@ -121,7 +120,6 @@ export function useDeepLinkBus(): void {
       unsubscribe = atr.app.onDeepLink(handler);
     } else {
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
         console.warn(
           "[actions] protocol.onDeepLink subscription unavailable on preload bridge",
         );

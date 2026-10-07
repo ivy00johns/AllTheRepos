@@ -67,7 +67,6 @@ function inheritSeededProfile(profileDir: string): boolean {
   if (!template) {
     if (!warnedAboutMissingTemplate) {
       warnedAboutMissingTemplate = true;
-      // eslint-disable-next-line no-console
       console.warn(
         `[e2e] ${TEMPLATE_PROFILE_ENV} is unset — launching with an empty catalog. ` +
           "Run through Playwright (which runs _global-setup.ts) to get the seeded one.",

@@ -165,7 +165,10 @@ function buildContextMenu(): Menu {
  * native menu item.
  */
 function emitMenuCommand(commandId: string): void {
-  // Local import to avoid an init-order cycle with `./menu.ts`.
+  // Local import to avoid an init-order cycle with `./menu.ts` — which is the
+  // reason for the suppression rather than a static import that would read
+  // better: at module scope this one is genuinely circular.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- the cycle a static import would create
   const { broadcastMenuCommand } = require("./menu") as typeof import("./menu");
   broadcastMenuCommand({ commandId });
 }

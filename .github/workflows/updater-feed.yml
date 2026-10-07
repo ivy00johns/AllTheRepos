@@ -33,6 +33,10 @@ on:
       # The publish block is the feed's address, and the app's own constants are
       # pinned to it by tests/unit/main/services/updater-feed.spec.ts.
       - "electron-builder.yml"
+      # The statuses that mean "GitHub declined to answer", which this check reads
+      # out of there rather than keeping a copy of — so a change to the rule
+      # changes what this check does.
+      - "src/shared/github-refusal.json"
       - ".github/workflows/updater-feed.yml"
   pull_request:
     paths:
@@ -40,6 +44,7 @@ on:
       - "scripts/verify-release.mjs"
       - "scripts/release-config.mjs"
       - "electron-builder.yml"
+      - "src/shared/github-refusal.json"
       - ".github/workflows/updater-feed.yml"
   schedule:
     # Mondays, 13:30 UTC — the same weekly sweep as the link check, deliberately
@@ -70,9 +75,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # No `pnpm install`: the checker imports nothing but Node and two files
-      # from this repository. No `GH_TOKEN` either, anywhere in this file — the
-      # read has to be the one an install with no account can make.
+      # No `pnpm install`: the checker imports nothing but Node and three files
+      # from this repository, one of them the shared refusal definition. No
+      # `GH_TOKEN` either, anywhere in this file — the read has to be the one an
+      # install with no account can make.
       - name: Read the feed the way the app does
         run: |
           set +e

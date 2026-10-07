@@ -162,7 +162,6 @@ describe("system:ping (real handler conformance)", async () => {
   // skip reason in their output rather than silently dropping the file.
   it("documents whether the real handler is in place", () => {
     if (skipReason) {
-      // eslint-disable-next-line no-console
       console.warn(`[Phase 0 finding] ${skipReason}`);
     }
     expect(typeof skipReason === "string" || handler !== null).toBe(true);

@@ -49,6 +49,23 @@
  * and the feed it reads is seconds old, which is why that half waits for the
  * feed to catch up rather than failing on the first read.
  *
+ * No branch is allowed to fail because GitHub *declined to answer*. The feed is
+ * read anonymously — that is the property under test, and it is why nothing here
+ * has a token — and an unauthenticated address gets 60 API requests an hour,
+ * shared with every other job on a runner. So a 403 is GitHub refusing to answer,
+ * not a verdict on the release, and it stops the test with a reason and a
+ * `::warning::` rather than failing it. `scripts/check-updater-feed.mjs` strikes
+ * exactly that bargain, the app itself already says the same thing to a person
+ * ("an anonymous check is rate-limited"), and the claim this gives up — *this*
+ * release is the one being offered — is asserted authenticated, by
+ * `release:verify`, in the step just before this one. The failure this prevents
+ * is real: it is what turned the v0.1.7 release run red while the release itself
+ * was complete and correct.
+ *
+ * Which statuses mean "declined to answer", and the words used for it below, come
+ * from `src/shared/github-refusal.ts` — one definition, read here, by the weekly
+ * feed check and by the app a person is looking at.
+ *
  * The last describe leaves the app's status aside and walks the whole install
  * path: the archive `latest-mac.yml` names, downloaded, hashed against the
  * digest it promises, unpacked, and handed to `codesign`. An update that hashes
@@ -71,6 +88,12 @@ import { join, resolve } from "node:path";
 
 import { _electron as electron, expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
+
+import {
+  ANONYMOUS_READ_REFUSAL,
+  isRefusalStatus,
+  REFUSED_REQUEST_MESSAGE,
+} from "../../src/shared/github-refusal";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const CURRENT_BUNDLE = resolve(REPO_ROOT, "release", "mac-arm64", "AllTheRepos.app");
@@ -153,8 +176,46 @@ interface ReleaseAsset {
 
 interface LatestRelease {
   status: number;
+  /** GitHub refused to answer at all — see {@link isRefusalStatus}. */
+  refused: boolean;
   tag: string | null;
   assets: ReleaseAsset[];
+}
+
+/**
+ * The app's own refusal, as it renders it — and only its first phrase.
+ *
+ * `src/shared/github-refusal.ts` holds the sentence; the em dash separates what a
+ * person is being told from why. Splitting on it keeps the matcher in step with
+ * the app without a second copy of the words, and if the sentence ever loses that
+ * dash the whole thing is returned instead — which still matches, because the
+ * whole thing is what the app renders.
+ */
+const APP_REFUSAL_TEXT = REFUSED_REQUEST_MESSAGE.split(" — ")[0];
+
+/**
+ * Stop the test with a reason, and leave a warning where a CI reader will see it.
+ *
+ * A skip is not a pass, and a green release run must not imply it asserted
+ * something it did not. `::warning::` is a GitHub Actions annotation — plain text
+ * the runner lifts out of the step's log — so the reduced coverage is attached to
+ * the step instead of buried in a skip count.
+ *
+ * `because` is how the refusal was met, and it is a sentence rather than a status
+ * because there are two ways to meet one: a read this spec made, where the status
+ * is right there, and the app's own read, where all that comes back is the words
+ * it rendered.
+ */
+function skipForRefusal(what: string, because: string): never {
+  const reason =
+    `${ANONYMOUS_READ_REFUSAL} (${because}), so this says nothing about ${what}. ` +
+    "An unauthenticated address gets 60 API requests an hour and a runner shares its address with every other job on the machine. " +
+    "The release is checked authenticated by `pnpm release:verify` in the step before this one.";
+  console.log(`::warning::${reason}`);
+  test.skip(true, reason);
+  // `test.skip` throws at runtime; this is only here so the return type is honest,
+  // and it is what runs if Playwright ever stops doing that.
+  throw new Error(reason);
 }
 
 /**
@@ -170,7 +231,12 @@ async function fetchLatest(repo: string): Promise<LatestRelease> {
     { headers: ANONYMOUS },
   );
   if (response.status !== 200) {
-    return { status: response.status, tag: null, assets: [] };
+    return {
+      status: response.status,
+      refused: isRefusalStatus(response.status),
+      tag: null,
+      assets: [],
+    };
   }
   const body = (await response.json()) as {
     tag_name?: string;
@@ -178,14 +244,24 @@ async function fetchLatest(repo: string): Promise<LatestRelease> {
   };
   return {
     status: 200,
+    refused: false,
     tag: body.tag_name ?? null,
     assets: body.assets ?? [],
   };
 }
 
-/** The same read, with the missing release named as the failure it is. */
+/**
+ * The same read, with the missing release named as the failure it is.
+ *
+ * A refusal is separated out first, because the two are indistinguishable by
+ * status alone and only one of them is about the release. A 404 still fails: the
+ * feed is public, so "nothing there" is exactly the rot this looks for.
+ */
 async function latestRelease(repo: string): Promise<LatestRelease> {
   const release = await fetchLatest(repo);
+  if (release.refused) {
+    skipForRefusal(`${repo}'s feed`, `HTTP ${release.status}`);
+  }
   expect(
     release.status,
     `${repo} has no readable published release (HTTP ${release.status}) — publish one before running this`,
@@ -207,6 +283,10 @@ async function publishedVersion(repo: string): Promise<string> {
  * race the release workflow would lose once per release. Waiting turns "not yet"
  * into a wait — and into a failure only if it never arrives, which is then a
  * release nobody would be offered rather than an impatient check.
+ *
+ * A refusal is not "not yet", and it does not get to spend the deadline: that
+ * would turn somebody else's exhausted hourly limit into a release nobody is
+ * offered, which is the red run this change exists to stop.
  */
 async function waitForFeedToName(
   version: string,
@@ -215,15 +295,31 @@ async function waitForFeedToName(
   let note = "the feed did not answer";
 
   for (;;) {
+    let release: LatestRelease | null = null;
     try {
-      const release = await fetchLatest(feedRepo());
+      release = await fetchLatest(feedRepo());
+    } catch (error) {
+      note = error instanceof Error ? error.message : String(error);
+    }
+
+    // Deliberately outside that `try`, and this is the whole point of the shape:
+    // a skip is a throw, so a `catch` around this call swallows the verdict and
+    // spends the two-minute deadline instead — the guard failing in exactly the
+    // way it was written to stop the test failing. Verified by making GitHub's
+    // answer a 403 and watching this loop run out the deadline, once.
+    if (release !== null && release.refused) {
+      skipForRefusal(
+        `whether the feed is offering ${version}`,
+        `HTTP ${release.status}`,
+      );
+    }
+
+    if (release !== null) {
       const tag = (release.tag ?? "").replace(/^v/, "");
       if (release.status === 200 && tag === version) {
         return { ok: true, note: `releases/latest names ${version}` };
       }
       note = `releases/latest answers HTTP ${release.status}${tag ? ` with ${tag}` : ""}`;
-    } catch (error) {
-      note = error instanceof Error ? error.message : String(error);
     }
 
     if (Date.now() >= deadline) {
@@ -322,9 +418,22 @@ async function checkForUpdates(page: Page): Promise<void> {
   await updatesSection(page).getByRole("button", { name: /check for updates/i }).click();
 }
 
-/** Every way the section answers a check, so a wait can end on any of them. */
-const OUTCOMES =
-  /you're on the latest release|refused the request|no releases published|no network connection|not a packaged build/i;
+/**
+ * Every way the section answers a check, so a wait can end on any of them.
+ *
+ * The refusal alternative is the app's own words, from the shared definition
+ * rather than typed again here — see {@link APP_REFUSAL_TEXT}.
+ */
+const OUTCOMES = new RegExp(
+  [
+    "you're on the latest release",
+    APP_REFUSAL_TEXT,
+    "no releases published",
+    "no network connection",
+    "not a packaged build",
+  ].join("|"),
+  "i",
+);
 
 /**
  * Ask the app to check, and take "could not check" for an answer only after
@@ -349,6 +458,21 @@ async function checkUntilSettled(page: Page, attempts: number): Promise<void> {
       return;
     }
     if (attempt < attempts) await new Promise((done) => setTimeout(done, 10_000));
+  }
+}
+
+/**
+ * Stop, too, when it was the app's own request that GitHub declined.
+ *
+ * The app reads the same feed this spec does, from the same address, seconds
+ * later — so the feed can answer here and refuse there, and what the section is
+ * then showing is somebody else's rate limit rather than anything about the
+ * release. "Refused the request" is the sentence the app renders for exactly the
+ * statuses {@link isRefusal} names, which is why the rule is the same one.
+ */
+async function skipIfTheAppWasRefused(page: Page, what: string): Promise<void> {
+  if (await updatesSection(page).getByText(APP_REFUSAL_TEXT).count()) {
+    skipForRefusal(what, `the app reported "${REFUSED_REQUEST_MESSAGE}"`);
   }
 }
 
@@ -389,6 +513,12 @@ async function download(url: string): Promise<Buffer> {
   const response = await fetch(url, {
     headers: { accept: "application/octet-stream", "user-agent": "alltherepos-e2e" },
   });
+  // The same rule as the reads above, on every anonymous request this file
+  // makes — as `check-updater-feed.mjs` applies it, where a refusal on any of its
+  // three GETs is exit 2 rather than a verdict on the feed.
+  if (isRefusalStatus(response.status)) {
+    skipForRefusal(`the bytes of ${url}`, `HTTP ${response.status}`);
+  }
   expect(
     response.status,
     `${url} did not download (HTTP ${response.status})`,
@@ -518,6 +648,13 @@ test.describe("the packaged app's update check", () => {
         await checkForUpdates(page);
       }
 
+      // Asked once, after whichever branch ran: the app's request is its own,
+      // and a refusal there says nothing about the release either.
+      await skipIfTheAppWasRefused(
+        page,
+        `whether ${version} is the release the app is offered`,
+      );
+
       // This string renders only for the `current` state, which is reached only
       // by fetching the feed, parsing the manifest and finding it equal. A 404
       // renders "No releases published yet." and an unpackaged build "Update
@@ -608,6 +745,13 @@ test.describe("the packaged app's update check", () => {
       ).toBe(true);
 
       await checkForUpdates(page);
+      // The same guard as the branch above, on the branch a rehearsal runs: the
+      // build behind the feed is the one whose check this whole half exists for,
+      // and a rate limit here is still not a verdict on the release.
+      await skipIfTheAppWasRefused(
+        page,
+        `whether ${latest} is offered to a build behind it`,
+      );
 
       // Both affordances the status drives: the panel's button, and the top
       // bar's chip (matched by title, which does not hide at narrow widths).
@@ -659,6 +803,12 @@ test.describe("the archive the feed offers", () => {
     const manifestResponse = await fetch(asset.browser_download_url, {
       headers: ANONYMOUS,
     });
+    if (isRefusalStatus(manifestResponse.status)) {
+      skipForRefusal(
+        `reading ${MANIFEST_ASSET}`,
+        `HTTP ${manifestResponse.status}`,
+      );
+    }
     expect(
       manifestResponse.status,
       `${MANIFEST_ASSET} did not download (HTTP ${manifestResponse.status})`,

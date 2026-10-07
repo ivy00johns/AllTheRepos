@@ -492,10 +492,14 @@ export interface OpenInEditorResult {
 // settings:*
 // ---------------------------------------------------------------------------
 
-/** Input for `settings:get`. Empty. */
-export interface GetSettingsInput {
-  // intentionally empty — Zod schema is `z.object({})`.
-}
+/**
+ * Input for `settings:get`. Empty — Zod schema is `z.object({})`.
+ *
+ * `Record<string, never>` rather than an empty interface, which would mean "no
+ * fields" to a reader and "anything non-nullish" to TypeScript: `0`, a string and
+ * an array would all satisfy it.
+ */
+export type GetSettingsInput = Record<string, never>;
 
 /** Response for `settings:get` — full Settings blob. */
 export type GetSettingsResult = Settings;
@@ -513,10 +517,11 @@ export type UpdateSettingsResult = Settings;
 // groups:*
 // ---------------------------------------------------------------------------
 
-/** Input for `groups:list`. Empty. */
-export interface ListGroupsInput {
-  // intentionally empty — Zod schema is `z.object({})`.
-}
+/**
+ * Input for `groups:list`. Empty — Zod schema is `z.object({})`. See
+ * {@link GetSettingsInput} for why this is a mapped type and not `{}`.
+ */
+export type ListGroupsInput = Record<string, never>;
 
 /** Response for `groups:list`. */
 export type ListGroupsResult = Group[];
@@ -702,10 +707,11 @@ export interface NotifyResult {
   shown: boolean;
 }
 
-/** Input for `app:showSpotlight`. Empty. */
-export interface ShowSpotlightInput {
-  // intentionally empty — Zod schema is `z.object({}).strict()`.
-}
+/**
+ * Input for `app:showSpotlight`. Empty — Zod schema is `z.object({}).strict()`.
+ * See {@link GetSettingsInput} for why this is a mapped type and not `{}`.
+ */
+export type ShowSpotlightInput = Record<string, never>;
 
 /** Response for `app:showSpotlight`. */
 export interface ShowSpotlightResult {
@@ -713,10 +719,11 @@ export interface ShowSpotlightResult {
   visible: true;
 }
 
-/** Input for `app:hideSpotlight`. Empty. */
-export interface HideSpotlightInput {
-  // intentionally empty — Zod schema is `z.object({}).strict()`.
-}
+/**
+ * Input for `app:hideSpotlight`. Empty — Zod schema is `z.object({}).strict()`.
+ * See {@link GetSettingsInput} for why this is a mapped type and not `{}`.
+ */
+export type HideSpotlightInput = Record<string, never>;
 
 /** Response for `app:hideSpotlight`. */
 export interface HideSpotlightResult {

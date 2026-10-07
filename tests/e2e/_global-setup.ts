@@ -68,7 +68,6 @@ const electronBinary = require("electron") as string;
 const SEEDED_REPOS = ["Demo Web", "Demo CLI", "Demo Library"] as const;
 
 function run(cmd: string, args: string[]): void {
-  // eslint-disable-next-line no-console
   console.log(`[e2e setup] > ${cmd} ${args.join(" ")}`);
   const result = spawnSync(cmd, args, {
     stdio: "inherit",
@@ -209,7 +208,6 @@ async function buildTemplateProfile(): Promise<{
     );
   }
 
-  // eslint-disable-next-line no-console
   console.log(
     `[e2e setup] template profile seeded with ${repos.length} repos — every launch copies it`,
   );
