@@ -81,8 +81,20 @@ describe("what the linter is told to ignore", () => {
     for (const pattern of ["out/**", "release/**", "**/dist/**"]) {
       expect(ignores(), pattern).toContain(pattern);
     }
-    // `**/dist/**` rather than `dist/**`, because `mcp/` has its own bundle.
-    expect(fs.existsSync(path.join(ROOT, "mcp", "dist"))).toBe(true);
+    // `**/dist/**` rather than `dist/**`, because `mcp/` builds its own bundle
+    // into a nested one. The premise is read from that package's committed
+    // config, not from the directory itself: `mcp/dist` is build output, ignored
+    // by `mcp/.gitignore`, so a clean checkout does not have it. Asking whether
+    // it *existed* made this pass only where somebody had already run the build
+    // — it read `true` here and `false` on a runner, where it failed the unit
+    // suite that the release job guards the build with, and left v0.1.8 tagged
+    // with nothing published.
+    const mcp = JSON.parse(read("mcp/package.json")) as {
+      bin: Record<string, string>;
+      files: string[];
+    };
+    expect(Object.values(mcp.bin)).toContain("./dist/index.js");
+    expect(mcp.files).toContain("dist");
   });
 
   test("the file that is generated rather than written", () => {
