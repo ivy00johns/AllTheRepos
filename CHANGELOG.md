@@ -11,8 +11,12 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-07
+
 ### Added
 
+- explain the first launch, in the DMG and once inside the app
+- sign and notarise releases, and install updates where macOS allows
 - The update feed is checked on a schedule as well as on demand. It has its own workflow,
   `.github/workflows/updater-feed.yml`, for the reason the link check left `ci.yml`: it is a gate
   that has to run when *nothing here changed*, because a feed rots on its own — a release
@@ -152,6 +156,18 @@ source of truth for the current version.
   shipped, and it stays silent on the tray's own right-click menu, which a rule that looked only at
   the words would have broken on. The four steps a person follows are unchanged; they are now
   written once.
+
+### Changed
+
+- write the first-launch instructions once, and hold them there
+- launch the released build too, walk the install path, and digest the clocks
+- launch the app a rehearsal builds and make it read the live feed
+- rehearse a release every week, before a tag can find the break
+- check the update feed on a clock, not only when someone asks
+
+### Fixed
+
+- stop the feed check going red on somebody else's rate limit
 
 ## [0.1.6] - 2026-10-07
 
@@ -439,7 +455,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4
