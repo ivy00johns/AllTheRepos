@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg" alt="Node ≥22" />
   <img src="https://img.shields.io/badge/pnpm-%E2%89%A59-orange.svg" alt="pnpm ≥9" />
   <img src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" alt="TypeScript strict" />
-  <img src="https://img.shields.io/badge/tests-1%2C185%20passing-success.svg" alt="1,185 tests passing" />
+  <img src="https://img.shields.io/badge/tests-1%2C189%20passing-success.svg" alt="1,189 tests passing" />
   <img src="https://img.shields.io/badge/Electron-36-47848f.svg" alt="Electron 36" />
   <img src="https://img.shields.io/badge/macOS-Apple%20silicon-000000.svg" alt="macOS on Apple silicon" />
   <img src="https://img.shields.io/badge/status-alpha-f0a83c.svg" alt="Status: alpha" />
@@ -215,7 +215,7 @@ flowchart LR
 ## 🧪 Testing
 
 ```bash
-pnpm test                  # Vitest, 54 files · 1,185 tests (flips natives to host ABI first)
+pnpm test                  # Vitest, 54 files · 1,189 tests (flips natives to host ABI first)
 pnpm typecheck             # tsc over all three tsconfigs
 pnpm test:electron-e2e     # Playwright against a real Electron window
 pnpm test:packaged-update  # opt-in: the packaged .app's anonymous update check
@@ -223,7 +223,7 @@ pnpm test:full             # unit + Electron E2E
 pnpm links:check           # resolve every external link in the Markdown (hits the network)
 ```
 
-Current status (2026-10-06): **1,185 unit tests in 54 files, 0 failures** and **0 typecheck errors across three tsconfigs**, both verified locally. The same gates run on `macos-14` for every push and pull request; the last Electron E2E job there finished **8 passed, 2 skipped** (10 tests in 27s). That suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
+Current status (2026-10-06): **1,189 unit tests in 54 files, 0 failures** and **0 typecheck errors across three tsconfigs**, both verified locally. The same gates run on `macos-14` for every push and pull request; the last Electron E2E job there finished **8 passed, 2 skipped** (10 tests in 27s). That suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
 
 `pnpm links:check` is the one gate that needs the internet, so it is its own CI job: it resolves every external link in the Markdown and fails on a **404**, which is how a changelog entry pointing at a deleted release or a contract citing a page upstream moved out from under it gets caught. A rate limit, a bot wall or a timeout is reported and does not fail — a check that could not run is not a verdict.
 
