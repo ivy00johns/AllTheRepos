@@ -10,10 +10,14 @@
  * is editing, which is exactly how a new gate gets ignored: the first run is
  * unusable, so somebody turns it off.
  *
- * So: the ignores, the script, and the step in CI that runs it. The rules
- * themselves are exercised by the run itself.
+ * So: the ignores, the script, the step in CI that runs it, and the one rule the
+ * config adds to the linter's defaults. The rules themselves are exercised by
+ * the run itself; the dead-suppression rule is exercised by linting a fixture
+ * that carries one, because a config value nothing acts on is a comment with
+ * better syntax.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -28,6 +32,24 @@ const read = (relative: string) =>
 
 interface Flat {
   ignores?: string[];
+  linterOptions?: { reportUnusedDisableDirectives?: string };
+}
+
+/** The linter CI runs, by the path its own bin script lives at. */
+const ESLINT = path.join(ROOT, "node_modules", "eslint", "bin", "eslint.js");
+
+/**
+ * Lint one path the way CI does — the repo's own config, found by lookup.
+ *
+ * No `--config`: the fixture lives inside the repository so ESLint walks up to
+ * `eslint.config.mjs` the same way it would for any other file, which is the
+ * arrangement under test rather than a second one set up for the test.
+ */
+function lint(target: string) {
+  return spawnSync(process.execPath, [ESLINT, target], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
 }
 
 let config: Flat[];
@@ -79,11 +101,62 @@ describe("how a developer and CI run it", () => {
 
     expect(pkg.scripts.lint).toBe("eslint .");
 
+    // And the dead-suppression rule rides in the config rather than on that
+    // command, so there is no flag for an editor's ESLint integration — or a
+    // person running `eslint .` by hand — to be missing.
+    expect(
+      config.flatMap(
+        (entry) => entry.linterOptions?.reportUnusedDisableDirectives ?? [],
+      ),
+    ).toContain("error");
+
     const ci = read(".github/workflows/ci.yml");
     expect(ci).toContain("pnpm lint");
     // On the fast job, which is where typecheck already is: no build, no network,
     // no native rebuild.
     expect(ci.indexOf("pnpm lint")).toBeGreaterThan(ci.indexOf("pnpm typecheck"));
+  });
+
+  test("a suppression that suppresses nothing fails the gate", () => {
+    // The rule above is a config value until something acts on it. This runs the
+    // linter on two fixtures that differ by exactly one line — the directive —
+    // so a non-zero exit can only be about the suppression. The failure it
+    // prevents is the one this repository already had: twenty-seven disable
+    // comments naming rules that had left with the Next-era linter, invisible to
+    // every run until somebody rebuilt the linter and read them by hand.
+    const dir = fs.mkdtempSync(path.join(ROOT, "tests", "eslint-dead-directive-"));
+    const fixture = (name: string, body: string) => {
+      const file = path.join(dir, name);
+      fs.writeFileSync(file, body, "utf8");
+      return file;
+    };
+
+    const dead = fixture(
+      "dead.mjs",
+      "// eslint-disable-next-line no-console\nexport const answer = 42;\n",
+    );
+    const live = fixture("live.mjs", "export const answer = 42;\n");
+
+    try {
+      const bad = lint(dead);
+      expect(
+        bad.status,
+        `a fixture carrying a dead suppression linted clean:\n${bad.stdout}${bad.stderr}`,
+      ).not.toBe(0);
+      expect(`${bad.stdout}${bad.stderr}`).toContain(
+        "Unused eslint-disable directive",
+      );
+
+      // The control: the same file without the directive, so a red run above is
+      // the suppression and not the fixture.
+      const clean = lint(live);
+      expect(
+        clean.status,
+        `the fixture without the suppression did not lint clean:\n${clean.stdout}${clean.stderr}`,
+      ).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("the rules are TypeScript-aware, which is why no eslint:recommended", () => {

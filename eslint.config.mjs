@@ -22,6 +22,16 @@
  *     here, and a rule set that reformats 236 files on the day it lands is a
  *     rule set that gets reverted.
  *
+ * It also adds one thing to the linter's defaults, because it is a failure this
+ * repository has already had: a suppression that suppresses nothing is an
+ * **error**. Twenty-seven `eslint-disable` comments were left behind by the
+ * Next-era linter, each naming a rule that had left with it, and nothing noticed
+ * until the linter was rebuilt and they were read by hand. A dead suppression is
+ * not cosmetics — it reads as a decision somebody made, so the next person keeps
+ * the shape it was working around and never learns that the rule was satisfied,
+ * or that it no longer exists. Set here rather than passed on the command line,
+ * so `pnpm lint`, an editor's ESLint integration and a hook all answer the same.
+ *
  * What it does cover, in the same shape a developer runs it:
  *
  *     pnpm lint
@@ -55,6 +65,15 @@ export default tseslint.config(
     ],
   },
   {
+    // See the header. `linterOptions` on its own — deliberately not alongside
+    // the `ignores` above, because a config object whose only key is `ignores`
+    // means "the whole run ignores this", and adding a second key to it changes
+    // that meaning rather than extending it.
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
+  },
+  {
     // Everything ESLint reads by default, plus the two TypeScript flavors. The
     // `.mjs` and `.cjs` halves matter: `scripts/` is where the release tools
     // live, and an unused import or a stray `require` there is exactly the kind
@@ -74,6 +93,18 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    // A `.cjs` file is CommonJS, and in CommonJS `require` is not a mistake —
+    // it is the only loader there is. The rule stays on everywhere else, where
+    // reaching for it is a habit left over from that era; here it would only
+    // mean a suppression comment in every file that has to be CommonJS by
+    // nature. `scripts/refuse-github.cjs` is the one that matters: `--require`
+    // is the only way to install a preload, and that file's job *is* to be one.
+    files: ["**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 );

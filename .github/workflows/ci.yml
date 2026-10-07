@@ -68,6 +68,11 @@ jobs:
       # uses, a `require` reached for out of habit, a type that accepts `0` where
       # the comment says "empty". See `eslint.config.mjs` for what it is not
       # (type-aware, stylistic) and why.
+      #
+      # A suppression that suppresses nothing is an error here as well, which is
+      # what stops a disable comment from outliving the rule it was written for:
+      # 27 of them did, naming rules that left with the Next-era linter, and
+      # nothing noticed until they were read by hand.
       - run: pnpm lint
       # The first-launch instructions are rendered from one source
       # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
