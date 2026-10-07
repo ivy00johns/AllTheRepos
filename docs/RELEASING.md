@@ -217,8 +217,9 @@ already on disk. On a release that is **Developer-ID signed** it goes further an
 install actually needs: `spctl --assess` accepting the unpacked bundle, and a notarisation ticket
 stapled to it — because a signature Gatekeeper will not honour is an update that downloads and
 cannot be applied. On an **ad-hoc** release it deliberately stops at `codesign`: Gatekeeper
-refusing a downloaded copy is then the documented right-click → Open rather than rot, and the spec
-reports which of the two it found instead of deciding for itself which release it is looking at.
+refusing a downloaded copy is then the documented **Open Anyway** step rather than rot (see
+"Installing an ad-hoc signed build" below), and the spec reports which of the two it found instead
+of deciding for itself which release it is looking at.
 On a tag push the archive it verifies is the one that run just published; on a rehearsal it is
 the release that is live, which is the previous one.
 
@@ -646,8 +647,31 @@ but not enough for Gatekeeper to trust a copy that was downloaded.
 
 - **Built on this machine:** open it normally — no quarantine flag, no
   warning.
-- **Downloaded from GitHub:** macOS will say it "can't be opened". Right-
-  click the app → **Open** → **Open**, once. Or clear the flag:
+- **Downloaded from GitHub:** macOS refuses the first launch, and the
+  right-click → **Open** shortcut does **not** get you past it any more.
+  That was a Finder contextual-menu override, and Apple removed it in
+  macOS 15 — this page documented it for several releases, so if that is the
+  habit you are reaching for, that is why it stopped working. The procedure
+  that works now, and the one Apple's own *Safely open apps on your Mac*
+  describes, is:
+
+  1. Try to open the app and let macOS refuse it — *"Apple could not verify
+     'AllTheRepos' is free of malware."*
+  2. Open **System Settings → Privacy & Security**.
+  3. Scroll to **Security**, and click **Open Anyway** beside the line naming
+     AllTheRepos.
+  4. The warning appears once more, with an **Open** button. Confirm it.
+
+  macOS records that as an exception for this app, so every later launch is an
+  ordinary double-click. The same four steps ship **inside the DMG** as
+  `READ-ME-FIRST.txt`, which is the only surface a person can read before
+  macOS blocks the app: once the launch has been refused there is nothing
+  running that could explain anything. The app then repeats it once you are
+  inside — a one-time notice at the top of the window, dismissed with **Got
+  it** and remembered in the settings file as `adHocNoticeDismissed`, so it
+  never appears again. A notarised build shows none of this.
+
+  Or skip the dialogs and clear the flag that triggers the check:
 
   ```bash
   xattr -dr com.apple.quarantine /Applications/AllTheRepos.app

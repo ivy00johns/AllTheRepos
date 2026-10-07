@@ -28,6 +28,10 @@ const defaultSettings: Settings = {
   defaultEditor: "vscode",
   defaultTerminal: null,
   identities: [],
+  // Present because the handler parses its output through
+  // `UpdateSettingsResultSchema`, which defaults it — so a fixture without
+  // it is no longer the shape the IPC layer returns.
+  adHocNoticeDismissed: false,
   schemaVersion: 1,
 };
 

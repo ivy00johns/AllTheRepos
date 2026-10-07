@@ -400,10 +400,11 @@ async function download(url: string): Promise<Buffer> {
  * What macOS makes of the signature on the bundle inside the archive.
  *
  * `codesign` only. Ad-hoc signed and **not notarised** is a valid state for a
- * release — the documented right-click → Open on first launch, not rot — and
- * `spctl` refuses exactly that state by design, so asserting it here would
- * fail every release this project can currently build. What `codesign` proves
- * is what makes the copy run once it is out of quarantine.
+ * release — the documented System Settings → Privacy & Security → Open Anyway
+ * on first launch, not rot — and `spctl` refuses exactly that state by design,
+ * so asserting it here would fail every release this project can currently
+ * build. What `codesign` proves is what makes the copy run once it is out of
+ * quarantine.
  *
  * Gatekeeper is asserted only where it is meaningful: `spctlAssess` and
  * `staplerValidate` below run when the archive *is* Developer-ID signed, or
@@ -528,6 +529,50 @@ test.describe("the packaged app's update check", () => {
       await expect(
         updatesSection(page).getByText(/no releases published|refused the request|not a packaged build/i),
       ).toHaveCount(0);
+    } finally {
+      await app.close();
+      cleanup();
+    }
+  });
+
+  test("explains an ad-hoc first launch, and remembers once told", async () => {
+    const { app, page, cleanup } = await launchPackagedApp(CURRENT_BUNDLE);
+
+    try {
+      const developerId = /^Authority=Developer ID Application:/m.test(
+        signatureAuthorities(CURRENT_BUNDLE),
+      );
+      const notice = page.getByText(
+        /macOS asked you to confirm the first launch/i,
+      );
+
+      if (developerId) {
+        // A notarised build never gets the dialog this notice explains, so it
+        // must never show the explanation either — the assertion is the
+        // absence, and it is the whole reason the notice reads the signature
+        // rather than assuming every build needs it.
+        await expect(notice).toHaveCount(0);
+        return;
+      }
+
+      await expect(notice).toBeVisible({ timeout: 60_000 });
+
+      await page
+        .getByRole("button", { name: /dismiss this explanation/i })
+        .click();
+      await expect(notice).toHaveCount(0);
+
+      // Dismissing is a promise about the *next* launch, so it has to reach
+      // disk — asserted against the settings file this app is actually using,
+      // not against the fact that the banner went away (which it would do
+      // even if the write had failed and the query simply refetched).
+      const userData = await app.evaluate(({ app: electronApp }) =>
+        electronApp.getPath("userData"),
+      );
+      const written = JSON.parse(
+        readFileSync(join(userData, "settings.json"), "utf8"),
+      ) as { adHocNoticeDismissed?: boolean };
+      expect(written.adHocNoticeDismissed).toBe(true);
     } finally {
       await app.close();
       cleanup();

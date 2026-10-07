@@ -27,6 +27,7 @@ import { useMenuCommandBus } from "@renderer/actions/use-menu-command-bus";
 import { useTrayOpenRepoBus } from "@renderer/actions/use-tray-open-repo-bus";
 import { CommandPalette } from "@renderer/components/command-palette/command-palette";
 import { ActionNotice } from "@renderer/components/layout/action-notice";
+import { AdHocBuildNotice } from "@renderer/components/layout/adhoc-build-notice";
 import { ScanStatusBar } from "@renderer/components/layout/scan-status-bar";
 import { TopBar } from "@renderer/components/layout/top-bar";
 
@@ -54,6 +55,12 @@ function RootLayout() {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <TopBar />
       <ScanStatusBar />
+      {/*
+        Above the transient notices on purpose: this one explains a launch
+        that already happened, and it is the only thing on screen a person who
+        just clicked through a Gatekeeper dialog has not seen before.
+      */}
+      <AdHocBuildNotice />
       <ActionNotice />
       <main className="flex-1 overflow-hidden">
         <Suspense fallback={<RouteFallback />}>

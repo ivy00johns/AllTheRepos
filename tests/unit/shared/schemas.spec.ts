@@ -439,11 +439,24 @@ describe("SettingsSchema", () => {
     defaultEditor: "vscode" as const,
     defaultTerminal: null,
     identities: ["ivy00johns"],
+    // "Fully populated" has to include every field the schema knows, or the
+    // round-trip below silently stops covering the ones it omits.
+    adHocNoticeDismissed: false,
     schemaVersion: 1,
   };
 
   it("accepts a fully-populated settings blob", () => {
     expect(SettingsSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("defaults `adHocNoticeDismissed` for a file written before the field", () => {
+    // This is the migration path: an existing `settings.json` has no such key,
+    // and defaulting it is what keeps the notice showing on an un-notarised
+    // build instead of the file failing validation and resetting every root.
+    const { adHocNoticeDismissed: _omitted, ...withoutIt } = valid;
+    const parsed = SettingsSchema.parse(withoutIt);
+    expect(parsed.adHocNoticeDismissed).toBe(false);
+    expect(parsed.scanPaths).toEqual(valid.scanPaths);
   });
 
   it("defaults `identities` so pre-existing settings files still parse", () => {

@@ -98,3 +98,24 @@ mac:
       schemes: [alltherepos]
 dmg:
   writeUpdateInfo: false
+  # The window layout, named in full because defining `contents` at all
+  # replaces electron-builder's default entries — including the
+  # drag-to-Applications link, which is the one thing that must not go
+  # missing.
+  #
+  # READ-ME-FIRST.txt is here because the DMG window is the only surface a
+  # person sees *before* Gatekeeper blocks the app. Once macOS has refused
+  # the launch, the app is not running and cannot explain itself; the file
+  # sitting next to the app is the only place the instructions can live.
+  contents:
+    # No `type` means the built app bundle itself.
+    - x: 140
+      y: 200
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+    - x: 270
+      y: 340
+      type: file
+      path: resources/READ-ME-FIRST.txt

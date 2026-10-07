@@ -218,7 +218,7 @@ jobs:
             echo "SIGNING=ad-hoc" >> "$GITHUB_ENV"
             echo "IDENTITY=-" >> "$GITHUB_ENV"
             echo "ATR_NOTARIZE=skip" >> "$GITHUB_ENV"
-            echo "::warning::CSC_LINK is not set, so this build is ad-hoc signed: a downloaded copy needs one right-click → Open, and the app cannot install its own updates. Add the CSC_LINK and CSC_KEY_PASSWORD secrets plus a notarisation credential to publish an installable release — see docs/RELEASING.md."
+            echo "::warning::CSC_LINK is not set, so this build is ad-hoc signed: macOS will refuse the first launch until it is allowed once through System Settings → Privacy & Security → Open Anyway, and the app cannot install its own updates. Add the CSC_LINK and CSC_KEY_PASSWORD secrets plus a notarisation credential to publish an installable release — see docs/RELEASING.md."
             exit 0
           fi
 
@@ -367,9 +367,11 @@ jobs:
               echo "signed with a Developer ID and notarised by Apple, so there is no Gatekeeper"
               echo "warning to work around."
             else
-              echo "Open the DMG, drag **AllTheRepos** into Applications, then right-click the app →"
-              echo "**Open** once. This build is ad-hoc signed and **not notarised**, so the first"
-              echo "launch has to go through that menu; after that it opens normally."
+              echo "macOS will refuse the first launch, and that is expected: this build is ad-hoc"
+              echo "signed and **not notarised**. The right-click → Open shortcut older macOS accepted"
+              echo "was removed in macOS 15, so the way through is **System Settings → Privacy &"
+              echo "Security → Open Anyway** — after trying to open the app. The same steps are in"
+              echo "`READ-ME-FIRST.txt` inside the DMG. Every launch after that is a normal double-click."
             fi
             echo
             echo "The other three assets are the update feed, not alternative installers: the app"

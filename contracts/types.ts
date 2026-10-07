@@ -183,6 +183,14 @@ export interface Settings {
    * configured" — the renderer then infers it from the catalog.
    */
   identities: string[];
+  /**
+   * Whether the one-time "this build is not notarised" notice has been
+   * dismissed. Optional, like `defaultTerminal`, so a `settings.json`
+   * written before the field existed still typechecks — and the schema
+   * defaults it to `false`, which is what makes a pre-existing file show the
+   * notice rather than fail validation.
+   */
+  adHocNoticeDismissed?: boolean;
   schemaVersion: number;
 }
 

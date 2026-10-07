@@ -230,6 +230,13 @@ export const SettingsSchema = z.object({
    * feature works before the user ever opens Settings.
    */
   identities: z.array(z.string().min(1)).default([]),
+  /**
+   * Whether the one-off "this build is not notarised" notice has been
+   * dismissed. Defaulted, not required: a `settings.json` written before
+   * this field existed still parses, and an un-notarised build is exactly
+   * the common case, so the notice appears once and stays gone.
+   */
+  adHocNoticeDismissed: z.boolean().default(false),
   schemaVersion: z.number().int().nonnegative(),
 });
 

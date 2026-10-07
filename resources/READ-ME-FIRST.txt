@@ -1,0 +1,49 @@
+AllTheRepos — first launch, and why macOS stops you
+===================================================
+
+This app is not notarised by Apple, so macOS refuses to open it the first time
+and asks you to confirm. The right-click -> Open shortcut that older versions of
+macOS accepted was removed in macOS 15, so this is the way through it now:
+
+  1. Drag AllTheRepos into Applications, then open it and let macOS refuse.
+     ("Apple could not verify "AllTheRepos" is free of malware.")
+
+  2. Open System Settings -> Privacy & Security.
+
+  3. Scroll down to Security. Next to the line naming AllTheRepos, click
+     Open Anyway.
+
+  4. The warning appears once more, with an Open button. Confirm it.
+
+macOS remembers that as an exception for this app, so every launch after that is
+an ordinary double-click.
+
+If you would rather not click through a dialog, this does the same thing from
+Terminal — it clears the "downloaded from the internet" flag, which is what
+triggers the check:
+
+    xattr -dr com.apple.quarantine /Applications/AllTheRepos.app
+
+
+Why this is necessary
+---------------------
+
+The build is ad-hoc signed rather than signed with an Apple Developer ID
+certificate and notarised by Apple. Notarisation is precisely the thing that
+removes this step, and it is not something an app can do for itself — it needs a
+paid Apple Developer account, which this project does not have yet.
+
+The same fact is why the app checks for updates but does not install them.
+macOS only applies an update to a build it trusts, so AllTheRepos will tell you
+when a newer release exists and open its download page; updating means
+downloading the new DMG. On a notarised build it downloads and installs the
+update itself, and this file stops being necessary.
+
+
+This is not a broken download
+-----------------------------
+
+The app *is* signed — an ad-hoc signature, which is what lets it run at all on
+Apple silicon — and `codesign --verify` passes on it. It simply is not
+notarised, which is a separate stamp from Apple that costs a membership. Nothing
+here indicates a corrupt or tampered file.

@@ -51,7 +51,7 @@ source of truth for the current version.
   bundle's version checked against the manifest's. A download that hashes correctly and cannot be
   launched is still a broken update, and that is the failure nobody sees until the hundred megabytes
   are already on disk. Not `spctl`: this build is ad-hoc signed and not notarised, so Gatekeeper
-  refusing a downloaded copy is the documented right-click → Open rather than rot.
+  refusing a downloaded copy is the documented **Open Anyway** step rather than rot.
 - A weekly digest reports whether the scheduled gates actually ran. A scheduled workflow is the one
   kind of gate that fails by *not happening* — nothing goes red, nothing is logged, the run simply
   never appears — and there are four clocks here now: the link check, the feed check, the release
@@ -121,6 +121,19 @@ source of truth for the current version.
   — and Settings states the reason, so the affordance that is missing is explained rather than
   simply absent. It is the same classification `scripts/notarize.mjs` makes about what it submits,
   and a unit test drives both with the same fixtures so the two cannot drift apart.
+- A first launch that macOS refuses now explains itself, in the only two places it can
+  actually be read. A downloaded copy of an ad-hoc signed build does not open: macOS shows
+  *"Apple could not verify … is free of malware"* and waits for a person to allow it by hand.
+  Nothing inside the app can say so at that moment, because the app is not running — so the DMG
+  window now carries `READ-ME-FIRST.txt` beside the app and the Applications link, and the app
+  says it once more from the inside, on the first run after you get in: a dismissable notice at
+  the top of the window, remembered as `adHocNoticeDismissed` so it never returns, and never shown
+  at all on a notarised build. Writing that down exposed a second problem worth naming. The
+  instructions this project had been shipping — right-click the app, choose **Open** — stopped
+  working in macOS 15, where Apple removed the Finder contextual-menu override that had allowed
+  it, so they had been wrong for every release cut from a current Mac, including the machine this
+  repository builds on. The documented procedure is now the one Apple documents: try to open the
+  app, then **System Settings → Privacy & Security → Open Anyway**, then confirm the warning.
 
 ## [0.1.6] - 2026-10-07
 
@@ -402,8 +415,9 @@ well before this file existed; this entry is the backfill.
 
 ### Notes
 
-- macOS only, Apple silicon, ad-hoc signed. A downloaded DMG needs one
-  right-click → **Open** on first launch.
+- macOS only, Apple silicon, ad-hoc signed. A downloaded DMG needs **System
+  Settings → Privacy & Security → Open Anyway** on first launch; the right-click
+  → **Open** shortcut older macOS accepted was removed in macOS 15.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 

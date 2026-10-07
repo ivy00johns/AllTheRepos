@@ -36,6 +36,7 @@ const DEFAULTS: Settings = {
   openaiEmbedModel: null,
   defaultEditor: "vscode",
   identities: [],
+  adHocNoticeDismissed: false,
   schemaVersion: 1,
 };
 
