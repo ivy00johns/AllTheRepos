@@ -138,6 +138,21 @@ describe("the workflow can prove the cleanup on demand", () => {
     expect(drill).toMatch(/if gh release view .*DRILL_DRAFT.*; then/);
   });
 
+  test("the drill aims the cleanup with --tag, not an env var GitHub ignores", () => {
+    // The first version of this job exported `GITHUB_REF_NAME` from each step.
+    // GitHub dropped it on the floor — the log printed the value while the
+    // process read the real one (`main`, the branch a dispatch runs on) — so the
+    // cleanup reported "no release tagged main" and the assertion above found
+    // the draft still there. A flag is the only way across that boundary.
+    expect(drill).toContain(
+      'node scripts/discard-draft-release.mjs --tag "$DRILL_DRAFT"',
+    );
+    expect(drill).toContain(
+      'node scripts/discard-draft-release.mjs --tag "$DRILL_PUBLISHED"',
+    );
+    expect(commands(drill)).not.toMatch(/GITHUB_REF_NAME:/);
+  });
+
   test("the drill proves a published release is left alone", () => {
     expect(drill).toContain("--prerelease");
     expect(drill).toMatch(/Assert the published release was left alone/);
@@ -154,6 +169,20 @@ describe("the workflow can prove the cleanup on demand", () => {
     const cleanupStep = commands(drill).slice(commands(drill).indexOf("if: always()"));
     expect(cleanupStep).toContain("gh release delete");
     expect(cleanupStep).toContain("--cleanup-tag");
+  });
+
+  test("the drill only --cleanup-tag's the scratch release that has a tag", () => {
+    // A release created with `--draft` is stored under a placeholder tag
+    // (`untagged-2da6…`), so aiming `--cleanup-tag` at the scratch name asks
+    // GitHub to delete a ref that was never created and comes back 422 — which
+    // is how the drill's first dispatch failed, *after* the cleanup it was
+    // proving had already passed.
+    const cleanupStep = commands(drill).slice(commands(drill).indexOf("if: always()"));
+    const draftBranch = cleanupStep.slice(0, cleanupStep.indexOf("--cleanup-tag"));
+    expect(draftBranch).toContain("isDraft");
+    expect(draftBranch).toContain('gh release delete "$tag" --repo "$RELEASES_REPO" --yes');
+    // The pre-release does own a tag, so that one still cleans it up.
+    expect(cleanupStep).toContain("--yes --cleanup-tag");
   });
 
   test("the drill's scratch tags are namespaced so nothing else can match them", () => {

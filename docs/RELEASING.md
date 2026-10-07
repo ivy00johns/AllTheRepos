@@ -108,14 +108,23 @@ gh workflow run release.yml      # runs the `drill` job
 The drill creates a **real** draft in the releases repo, with an asset, exactly the way a run
 that died mid-upload leaves one; runs the same `scripts/discard-draft-release.mjs` a failed
 release would; and fails the job if that draft is still there. It then proves the half that
-matters more: it creates a release, publishes it, runs the cleanup again, and fails if that
-release was touched at all.
+matters more: it creates a pre-release, runs the cleanup again, and fails if that release was
+touched at all.
+
+It aims the cleanup with `--tag`, not by exporting `GITHUB_REF_NAME` from the step: names
+with that prefix are reserved, so a step that sets one is **silently ignored** and the script
+reads the real value — `main`, the branch a dispatch runs on — instead. That is exactly what
+made the drill's first dispatch fail, with the cleanup reporting that there was nothing to
+clean up while the draft sat there untouched.
 
 Two safety notes. The published half uses a **pre-release**, deliberately: `releases/latest`
-skips pre-releases, so a drill can never become the release the app offers. And every
-scratch release the drill creates is deleted again in an `always()` step — that is the one
-place `--cleanup-tag` is correct, because those tags are in the releases repo, created by the
-drill, unlike the version tag, which belongs to the source repo.
+skips pre-releases, so a drill can never become the release the app offers. And every scratch
+release the drill creates is deleted again in an `always()` step. That is the one place
+`--cleanup-tag` is correct, because it aims at a tag in the releases repo that the drill
+itself made, unlike the version tag, which belongs to the source repo. It is also the one
+place to be careful with it: a `--draft` release has no tag of its own — GitHub files it
+under a placeholder like `untagged-2da6…` — so the step deletes the draft by release alone,
+and only cleans a tag up for the pre-release, which does own one.
 
 A dispatch cannot publish anything: the `release` job is gated to tag pushes, so
 `workflow_dispatch` reaches the drill and nothing else.

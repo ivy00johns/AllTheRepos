@@ -205,9 +205,11 @@ jobs:
   #
   # Its scratch releases are `--prerelease`, deliberately: `releases/latest`
   # skips pre-releases, so the app's update feed can never resolve to a drill.
-  # Every scratch release it creates is deleted again in an `always()` step, and
-  # those tags live in the releases repo, which is why `--cleanup-tag` is
-  # correct *here* and wrong in the cleanup script.
+  # Every scratch release it creates is deleted again in an `always()` step.
+  # `--cleanup-tag` is correct *here* and wrong in the cleanup script, because
+  # the tag lives in the releases repo — but only for the pre-release, which has
+  # one: a `--draft` release is filed under a placeholder `untagged-…` name and
+  # has no ref to clean up at all.
   drill:
     name: prove the draft cleanup
     if: github.event_name == 'workflow_dispatch'
@@ -241,13 +243,16 @@ jobs:
           gh release view "$DRILL_DRAFT" --repo "$RELEASES_REPO" --json isDraft,assets \
             --jq '"scratch draft: isDraft=\(.isDraft), assets=\(.assets|length)"'
 
+      # The scratch tag goes in as a flag, not as an environment variable, and
+      # that is not a style choice: `GITHUB_`-prefixed names are reserved, so a
+      # step that sets `GITHUB_REF_NAME` is silently ignored — the log prints
+      # the value while the process reads the real one (`main` on a dispatch),
+      # and the cleanup then reports "no release tagged main" with the draft
+      # still sitting there. That is how this drill failed on its first dispatch.
       - name: Run the cleanup against that real draft
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          # The step under test reads the tag from here, exactly as it does in a
-          # real run. On a dispatch this would otherwise be the branch name.
-          GITHUB_REF_NAME: ${{ env.DRILL_DRAFT }}
-        run: node scripts/discard-draft-release.mjs
+        run: node scripts/discard-draft-release.mjs --tag "$DRILL_DRAFT"
 
       - name: Assert the draft is gone
         env:
@@ -272,8 +277,7 @@ jobs:
       - name: Run the cleanup against that published release
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          GITHUB_REF_NAME: ${{ env.DRILL_PUBLISHED }}
-        run: node scripts/discard-draft-release.mjs
+        run: node scripts/discard-draft-release.mjs --tag "$DRILL_PUBLISHED"
 
       - name: Assert the published release was left alone
         env:
@@ -292,7 +296,17 @@ jobs:
         run: |
           for tag in "$DRILL_DRAFT" "$DRILL_PUBLISHED"; do
             if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
-              gh release delete "$tag" --repo "$RELEASES_REPO" --yes --cleanup-tag
-              echo "removed scratch release $tag, and the tag it created"
+              # A release created with `--draft` has no tag of its own — GitHub
+              # files it under a placeholder like `untagged-2da6…` — so
+              # `--cleanup-tag` there asks it to delete a ref that was never
+              # created, and comes back 422. Ask which release this is rather
+              # than assuming: the `--prerelease` one does own a tag.
+              if [ "$(gh release view "$tag" --repo "$RELEASES_REPO" --json isDraft --jq .isDraft)" = "true" ]; then
+                gh release delete "$tag" --repo "$RELEASES_REPO" --yes
+                echo "removed scratch draft $tag (a draft has no tag to clean up)"
+              else
+                gh release delete "$tag" --repo "$RELEASES_REPO" --yes --cleanup-tag
+                echo "removed scratch release $tag, and the tag it created"
+              fi
             fi
           done

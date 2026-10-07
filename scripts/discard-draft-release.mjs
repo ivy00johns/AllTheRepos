@@ -28,10 +28,18 @@
  * something that was never this script's to delete.
  *
  * Usage:
- *   node scripts/discard-draft-release.mjs
+ *   node scripts/discard-draft-release.mjs                 # the tag GITHUB_REF_NAME names
+ *   node scripts/discard-draft-release.mjs --tag v0.2.0
  *
  * Reads `GH_TOKEN`, `RELEASES_REPO` and `GITHUB_REF_NAME` from the environment,
- * which is exactly what the workflow step hands it.
+ * which is exactly what the workflow step hands it. `--tag` exists because that
+ * step is not the only caller: the drill has to point this at a scratch release,
+ * and it cannot do that by exporting `GITHUB_REF_NAME` — `GITHUB_`-prefixed
+ * names are reserved, so a step that sets one is silently ignored and the script
+ * reads the real one (`main` on a dispatch) instead. That mistake looked exactly
+ * like a cleanup that does nothing, which is how the drill's first dispatch
+ * failed: the wording it chose was "no release tagged main". Hence a flag, which
+ * no reservation applies to.
  *
  * Exit codes: 0 — nothing was left behind (deleted, absent, or published and
  * left alone) · 1 — a draft survived this run · 2 — the check could not run at
@@ -56,6 +64,27 @@ export function decide({ hasToken, found, isDraft }) {
   return isDraft === true ? "draft" : "published";
 }
 
+/**
+ * The `--tag` flag, read from `argv` (everything after the script path).
+ *
+ * An empty `tag` means "the flag was not given" — the tag is then whatever
+ * `GITHUB_REF_NAME` names, which is the normal release case. A flag with nothing
+ * after it is an error, not an empty tag: those two mean different things, and
+ * collapsing them would turn a shell that lost the argument into a cleanup that
+ * reports success having looked for no release at all.
+ *
+ * @returns {{ tag: string, error?: string }}
+ */
+export function parseArgs(argv) {
+  const flagged = argv.indexOf("--tag");
+  if (flagged === -1) return { tag: "" };
+  const tag = argv[flagged + 1] ?? "";
+  if (tag.length === 0 || tag.startsWith("--")) {
+    return { tag: "", error: "usage: discard-draft-release.mjs [--tag <tag>]" };
+  }
+  return { tag };
+}
+
 /** `true`/`false` from `gh release view --json isDraft --jq .isDraft`. */
 export function parseIsDraft(stdout) {
   const text = (stdout ?? "").trim();
@@ -75,10 +104,21 @@ function ghExec(args, { env, timeoutMs }) {
   return { status: 0, stdout: result };
 }
 
-/** Like `ghExec` but treats a non-zero exit as an answer rather than a crash. */
+/**
+ * Like `ghExec` but treats a non-zero exit as an answer rather than a crash.
+ *
+ * Returns `ghExec`'s result *unchanged*, and the reason is worth keeping: that
+ * call already answers with `{ status, stdout }`, so wrapping it again as
+ * `{ status: 0, stdout: ghExec(...) }` puts the object where the caller expects
+ * the text. `parseIsDraft` then throws on `.trim` — and only on the path where
+ * `gh` *succeeds*, which is to say only when a release was actually found, which
+ * is to say only the path this file is here to run. Every unit test below
+ * injects its own `probe`, so none of them could see it. The CLI is driven
+ * against a stub `gh` at the bottom of that spec, and that is what caught it.
+ */
 function ghProbe(args, options) {
   try {
-    return { status: 0, stdout: ghExec(args, options) ?? "" };
+    return ghExec(args, options);
   } catch (error) {
     return { status: error?.status ?? 1, stdout: error?.stdout ?? "" };
   }
@@ -91,10 +131,10 @@ export function runDiscard({
   log = console.log,
   error = console.error,
   timeoutMs = 30_000,
+  tag = env.GITHUB_REF_NAME ?? "",
 } = {}) {
   const token = env.GH_TOKEN ?? env.GITHUB_TOKEN ?? "";
   const repo = env.RELEASES_REPO ?? "";
-  const tag = env.GITHUB_REF_NAME ?? "";
   const options = { env, timeoutMs };
 
   if (decide({ hasToken: token.length > 0, found: false, isDraft: null }) === "no-credential") {
@@ -105,7 +145,7 @@ export function runDiscard({
   }
   if (repo.length === 0 || tag.length === 0) {
     error(
-      "RELEASES_REPO and GITHUB_REF_NAME are both required to look for a draft.",
+      "RELEASES_REPO and a tag to look for are both required — pass --tag, or set GITHUB_REF_NAME.",
     );
     return 2;
   }
@@ -177,5 +217,11 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  process.exit(runDiscard());
+  const { tag, error: usage } = parseArgs(process.argv.slice(2));
+  if (usage !== undefined) {
+    console.error(usage);
+    process.exit(2);
+  }
+  // No flag means no `tag` key, so `runDiscard` falls back to `GITHUB_REF_NAME`.
+  process.exit(runDiscard(tag.length > 0 ? { tag } : {}));
 }

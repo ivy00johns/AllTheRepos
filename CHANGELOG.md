@@ -36,6 +36,15 @@ source of truth for the current version.
 
 ### Fixed
 
+- The release drill failed on its first dispatch, for the two reasons a drill exists to find,
+  and both are now fixed. A step cannot hand `scripts/discard-draft-release.mjs` a scratch tag
+  through the environment: `GITHUB_`-prefixed names are reserved, so GitHub silently keeps the
+  real one — `main`, the branch a dispatch runs on — and the cleanup reported that there was
+  nothing to clean up while the draft sat there. The tag now goes in as `--tag`, which no
+  reservation applies to. And a release created with `--draft` has no tag of its own: GitHub
+  files it under a placeholder like `untagged-2da6…`, so the drill's scratch cleanup now
+  deletes the draft by release alone and only passes `--cleanup-tag` for the pre-release,
+  which does own a tag.
 - Two archived documents had been pointing at files that moved: `docs/archive/plan-mvp.md` at
   the design-system master, and the MCP plan at `mcp/README.md`. Found by the new relative-link
   check on its first run.
