@@ -208,3 +208,74 @@ describe("the jobs that were already here", () => {
     );
   });
 });
+
+/**
+ * The Electron suite runs on two machines now, and only one of them is a build
+ * anybody can download: `electron-builder.yml` publishes arm64 and nothing else,
+ * so the Intel leg tests no product. It exists for the question this repository
+ * has never been able to answer — **does the app run on x86_64 at all?**
+ * `pnpm platforms:check` can report that `@lancedb/lancedb` ships no darwin-x64
+ * binary; nothing can report what the app does about it, because the vector
+ * store fails soft on purpose, semantic search degrades to FTS, and the suite
+ * stays green either way.
+ *
+ * Which makes this the kind of coverage that can be deleted without anything
+ * going red — drop the second entry from the matrix, or leave a leg's premise
+ * resting on a runner label that was retired last year, and the job still
+ * passes. These are the assertions that hold it in place.
+ */
+describe("the Intel leg of the Electron suite", () => {
+  const e2e = jobBlock("e2e");
+  const e2eCommands = commands(e2e);
+
+  test("runs the same suite, on the other architecture a Mac comes in", () => {
+    // One suite, two legs, one command — the developer's, unchanged.
+    expect(e2eCommands).toContain("pnpm test:electron-e2e");
+    expect(e2eCommands).toContain("runs-on: ${{ matrix.runner }}");
+    expect(e2eCommands).toContain("arch: arm64");
+    expect(e2eCommands).toContain("arch: x64");
+    expect(e2eCommands).not.toContain("runs-on: macos-14");
+  });
+
+  test("asks for an Intel runner label that still exists", () => {
+    // `macos-13` is the label this leg was first asked for by name, and GitHub
+    // retired the macOS 13 images on 2025-12-04: a job asking for one now waits
+    // for a machine that will never be handed to it. `macos-15-intel` is the
+    // x86_64 image that replaced it, and the last one GitHub intends to offer.
+    expect(e2eCommands).toContain("runner: macos-15-intel");
+    expect(e2eCommands).not.toContain("macos-13");
+  });
+
+  test("checks that it is the architecture it claims, before launching anything", () => {
+    // A label is not evidence — `macos-14` and `macos-15-intel` differ by one
+    // word — and a second leg that quietly ran on arm64 again would look exactly
+    // like one that works. So the leg asks the machine, and asks the Electron
+    // binary the suite is about to launch.
+    expect(e2e).toContain("Prove this leg is the architecture it is named for");
+    expect(e2eCommands).toContain(
+      'if [ "$(uname -m)" != "${{ matrix.machine }}" ]; then',
+    );
+    expect(e2eCommands).toContain('file -b "$ELECTRON"');
+    expect(e2eCommands).toContain("machine: arm64");
+    expect(e2eCommands).toContain("machine: x86_64");
+    // Before the suite, not after it: a leg that proved its architecture by
+    // passing would be proving nothing.
+    expect(e2eCommands.indexOf("Prove this leg")).toBeLessThan(
+      e2eCommands.indexOf("pnpm test:electron-e2e"),
+    );
+  });
+
+  test("lets the arm64 result survive an Intel-only break", () => {
+    // The two legs fail for unrelated reasons. `fail-fast` defaults to true, and
+    // an Intel break that cancelled the arm64 run would take down the one result
+    // anybody can act on.
+    expect(e2e).toContain("fail-fast: false");
+  });
+
+  test("keeps the two legs' failure artifacts apart", () => {
+    // `upload-artifact@v4` refuses a second upload under a name already used in
+    // the run, so a shared name turns two red legs into one red leg and one
+    // error about the artifact.
+    expect(e2e).toContain("name: playwright-traces-${{ matrix.arch }}");
+  });
+});

@@ -1,10 +1,12 @@
 # CI — the gates, on every push and pull request (ATR-047).
 #
-# macOS on Apple silicon only. The app is macOS-only (`electron-builder
-# --mac`, `identity: "-"`, an arm64 bundle) and its native modules
-# (better-sqlite3, find-git-repositories) are rebuilt per architecture, so a
-# Linux runner would be testing a build nobody ships — and the Electron suite
-# launches a real window, which the specs assume is possible.
+# macOS only, and on both architectures a Mac comes in. The app ships as an
+# arm64 bundle (`electron-builder --mac`, `identity: "-"`) and its native
+# modules (better-sqlite3, find-git-repositories) are rebuilt per architecture,
+# so a Linux runner would be testing a build nobody ships — and the Electron
+# suite launches a real window, which the specs assume is possible. So: one
+# Apple silicon machine and one Intel one. See the `e2e` job for why the second
+# exists when nothing is published for it.
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
@@ -129,14 +131,46 @@ jobs:
   # builds the bundle, which is exactly the state the check job must not be in
   # while it runs. It also fails for reasons the unit suite never sees.
   #
+  # Two legs, one per architecture a Mac comes in. Only one of them is a build
+  # anybody can download — `electron-builder.yml` ships arm64 and nothing else —
+  # so the Intel leg tests no product. It answers a different question, and one
+  # this repository has never had an answer to: **does this app run on x86_64 at
+  # all?** `pnpm platforms:check` reads dependency metadata and can say that
+  # `@lancedb/lancedb` publishes no darwin-x64 binary; only a machine can say
+  # what the app does about that, because `services/lance.ts` fails soft on
+  # purpose — no vector store means semantic search degrades to FTS and a scan
+  # still completes, so nothing goes red on its own. Whether the rest of the app
+  # is that forgiving is an empirical claim, and this is where it is measured.
+  # It is also the precondition for the decision still open upstream of it:
+  # adding `x64` to the dmg/zip targets is a one-line change that packages and
+  # uploads an Intel build, and what that build does is what this leg reports.
+  #
+  # `macos-13` was the Intel label this leg was first asked for, and it no longer
+  # exists: GitHub retired the macOS 13 images on 2025-12-04 (the last x86_64
+  # image was replaced by `macos-15-intel`, itself scheduled for Fall 2027).
+  #
+  # `fail-fast: false`, because the two legs fail for unrelated reasons and an
+  # Intel-only break that cancelled the arm64 run would take the one result
+  # anybody can act on down with it.
+  #
   # The suite no longer depends on a scanned library: global setup seeds a
   # small synthetic catalog into a throwaway profile that every launch copies
   # (tests/e2e/_global-setup.ts), so specs exercise their populated branches
   # on a fresh runner too. Host-dependent legs (process detection) wait on
   # real `lsof` polling and are asserted, not tolerated.
   e2e:
-    name: electron e2e
-    runs-on: macos-14
+    name: electron e2e (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            machine: arm64
+          - runner: macos-15-intel
+            arch: x64
+            machine: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -145,12 +179,37 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The leg's whole premise is which architecture it is, and a label is not
+      # evidence: `macos-14` and `macos-15-intel` differ by one word, and a
+      # second leg that quietly ran on arm64 again would look exactly like one
+      # that works. So ask the machine, and ask the Electron binary the suite is
+      # about to launch — before it launches anything.
+      - name: Prove this leg is the architecture it is named for
+        run: |
+          set -euo pipefail
+          echo "runner: $(uname -m) on macOS $(sw_vers -productVersion)"
+          echo "node: $(node -p 'process.arch')"
+
+          if [ "$(uname -m)" != "${{ matrix.machine }}" ]; then
+            echo "::error::this leg is ${{ matrix.arch }}, but the runner is $(uname -m)"
+            exit 1
+          fi
+
+          ELECTRON="$(node -p 'require("electron")')"
+          file "$ELECTRON"
+          case "$(file -b "$ELECTRON")" in
+            *"${{ matrix.machine }}"*) ;;
+            *) echo "::error::the ${{ matrix.arch }} leg would launch $ELECTRON, which is not ${{ matrix.machine }}"; exit 1 ;;
+          esac
       - run: pnpm test:electron-e2e
+      # One name per leg. `upload-artifact@v4` refuses a second upload under a
+      # name already used in the same run, so a shared name would turn two
+      # failing legs into one failing leg and one error about the artifact.
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.arch }}
           path: test-results/
           if-no-files-found: ignore
 
