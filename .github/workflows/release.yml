@@ -31,6 +31,11 @@ on:
   push:
     tags:
       - "v*"
+  # On demand, for one thing only: the `drill` job at the bottom of this file,
+  # which proves the draft cleanup against a real draft. The cleanup is the
+  # failure path, so nothing else would ever run it. A dispatch deliberately
+  # cannot publish — the release job below is gated to tag pushes.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -48,6 +53,9 @@ concurrency:
 jobs:
   release:
     name: build and publish
+    # A tag push is the only thing that publishes. This gate is what makes
+    # `workflow_dispatch` safe to offer: a manual run can only reach the drill.
+    if: github.event_name == 'push'
     runs-on: macos-14
     steps:
       - name: Check the publishing credential
@@ -174,39 +182,117 @@ jobs:
       # exactly the state the v0.1.1 release was found in, and it took a person
       # noticing a gap in the version list to find it.
       #
-      # So clean up after ourselves instead of leaving it for that person. Do not
-      # try to publish it: a run that failed partway is precisely the run whose
-      # assets there is no reason to trust. Delete it — but only while it is
-      # still a draft. Whether it is one is read back from the API rather than
-      # inferred from which step failed, because the verification steps *after*
-      # the publish can fail too, and their release is live and is what users are
-      # downloading. The tag is deliberately left alone: it lives in this repo,
-      # not in the releases repo, so `--cleanup-tag` would aim at the wrong one.
+      # So clean up after ourselves instead of leaving it for that person. The
+      # decisions live in `scripts/discard-draft-release.mjs` rather than here,
+      # for one reason: this is the failure path, so it is the code nothing ever
+      # runs. As a script it has unit tests for every branch, and the `drill` job
+      # below proves it against a real draft in the releases repo on demand.
       - name: Discard the draft a failed run left behind
         if: ${{ failure() || cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: node scripts/discard-draft-release.mjs
+
+  # The cleanup above is the failure path: it only ever runs after a release has
+  # already gone wrong, which means it can sit for months without being
+  # exercised — and a cleanup that silently does nothing looks exactly like one
+  # that works, until a stale draft turns up. (That is how v0.1.1 was found.)
+  #
+  # So this job leaves a **real** draft in the releases repo, the way a run that
+  # died mid-upload does, and runs the same script against it. It also proves the
+  # half that matters more: that a **published** release is left alone. On demand
+  # only — dispatch this workflow to run it.
+  #
+  # Its scratch releases are `--prerelease`, deliberately: `releases/latest`
+  # skips pre-releases, so the app's update feed can never resolve to a drill.
+  # Every scratch release it creates is deleted again in an `always()` step, and
+  # those tags live in the releases repo, which is why `--cleanup-tag` is
+  # correct *here* and wrong in the cleanup script.
+  drill:
+    name: prove the draft cleanup
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    permissions:
+      contents: read
+    env:
+      DRILL_DRAFT: drill-draft-${{ github.run_id }}
+      DRILL_PUBLISHED: drill-published-${{ github.run_id }}
+    steps:
+      - name: Check the publishing credential
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "No publishing credential, so nothing can have been uploaded — nothing to clean up."
-            exit 0
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::error::RELEASES_TOKEN is not set, so the drill has nothing to delete with."
+            exit 1
           fi
-          if is_draft="$(gh release view "$GITHUB_REF_NAME" \
-              --repo "$RELEASES_REPO" --json isDraft --jq .isDraft 2>/dev/null)"; then
-            if [ "$is_draft" = "true" ]; then
-              echo "::warning::$RELEASES_REPO still holds ${GITHUB_REF_NAME} as a draft after a failed run; deleting it so the next attempt starts from nothing."
-              if ! gh release delete "$GITHUB_REF_NAME" --repo "$RELEASES_REPO" --yes; then
-                echo "::error::could not delete the draft ${GITHUB_REF_NAME} from $RELEASES_REPO — remove it by hand before re-running, or the next attempt will reuse it."
-                exit 1
-              fi
-              if gh release view "$GITHUB_REF_NAME" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
-                echo "::error::$RELEASES_REPO still has ${GITHUB_REF_NAME} after the delete — remove it by hand before re-running."
-                exit 1
-              fi
-              echo "Draft ${GITHUB_REF_NAME} deleted."
-            else
-              echo "${GITHUB_REF_NAME} is published in $RELEASES_REPO — leaving it alone."
+
+      - uses: actions/checkout@v4
+
+      - name: Leave a real draft behind, the way a failed run does
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "$DRILL_DRAFT" --repo "$RELEASES_REPO" --draft \
+            --title "$DRILL_DRAFT" \
+            --notes "Scratch draft created by the release workflow's drill (run ${{ github.run_id }}). The same run deletes it again."
+          echo "an asset, so the draft looks like an upload that stopped partway" > "$RUNNER_TEMP/scratch.txt"
+          gh release upload "$DRILL_DRAFT" "$RUNNER_TEMP/scratch.txt" --repo "$RELEASES_REPO"
+          gh release view "$DRILL_DRAFT" --repo "$RELEASES_REPO" --json isDraft,assets \
+            --jq '"scratch draft: isDraft=\(.isDraft), assets=\(.assets|length)"'
+
+      - name: Run the cleanup against that real draft
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # The step under test reads the tag from here, exactly as it does in a
+          # real run. On a dispatch this would otherwise be the branch name.
+          GITHUB_REF_NAME: ${{ env.DRILL_DRAFT }}
+        run: node scripts/discard-draft-release.mjs
+
+      - name: Assert the draft is gone
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if gh release view "$DRILL_DRAFT" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "::error::the cleanup left $DRILL_DRAFT behind — the real failure path would leave a stale draft too."
+            exit 1
+          fi
+          echo "::notice::the cleanup deleted the real draft"
+
+      - name: Leave a published release behind for the cleanup to decline
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "$DRILL_PUBLISHED" --repo "$RELEASES_REPO" --prerelease \
+            --title "$DRILL_PUBLISHED" \
+            --notes "Scratch pre-release created by the release workflow's drill (run ${{ github.run_id }}). It proves the draft cleanup leaves a published release alone."
+          gh release view "$DRILL_PUBLISHED" --repo "$RELEASES_REPO" --json isDraft,isPrerelease \
+            --jq '"scratch release: isDraft=\(.isDraft), isPrerelease=\(.isPrerelease)"'
+
+      - name: Run the cleanup against that published release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GITHUB_REF_NAME: ${{ env.DRILL_PUBLISHED }}
+        run: node scripts/discard-draft-release.mjs
+
+      - name: Assert the published release was left alone
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if ! gh release view "$DRILL_PUBLISHED" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "::error::the cleanup deleted a published release — which is the one thing it must never do."
+            exit 1
+          fi
+          echo "::notice::the cleanup left the published release alone"
+
+      - name: Delete the scratch releases the drill created
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          for tag in "$DRILL_DRAFT" "$DRILL_PUBLISHED"; do
+            if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+              gh release delete "$tag" --repo "$RELEASES_REPO" --yes --cleanup-tag
+              echo "removed scratch release $tag, and the tag it created"
             fi
-          else
-            echo "No release tagged $GITHUB_REF_NAME in $RELEASES_REPO — nothing to clean up."
-          fi
+          done

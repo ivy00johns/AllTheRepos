@@ -8,7 +8,14 @@
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
-#   pnpm typecheck · pnpm test · pnpm test:electron-e2e · pnpm links:check
+#   pnpm typecheck · pnpm badges · pnpm test:electron-e2e
+#
+# `pnpm badges` is `pnpm test` plus a JSON report, and the badge the README
+# shows is drawn from that same run — which is what stops the test count being
+# a number somebody has to remember to update.
+#
+# The link check is NOT here: it needs the network and a schedule, so it lives
+# in `.github/workflows/doc-links.yml`.
 #
 # A lint step belongs here once ATR-054 adds a config; there is no linter in
 # the repo today, so the workflow does not pretend to run one.
@@ -31,6 +38,12 @@ jobs:
   check:
     name: typecheck + unit
     runs-on: macos-14
+    # `contents: write` is for one step: the badge refresh below commits the SVG
+    # when the counts moved. The rest of the job only reads. Worth knowing: a
+    # push made with the default `GITHUB_TOKEN` does not start a new workflow
+    # run, so the refresh cannot set this job off in a loop.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       # Reads the pinned `packageManager` field (pnpm 9.15.0).
@@ -41,7 +54,27 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      # The unit suite writes its own totals to a JSON report and the badge is
+      # drawn from them, so the number in the README is always the number this
+      # run just produced. It went stale by hand three times before this.
+      - name: Unit suite, and the totals the badge is drawn from
+        run: pnpm badges
+      # Committed rather than checked, so the badge cannot be left stale by
+      # forgetting to run anything. Only on main: a pull request's branch is not
+      # what the README describes, and a fork cannot write anyway.
+      - name: Commit the badge when the counts moved
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if git diff --quiet -- docs/images/tests.svg; then
+            echo "the badge already matches this run"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/images/tests.svg
+          git commit -m "chore: refresh the test-count badge [skip ci]" \
+            -m "Drawn from the unit suite that just ran, so it cannot drift from it."
+          git push origin HEAD:main
 
   # Separate job on purpose: this one flips the native ABI to Electron's and
   # builds the bundle, which is exactly the state the check job must not be in
@@ -71,36 +104,3 @@ jobs:
           name: playwright-traces
           path: test-results/
           if-no-files-found: ignore
-
-  # The only gate that talks to the internet, and its own job for that reason:
-  # a link that rotted should say "a link rotted", not colour the typecheck and
-  # unit signal it has nothing to do with — and being separate, one flaky host
-  # cannot take the suite that matters down with it.
-  #
-  # It resolves every external link in the tracked Markdown (`scripts/
-  # check-doc-links.mjs`), which is what catches a changelog entry pointing at a
-  # deleted release or a contract citing a page upstream has moved. A 404 fails
-  # the job; a rate limit, a bot wall or a timeout does not, because a check
-  # that could not run is not a verdict. No `pnpm install` — the script has no
-  # dependencies and `pnpm links:check` only needs Node.
-  #
-  # `actions: read` is for the README badges, which link to this repo's own
-  # workflows: the source repo is private, so only a token reads them, and
-  # without it those links report as unverified instead of resolved.
-  links:
-    name: doc links
-    runs-on: macos-14
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Resolve every external link in the Markdown
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm links:check

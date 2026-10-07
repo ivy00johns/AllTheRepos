@@ -30,7 +30,7 @@ A personal, dark-mode repo hub John can run at `localhost:3000`:
 
 ## Design System
 
-Source of truth: [design-system/alltherepos/MASTER.md](../design-system/alltherepos/MASTER.md)
+Source of truth: [design-system/alltherepos/MASTER.md](../../design-system/alltherepos/MASTER.md)
 
 - Dark OLED only for v1
 - Accent `#22C55E` (green) — reserved for "active", "clean tree", primary CTAs

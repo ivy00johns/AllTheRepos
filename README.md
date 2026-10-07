@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg" alt="Node ≥22" />
   <img src="https://img.shields.io/badge/pnpm-%E2%89%A59-orange.svg" alt="pnpm ≥9" />
   <img src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" alt="TypeScript strict" />
-  <img src="https://img.shields.io/badge/tests-1%2C189%20passing-success.svg" alt="1,189 tests passing" />
+  <a href="https://github.com/ivy00johns/AllTheRepos/actions/workflows/ci.yml"><img src="docs/images/tests.svg" alt="Unit test results — generated from the suite on every run" /></a>
   <img src="https://img.shields.io/badge/Electron-36-47848f.svg" alt="Electron 36" />
   <img src="https://img.shields.io/badge/macOS-Apple%20silicon-000000.svg" alt="macOS on Apple silicon" />
   <img src="https://img.shields.io/badge/status-alpha-f0a83c.svg" alt="Status: alpha" />
@@ -215,17 +215,20 @@ flowchart LR
 ## 🧪 Testing
 
 ```bash
-pnpm test                  # Vitest, 54 files · 1,189 tests (flips natives to host ABI first)
+pnpm test                  # Vitest, the whole unit layer (flips natives to host ABI first)
 pnpm typecheck             # tsc over all three tsconfigs
 pnpm test:electron-e2e     # Playwright against a real Electron window
 pnpm test:packaged-update  # opt-in: the packaged .app's anonymous update check
 pnpm test:full             # unit + Electron E2E
-pnpm links:check           # resolve every external link in the Markdown (hits the network)
+pnpm badges                # re-run the suite and redraw docs/images/tests.svg from its totals
+pnpm links:check           # resolve every link in the Markdown, out to the web and in to the repo
 ```
 
-Current status (2026-10-06): **1,189 unit tests in 54 files, 0 failures** and **0 typecheck errors across three tsconfigs**, both verified locally. The same gates run on `macos-14` for every push and pull request; the last Electron E2E job there finished **8 passed, 2 skipped** (10 tests in 27s). That suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
+Current status: the unit suite and `typecheck` are green on every push and pull request, both verified locally, and the Electron E2E job on `macos-14` finishes **8 passed, 2 skipped** (10 tests) — that suite launches a real window and drives it over the debugger protocol, so a runner's GUI session is sufficient.
 
-`pnpm links:check` is the one gate that needs the internet, so it is its own CI job: it resolves every external link in the Markdown and fails on a **404**, which is how a changelog entry pointing at a deleted release or a contract citing a page upstream moved out from under it gets caught. A rate limit, a bot wall or a timeout is reported and does not fail — a check that could not run is not a verdict.
+The **tests badge above is generated, not typed.** `pnpm test:report` writes the report and `pnpm badges` renders `docs/images/tests.svg` from it, and CI does the same thing on every push to `main` and commits the result when the counts move — so the number cannot drift the way a hand-written one does, and it goes red when anything fails. A red badge here now means a red suite rather than a forgotten edit.
+
+`pnpm links:check` is the one gate that needs the internet, so it lives in its own workflow ([`.github/workflows/doc-links.yml`](./.github/workflows/doc-links.yml)) rather than in `ci.yml`. It resolves both kinds of link and fails on either: an external one answering **404**, which is how a changelog entry pointing at a deleted release or a contract citing a page upstream moved out from under it gets caught; and a relative one whose file is not there, which is how the two archived plans that had been pointing at documents since moved were caught. A rate limit, a bot wall or a timeout is reported and does not fail — a check that could not run is not a verdict. It runs on Markdown changes **and weekly**, because a page upstream can rot without a commit here, and that is the one failure a push trigger can never see.
 
 ### The dual-rebuild dance
 

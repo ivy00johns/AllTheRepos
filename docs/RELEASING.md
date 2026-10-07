@@ -78,7 +78,9 @@ git tag v0.2.0 && git push origin v0.2.0
    least reason to trust. A **published** release is never touched (the verification steps
    above can fail too, and that release is what people are downloading), and neither is the
    tag — it lives in the source repo, so `--cleanup-tag` would aim at the wrong one. If the
-   delete does not take, the step fails and says to remove it by hand.
+   delete does not take, the step fails and says to remove it by hand. The decisions live in
+   `scripts/discard-draft-release.mjs` so they can be unit-tested, and the failure path itself
+   is provable on demand — see *Proving the failure path* below.
 
 Two phases on purpose: `releases/latest` ignores drafts, so a job that dies between
 "assets uploaded" and "notes attached" leaves an invisible draft rather than an empty
@@ -91,6 +93,32 @@ Re-running is safe. While the release is still a draft, electron-builder reuses 
 re-uploads — though a failed run will have deleted it first, so a re-run after a failure
 starts from nothing rather than carrying whatever the failed attempt had uploaded. Once
 published, electron-builder will not touch it; see the two-hour rule below.
+
+### Proving the failure path
+
+A cleanup that silently does nothing looks exactly like one that works, right up until a
+stale draft turns up — which is how `v0.1.1` was found. And the cleanup only runs when a
+release has *already* gone wrong, so left alone it is the one piece of this workflow that
+never executes. So it can be run on purpose:
+
+```bash
+gh workflow run release.yml      # runs the `drill` job
+```
+
+The drill creates a **real** draft in the releases repo, with an asset, exactly the way a run
+that died mid-upload leaves one; runs the same `scripts/discard-draft-release.mjs` a failed
+release would; and fails the job if that draft is still there. It then proves the half that
+matters more: it creates a release, publishes it, runs the cleanup again, and fails if that
+release was touched at all.
+
+Two safety notes. The published half uses a **pre-release**, deliberately: `releases/latest`
+skips pre-releases, so a drill can never become the release the app offers. And every
+scratch release the drill creates is deleted again in an `always()` step — that is the one
+place `--cleanup-tag` is correct, because those tags are in the releases repo, created by the
+drill, unlike the version tag, which belongs to the source repo.
+
+A dispatch cannot publish anything: the `release` job is gated to tag pushes, so
+`workflow_dispatch` reaches the drill and nothing else.
 
 ### What `release:verify` checks
 

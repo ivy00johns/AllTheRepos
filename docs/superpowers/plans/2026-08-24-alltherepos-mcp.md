@@ -1852,7 +1852,7 @@ Expected: only matches for `@main/services/graph`. If anything else appears, eit
 In `README.md`, in the Documentation map table, after the `docs/COMMAND-DISCLOSURE.md` row:
 
 ```markdown
-| [`mcp/README.md`](./mcp/README.md)                                                                                 | **MCP server** — curated repo relationships from a Claude session |
+| [`mcp/README.md`](../../../mcp/README.md)                                                                          | **MCP server** — curated repo relationships from a Claude session |
 ````
 
 - [ ] **Step 4: Full verification**

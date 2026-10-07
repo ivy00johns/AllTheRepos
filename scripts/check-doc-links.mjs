@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Resolve every external link in the repo's Markdown.
+ * Resolve every link in the repo's Markdown — out to the web, and in to its own
+ * files.
  *
  * A link is the cheapest thing in a repository to break and the most expensive
  * to notice. `CHANGELOG.md` pointed its `[0.1.1]` entry at a release tag that
@@ -10,12 +11,23 @@
  * long as anyone can tell. Neither failure breaks a build, so nothing was ever
  * going to catch it except a check like this one.
  *
- * So: every `http(s)` URL in the tracked Markdown is extracted and resolved.
- * A link that answers **404 or 410** is dead and fails the run. One that could
- * not be judged — a rate limit, a bot wall, a host that was simply slow, a
- * private repository read without a credential — is reported and does **not**
- * fail, because a check that cannot run is not a verdict: that distinction is
- * the same one `verify-release.mjs` draws when it exits 2 instead of 1.
+ * The same is true *inside* the repository, where the rot comes from moving a
+ * file: `docs/archive/plan-mvp.md` and the MCP plan had both been pointing at
+ * documents that had since moved, and nobody clicks every link in an archived
+ * plan. So relative targets are resolved against the repository too, and a
+ * target that is not there — or that climbs out of the repository — is dead.
+ *
+ * External: every `http(s)` URL in the tracked Markdown is extracted and
+ * resolved. A link that answers **404 or 410** is dead and fails the run. One
+ * that could not be judged — a rate limit, a bot wall, a host that was simply
+ * slow, a private repository read without a credential — is reported and does
+ * **not** fail, because a check that cannot run is not a verdict: that
+ * distinction is the same one `verify-release.mjs` draws when it exits 2
+ * instead of 1.
+ *
+ * It runs on every Markdown change, and on a **schedule**
+ * (`.github/workflows/doc-links.yml`): a page upstream can rot without anyone
+ * touching this repository, and a push trigger can never see that.
  *
  * GitHub URLs are resolved through the API rather than the web page, for two
  * reasons. The API answers for a private repository to a token (the README's
@@ -47,6 +59,10 @@
  *
  * A credential is read from `GH_TOKEN`, `GITHUB_TOKEN`, or the `gh` CLI, in
  * that order, and is used only to read GitHub — never sent anywhere else.
+ *
+ * A fragment is deliberately not checked (`PLAN.md#the-next-wave` is judged on
+ * `PLAN.md` existing): verifying the heading would mean re-implementing GitHub's
+ * slug rules, which is a different check from the rot worth catching here.
  *
  * Exit codes: 0 — every link resolved (warnings allowed) · 1 — at least one
  * link is dead · 2 — the check could not run at all (no git, no network).
@@ -155,6 +171,77 @@ export function extractLinks(markdown) {
 }
 
 /**
+ * Every link in one Markdown file that points *inside* the repository.
+ *
+ * Three syntaxes, because the repo writes all three: `[text](path)` (and the
+ * `![image](path)` form), the reference definition `[label]: path` that
+ * `CHANGELOG.md` uses at the foot of the file, and the HTML `<img src="path">`
+ * the README's screenshots use. External targets and bare `#anchor` targets are
+ * not this function's business; `extractLinks` owns the former, and the latter
+ * cannot point at a file other than its own.
+ */
+export function extractLocalLinks(markdown) {
+  const links = [];
+  markdown.split("\n").forEach((line, index) => {
+    const patterns = [
+      /\]\(([^)\s]+)\)/g,
+      /^\[[^\]]+\]:[^\S\n]*(\S+)/g,
+      /\s(?:src|href)="([^"]+)"/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of line.matchAll(pattern)) {
+        const target = match[1];
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) {
+          continue;
+        }
+        links.push({ target, line: index + 1 });
+      }
+    }
+  });
+  return links;
+}
+
+/**
+ * Whether a relative target still points at something, resolved from the file
+ * that names it — which is the whole subtlety: the same `./PLAN.md` means a
+ * different file in `docs/` than in `docs/agents/`.
+ *
+ * A target starting with `/` is treated as repository-root relative, which is
+ * how GitHub renders it. Pure apart from one `existsSync`, so the tests can call
+ * it against a fixture tree.
+ */
+export function planLocalLink({ target, file, root }) {
+  const cleaned = target.split("#")[0].split("?")[0];
+  if (cleaned.length === 0) {
+    return {
+      state: "skipped",
+      relative: null,
+      reason: "a section of this same file",
+    };
+  }
+
+  let decoded = cleaned;
+  try {
+    decoded = decodeURIComponent(cleaned);
+  } catch {
+    // A stray `%` is not a reason to lose the check; try the literal path.
+  }
+
+  const resolved = decoded.startsWith("/")
+    ? path.resolve(root, `.${decoded}`)
+    : path.resolve(root, path.dirname(file), decoded);
+  const relative = path.relative(root, resolved);
+
+  if (relative.startsWith("..")) {
+    return { state: "dead", relative, reason: "resolves outside the repository" };
+  }
+  if (!fs.existsSync(resolved)) {
+    return { state: "dead", relative, reason: "no such file or directory" };
+  }
+  return { state: "ok", relative, reason: "exists" };
+}
+
+/**
  * The API path that answers for a GitHub URL, or null to fall back to the web.
  *
  * Only the shapes the repository actually writes are mapped. `releases/download`
@@ -260,8 +347,16 @@ export function verdictFor({ via, status, error }) {
  * judged at all — a run where every request failed is a broken check, not a
  * clean repository, and must not read as success.
  */
-export function exitCodeFor(results) {
-  if (results.some((result) => result.state === "dead")) return 1;
+export function exitCodeFor(results, localResults = []) {
+  if (
+    results.some((result) => result.state === "dead") ||
+    localResults.some((result) => result.state === "dead")
+  ) {
+    return 1;
+  }
+  // Scoped to the links that needed the network: a repository of files cannot
+  // prove that the *web* was reachable, and a run where every request failed is
+  // a broken check rather than a clean repo.
   const judged = results.filter(
     (result) => result.state === "ok" || result.state === "dead",
   ).length;
@@ -376,6 +471,16 @@ export function collectLinks(root, files = listMarkdown(root)) {
   return links;
 }
 
+/** The relative targets, with the file that names each one. */
+export function collectLocalLinks(root, files = listMarkdown(root)) {
+  const links = [];
+  for (const file of files) {
+    const markdown = fs.readFileSync(path.join(root, file), "utf8");
+    for (const link of extractLocalLinks(markdown)) links.push({ ...link, file });
+  }
+  return links;
+}
+
 function resolveToken() {
   if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
@@ -418,19 +523,28 @@ export async function run({
     timeoutMs,
     pendingRelease,
   });
+  const local = collectLocalLinks(root, files).map((link) => ({
+    ...link,
+    ...planLocalLink({ target: link.target, file: link.file, root }),
+  }));
 
   const ok = results.filter((result) => result.state === "ok");
   const dead = results.filter((result) => result.state === "dead");
   const unverified = results.filter((result) => result.state === "unverified");
   const skipped = results.filter((result) => result.state === "skipped");
+  const localDead = local.filter((result) => result.state === "dead");
+  const localOk = local.filter((result) => result.state === "ok");
+  const localSkipped = local.filter((result) => result.state === "skipped");
 
   log(
-    `[check-doc-links] ${results.length} links across ${new Set(links.map((l) => l.file)).size} Markdown files` +
+    `[check-doc-links] ${results.length} external links and ${local.length} relative paths` +
+      ` across ${new Set(links.map((link) => link.file)).size} Markdown files` +
       `${token ? "" : " (no credential: GitHub links to a private repository stay unverified)"}`,
   );
 
   if (verbose) {
     for (const result of ok) log(`  · ${result.url}`);
+    for (const result of localOk) log(`  · ${result.target} -> ${result.relative}`);
   }
   for (const result of skipped) log(`  · skipped ${result.url} — ${result.reason}`);
 
@@ -439,16 +553,22 @@ export async function run({
     for (const result of unverified) error(`  ! ${result.url}\n      ${describe(result)}`);
   }
 
-  if (dead.length > 0) {
+  if (dead.length > 0 || localDead.length > 0) {
     error("[check-doc-links] dead links:");
     for (const result of dead) error(`  ✗ ${result.url}\n      ${describe(result)}`);
+    for (const result of localDead) {
+      error(
+        `  ✗ ${result.target}\n      ${result.file}:${result.line} — ${result.reason}` +
+          `${result.relative ? ` (${result.relative})` : ""}`,
+      );
+    }
     error(
-      `[check-doc-links] FAILED — ${dead.length} dead link(s). A release, a page or a repository it points at is gone; repoint it or drop it.`,
+      `[check-doc-links] FAILED — ${dead.length + localDead.length} dead link(s). A release, a page, a repository or a file it points at is gone; repoint it or drop it.`,
     );
-    return exitCodeFor(results);
+    return exitCodeFor(results, local);
   }
 
-  const code = exitCodeFor(results);
+  const code = exitCodeFor(results, local);
   if (code === 2) {
     error(
       "[check-doc-links] nothing could be checked — no request was judged resolvable. Assume the network, not the links.",
@@ -457,7 +577,8 @@ export async function run({
   }
 
   log(
-    `[check-doc-links] OK — ${ok.length} resolved, ${skipped.length} skipped, ${unverified.length} unverified.`,
+    `[check-doc-links] OK — ${ok.length} external resolved (${skipped.length} skipped, ${unverified.length} unverified), ` +
+      `${localOk.length} relative paths resolved (${localSkipped.length} skipped).`,
   );
   return code;
 }

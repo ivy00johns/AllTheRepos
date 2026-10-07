@@ -24,7 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { cleanupTmp, makeTmpDir } from "../../helpers/tmp-dir";
 
@@ -53,6 +53,17 @@ type Plan =
 
 interface CheckDocLinksModule {
   extractLinks(markdown: string): { url: string; line: number }[];
+  extractLocalLinks(markdown: string): { target: string; line: number }[];
+  planLocalLink(input: { target: string; file: string; root: string }): {
+    state: "ok" | "dead" | "skipped";
+    relative: string | null;
+    reason: string;
+  };
+  collectLocalLinks(root: string, files?: string[]): {
+    target: string;
+    file: string;
+    line: number;
+  }[];
   githubApiPath(url: string | URL): string | null;
   planFor(url: string, options?: { pendingRelease?: string | null }): Plan;
   verdictFor(input: {
@@ -60,7 +71,10 @@ interface CheckDocLinksModule {
     status: number;
     error?: string;
   }): { state: "ok" | "dead" | "unverified"; reason: string };
-  exitCodeFor(results: { state: string }[]): number;
+  exitCodeFor(
+    results: { state: string }[],
+    localResults?: { state: string }[],
+  ): number;
   checkLink(
     link: { url: string; file: string; line: number },
     options: Record<string, unknown>,
@@ -172,6 +186,108 @@ describe("extractLinks", () => {
 
   test("finds nothing in prose that merely mentions a host", () => {
     expect(links.extractLinks("no link here, just words")).toEqual([]);
+  });
+});
+
+describe("extractLocalLinks", () => {
+  test("finds both syntaxes the repo writes", () => {
+    const markdown = [
+      "See [the plan](./PLAN.md) and [a section](#how-to-read-this).",
+      '<img src="docs/images/catalog.png" alt="the catalog" />',
+      "[remaining]: docs/REMAINING-WORK.md",
+      "[upstream](https://semver.org/spec/v2.0.0.html)",
+    ].join("\n");
+
+    expect(links.extractLocalLinks(markdown)).toEqual([
+      { target: "./PLAN.md", line: 1 },
+      { target: "docs/images/catalog.png", line: 2 },
+      { target: "docs/REMAINING-WORK.md", line: 3 },
+    ]);
+  });
+
+  test("ignores external targets and same-page anchors", () => {
+    expect(links.extractLocalLinks("[a](#anchor) [b](mailto:x@y.z)")).toEqual([]);
+  });
+});
+
+describe("planLocalLink", () => {
+  // Its own tree, and not through `fixture()`: that helper's directory is swept
+  // by the file-wide `afterEach`, which deletes it after the first test in the
+  // file and would leave every test here resolving against nothing.
+  const root = tree({
+    "README.md": "# r\n",
+    "docs/PLAN.md": "# p\n",
+    "docs/agents/PLAN.md": "# a\n",
+    "docs/images/shot one.png": "x\n",
+  });
+  afterAll(() => cleanupTmp(root));
+
+  const plan = (target: string, file: string) =>
+    links.planLocalLink({ target, file, root });
+
+  test("resolves against the file that names the link, not the repo root", () => {
+    // The same target is two different files from two directories — which is
+    // the whole reason a broken relative link is so easy to miss.
+    expect(plan("./PLAN.md", "docs/REMAINING-WORK.md")).toMatchObject({
+      state: "ok",
+      relative: path.join("docs", "PLAN.md"),
+    });
+    expect(plan("./PLAN.md", "docs/agents/domain-docs.md")).toMatchObject({
+      state: "ok",
+      relative: path.join("docs", "agents", "PLAN.md"),
+    });
+  });
+
+  test("walks up with ../ and down into a directory", () => {
+    expect(plan("../PLAN.md", "docs/agents/domain-docs.md")).toMatchObject({
+      state: "ok",
+      relative: path.join("docs", "PLAN.md"),
+    });
+    expect(plan("./agents/", "docs/PLAN.md")).toMatchObject({ state: "ok" });
+  });
+
+  test("treats a leading slash as repository-root relative, the way GitHub does", () => {
+    expect(plan("/docs/PLAN.md", "README.md")).toMatchObject({
+      state: "ok",
+      relative: path.join("docs", "PLAN.md"),
+    });
+  });
+
+  test("judges the file, not the fragment or the query", () => {
+    expect(plan("./PLAN.md#the-next-wave", "docs/REMAINING-WORK.md").state).toBe(
+      "ok",
+    );
+    expect(plan("./PLAN.md#a-heading-that-does-not-exist", "docs/REMAINING-WORK.md").state).toBe(
+      "ok",
+    );
+  });
+
+  test("decodes a percent-escaped path, so a space does not look like rot", () => {
+    expect(plan("docs/images/shot%20one.png", "README.md")).toMatchObject({
+      state: "ok",
+    });
+  });
+
+  test("reports a target that is not there, with where it looked", () => {
+    const result = plan("../design-system/alltherepos/MASTER.md", "docs/archive/plan-mvp.md");
+
+    expect(result.state).toBe("dead");
+    expect(result.reason).toBe("no such file or directory");
+    // The resolved path is the actionable part: it is what says "this moved".
+    expect(result.relative).toBe(
+      path.join("docs", "design-system", "alltherepos", "MASTER.md"),
+    );
+  });
+
+  test("refuses a target that climbs out of the repository", () => {
+    expect(plan("../../../../etc/passwd", "docs/PLAN.md")).toMatchObject({
+      state: "dead",
+      reason: "resolves outside the repository",
+    });
+  });
+
+  test("ignores a link to a section of its own file", () => {
+    expect(plan("#how-to-read-this", "docs/PLAN.md").state).toBe("skipped");
   });
 });
 
@@ -372,6 +488,20 @@ describe("exitCodeFor", () => {
     expect(links.exitCodeFor([])).toBe(0);
     expect(links.exitCodeFor([{ state: "skipped" }])).toBe(0);
   });
+
+  test("1 when a relative path inside the repo is broken, whatever the web did", () => {
+    expect(
+      links.exitCodeFor([{ state: "ok" }], [{ state: "dead" }]),
+    ).toBe(1);
+  });
+
+  test("a file that exists cannot vouch for a web that was never reached", () => {
+    // Exit 2 means "the check could not run", and resolving a path in the
+    // working tree says nothing about whether the network worked.
+    expect(
+      links.exitCodeFor([{ state: "unverified" }], [{ state: "ok" }]),
+    ).toBe(2);
+  });
 });
 
 describe("checkLink", () => {
@@ -530,6 +660,22 @@ afterEach(() => {
   while (dirs.length > 0) cleanupTmp(dirs.pop());
 });
 
+/**
+ * A throwaway tree for tests that need real files to resolve against.
+ *
+ * Deliberately not registered with `dirs`: the caller owns its lifetime, so a
+ * tree created for a whole `describe` is not swept by the first `afterEach`.
+ */
+function tree(files: Record<string, string>): string {
+  const dir = makeTmpDir("atr-tree");
+  for (const [name, contents] of Object.entries(files)) {
+    const target = path.join(dir, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  }
+  return dir;
+}
+
 function fixture(files: Record<string, string>): string {
   const dir = makeTmpDir("atr-links");
   dirs.push(dir);
@@ -559,8 +705,8 @@ describe("run", () => {
     });
 
     expect(code).toBe(0);
-    expect(lines.join("\n")).toContain("2 links across 2 Markdown files");
-    expect(lines.join("\n")).toContain("OK — 2 resolved");
+    expect(lines.join("\n")).toContain("2 external links and 0 relative paths");
+    expect(lines.join("\n")).toContain("2 external resolved");
   });
 
   test("exits 1 and names the file, line and status of a dead link", async () => {
@@ -587,6 +733,38 @@ describe("run", () => {
     expect(output).toContain("✗ https://releases.test/releases/tag/v0.1.1");
     expect(output).toContain("CHANGELOG.md:1 — HTTP 404");
     expect(output).toContain("1 dead link(s)");
+  });
+
+  test("exits 1 for a broken relative link, with no request made at all", async () => {
+    const root = fixture({
+      "README.md": "[the plan](./docs/PLAN.md)\n",
+      "docs/PLAN.md": "[gone](./GONE.md)\n",
+    });
+    const { fetchImpl, calls } = stubFetch(() => ({ status: 200 }));
+    const errors: string[] = [];
+
+    const code = await links.run({
+      root,
+      files: ["README.md", "docs/PLAN.md"],
+      fetchImpl,
+      token: null,
+      log: () => {},
+      error: (line: string) => errors.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toEqual([]);
+    const output = errors.join("\n");
+    expect(output).toContain("✗ ./GONE.md");
+    expect(output).toContain("docs/PLAN.md:1 — no such file or directory");
+  });
+
+  test("collects the repository's own relative paths through git", () => {
+    const repo = path.resolve(__dirname, "..", "..", "..");
+    const found = links.collectLocalLinks(repo);
+
+    expect(found.length).toBeGreaterThan(20);
+    expect(found.some((link) => link.target.includes("docs/"))).toBe(true);
   });
 
   test("exits 2 when every request failed, so a broken check is not a clean repo", async () => {

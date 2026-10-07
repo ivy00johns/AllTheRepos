@@ -11,8 +11,34 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- The tests badge in the README is generated instead of typed. `pnpm test:report` writes the
+  suite's own totals and `pnpm badges` draws `docs/images/tests.svg` from them, and CI does
+  the same thing on every push to `main` and commits the result when the counts move — so the
+  number cannot drift the way a hand-written one does — this one had already drifted twice.
+  `pnpm badges --check` reports a stale badge without writing it.
+- The release workflow's draft cleanup is provable on demand. It is the failure path, so it
+  only runs when a release has already gone wrong — the one thing that never happens on
+  purpose — which makes it the code nothing exercises. A `workflow_dispatch` **drill** now
+  leaves a real draft (and an asset) in the releases repo, runs the same
+  `scripts/discard-draft-release.mjs` a failed release would, and fails the job if the draft
+  survives; then it publishes a **pre-release**, runs the cleanup again and fails if that
+  release was touched. Pre-release on purpose: `releases/latest` skips those, so a drill can
+  never become the release the app offers. A dispatch cannot publish anything — the release
+  job is gated to tag pushes.
+- `pnpm links:check` resolves relative links too, and runs on a schedule. A target that is not
+  in the repository — or that climbs out of it — is dead, resolved from the file that names it,
+  because the same `./PLAN.md` means two different files in two directories. The check moved
+  out of `ci.yml` into `.github/workflows/doc-links.yml`, which runs on Markdown changes and
+  **weekly**: a page upstream can rot, and a published release can be deleted, without a commit
+  here, and a push trigger can never see that.
+
 ### Fixed
 
+- Two archived documents had been pointing at files that moved: `docs/archive/plan-mvp.md` at
+  the design-system master, and the MCP plan at `mcp/README.md`. Found by the new relative-link
+  check on its first run.
 - `pnpm links:check` no longer fails on every release commit. A `chore: release vX`
   commit is pushed before its artifacts are — that is what tagging means — so the
   version link it writes to the changelog answers 404 for the minutes until the
