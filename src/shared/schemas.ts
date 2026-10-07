@@ -313,7 +313,26 @@ export const SearchReposInputSchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
 });
 
-export const SearchReposResultSchema = z.array(SearchHitSchema);
+/**
+ * Whether the search consulted the vector store (`state: "vectors"`) or fell
+ * back to keywords, with the reason it had to.
+ *
+ * `detail` carries the raw provider/extension message for the UI to show; it is
+ * nullable because `reason: "requested"` is a choice, not a failure.
+ */
+export const SemanticSearchStatusSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("vectors") }),
+  z.object({
+    state: z.literal("off"),
+    reason: z.enum(["requested", "no-vector-store", "no-embedding-provider"]),
+    detail: z.string().nullable(),
+  }),
+]);
+
+export const SearchReposResultSchema = z.object({
+  hits: z.array(SearchHitSchema),
+  semantic: SemanticSearchStatusSchema,
+});
 
 // ---------------------------------------------------------------------------
 // catalog:rescan

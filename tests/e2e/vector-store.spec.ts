@@ -1,47 +1,46 @@
 /**
- * The vector store, on the architecture that has one and the one that does not.
+ * The vector store: that the one this app ships actually works on the machine
+ * running it, and that a search which cannot use it says so.
  *
- * `@lancedb/lancedb` ships prebuilt napi bindings per platform and there is no
- * darwin-x64 among them — the fact `scripts/check-platforms.mjs` reports from
- * package metadata. Metadata is not the app, though. What an Intel Mac does
- * about the missing binding is `services/lance.ts`'s business, and it fails soft
- * on purpose: `vectorSearch` resolves to `[]` instead of rejecting, so the loss
- * is a quieter search rather than an error. Three nested catches stand between
- * that and a visible failure (`lance.ts`, `hybridSearch`, the IPC layer), which
- * is why nothing in this repository would go red if the innermost one were
- * deleted — the one that has to work on x86_64 and nowhere else.
+ * This file used to be about an architecture. `@lancedb/lancedb` shipped
+ * prebuilt napi bindings per platform with no `darwin-x64` among them past
+ * 0.22.3, so the spec asserted that the binding loaded on arm64 and *did not*
+ * load on x86_64 — pinning the premise the Intel leg rested on, and pinning the
+ * softening in `lance.ts` that kept the app working anyway. That premise is gone:
+ * the store is now `services/vector-store.ts`, a `vec0` table inside the app's
+ * own SQLite file through the `sqlite-vec` extension, which publishes a binary
+ * for every platform this app could ever ship. Both legs of the CI job now run
+ * the same expectations because the answer is the same on both.
  *
- * So this spec is the gate, and it runs on **both** legs of the CI job rather
- * than only the Intel one, so neither expectation can rot:
+ * What still needs a gate, and why these two steps are the gate:
  *
- *   1. the app's own main process loads the binding exactly on the architecture
- *      LanceDB publishes one for. On x86_64 it does not — the premise the whole
- *      Intel leg rests on, asserted here instead of assumed;
- *   2. with an embedding provider answering, and the vector path therefore
- *      genuinely entered, search still returns the catalog and the app still
- *      degrades the way it was written to: FTS-only hits, and no error out of
- *      the vector path. That second half is `lance.ts`'s own `catch` doing its
- *      job. Remove it and the Intel leg goes red on `[backend] vector path
- *      error`, which is the only machine where that is observable — verified by
- *      removing it and watching this file fail while the app reported x86_64.
+ *   1. **The extension loads here.** `getLoadablePath()` resolving is not the
+ *      same claim as `dlopen` succeeding, and both are weaker than the SQL
+ *      working — so the probe does all three: resolve the path, load it through
+ *      the same `better-sqlite3` the app uses, and run a real KNN query in a
+ *      throwaway database. A machine where that fails is a machine where
+ *      semantic search is off, and this step is what says so out loud instead of
+ *      leaving it to a search that quietly returns fewer kinds of match.
  *
- * The mock provider is not decoration, and neither is the control that runs
- * first. Without a provider `embed()` throws, `vectorSearch` is never reached,
- * and this spec would pass on Intel for a reason that has nothing to do with
- * Intel — so the control search points the app at a port with nothing on it and
- * requires the app to *say* so, in the same log channel the later assertion
- * reads. A quiet channel would otherwise make "no error was logged" mean "no
- * error was looked for"; `ci.yml`'s refusal job exists for the same reason.
+ *   2. **With no provider, search answers with keywords and reports why.** A
+ *      runner has no Ollama and no `OPENAI_API_KEY`, so this is the state CI is
+ *      always in, and the interesting assertion is no longer just "it still
+ *      answers" — it is that the response says `semantic: { state: "off",
+ *      reason: "no-embedding-provider" }`, which is the field the catalog
+ *      renders as a notice. The control that runs first points the app at a
+ *      port with nothing on it and requires the app to *say* the provider was
+ *      unreachable, in the log channel the later assertion reads: a channel
+ *      that had gone quiet would otherwise make "no error was logged" mean "no
+ *      error was looked for".
  *
- * That control is only a control in an environment with no second provider, so
- * `OPENAI_API_KEY` is taken away from the app this spec launches: `embed()`
- * falls through to OpenAI when Ollama fails, and a developer who has the key
- * exported would otherwise watch the app succeed at the step that is supposed
- * to fail.
+ * `OPENAI_API_KEY` is taken away from the app this spec launches, because
+ * `embed()` falls through to OpenAI when Ollama fails and a developer with the
+ * key exported would watch the control step succeed at the thing it is supposed
+ * to see fail. The provider is restored afterwards.
  *
- * Nor is there a skip on the arm64 leg. "This machine had no binary, so we
- * didn't look" cannot be told apart from a guard that stopped guarding: both
- * branches below run on every run, one per leg.
+ * `no-vector-store` — the other `off` reason — cannot be arranged from here
+ * without breaking the machine this spec is meant to be testing. It is covered
+ * where it can be: `tests/unit/main/services/vector-store-unavailable.spec.ts`.
  */
 
 import { existsSync } from "node:fs";
@@ -66,39 +65,120 @@ const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
 /** What `_global-setup.ts` seeds, which is the whole catalog every launch sees. */
 const SEEDED_REPO_NAMES = ["Demo CLI", "Demo Library", "Demo Web"];
 
+interface StoreProbe {
+  arch: string;
+  path: string;
+  /** Which step failed, and its message. `failure: null` when nothing did. */
+  phase: "resolve" | "load" | "query" | null;
+  failure: string | null;
+  version: string | null;
+  /** Distance of the nearest neighbour to its own vector — `0` when the store works. */
+  selfDistance: number | null;
+}
+
 /**
- * Whether the app's runtime can load the vector store, and on what architecture
- * it tried.
+ * Load the shipped extension the way the app loads it, and query it.
  *
  * `require` and `import()` are both out of reach inside a function Playwright
  * evaluates in the main process — measured: "require is not defined", and "A
  * dynamic import callback was not specified" — so the module system is reached
  * through `process.getBuiltinModule`, which is a property of `process` and
- * therefore in scope. What it then loads through is napi-rs's own loader,
- * untouched by this file: it picks a platform package from `process.arch` and
- * throws when there is no such package, which is what an Intel Mac gets.
+ * therefore in scope. `createRequire` is based at the app's own working
+ * directory, so the resolution performed here is the app's own.
+ *
+ * The probe builds its **own** tiny table rather than the app's: a four-float
+ * `vec0` table is enough to prove the extension is functional, and duplicating
+ * the real DDL here would be a copy that can drift out of step with
+ * `vector-store.ts`. The app's own table is exercised by
+ * `semantic-search.spec.ts`, through the app's own scan and search.
  */
-async function loadVectorStore(
-  app: ElectronApplication,
-): Promise<{ arch: string; binding: string }> {
+async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
   return app.evaluate(() => {
     const { createRequire } = process.getBuiltinModule("node:module");
-    // Based at the app's own working directory: `createRequire` resolves from a
-    // file, and the resolution that matters is the one the app performs.
     const load = createRequire(`${process.cwd()}/e2e-vector-store-probe.cjs`);
-    try {
-      load("@lancedb/lancedb");
-      return { arch: process.arch, binding: "loaded" };
-    } catch (error) {
-      return {
-        arch: process.arch,
-        binding: `threw: ${(error as Error).message}`,
+    const result = {
+      arch: process.arch,
+      path: "",
+      phase: null as "resolve" | "load" | "query" | null,
+      failure: null as string | null,
+      version: null as string | null,
+      selfDistance: null as number | null,
+    };
+
+    /**
+     * Run one step, and stop at the first failure with its phase recorded.
+     *
+     * The phase matters for reading a failure: a bug in this probe and a
+     * machine that cannot load the extension produce the same thrown string
+     * otherwise, and only one of them is the app's problem. (That is not
+     * hypothetical: the first version of this probe inserted with `.all()`
+     * instead of `.run()`, and the assertion below reported it as the extension
+     * failing to load.)
+     */
+    const step = <T>(phase: "resolve" | "load" | "query", fn: () => T): T | null => {
+      try {
+        return fn();
+      } catch (error) {
+        result.phase = phase;
+        result.failure = error instanceof Error ? error.message : String(error);
+        return null;
+      }
+    };
+
+    const sqliteVec = step("resolve", () =>
+      load("sqlite-vec") as { getLoadablePath(): string },
+    );
+    if (!sqliteVec) return result;
+    const resolved = step("resolve", () => sqliteVec.getLoadablePath());
+    if (resolved === null) return result;
+    result.path = resolved;
+
+    const Database = load("better-sqlite3") as new (filename: string) => {
+      loadExtension(path: string): void;
+      exec(sql: string): void;
+      prepare(sql: string): {
+        get(): unknown;
+        run(...params: unknown[]): unknown;
+        all(...params: unknown[]): unknown[];
       };
-    }
+      close(): void;
+    };
+    const db = step("load", () => {
+      const opened = new Database(":memory:");
+      opened.loadExtension(result.path);
+      return opened;
+    });
+    if (!db) return result;
+
+    const version = step("load", () =>
+      (db.prepare("SELECT vec_version() AS v").get() as { v: string }).v,
+    );
+    if (version === null) return result;
+    result.version = version;
+
+    const selfDistance = step("query", () => {
+      db.exec(
+        "CREATE VIRTUAL TABLE probe USING vec0(id INTEGER PRIMARY KEY, v float[4])",
+      );
+      const at = Buffer.from(new Float32Array([1, 0, 0, 0]).buffer);
+      const away = Buffer.from(new Float32Array([0, 1, 0, 0]).buffer);
+      const insert = db.prepare("INSERT INTO probe(id, v) VALUES (?, ?)");
+      // `run()`, not `all()` — an INSERT returns no rows, and better-sqlite3
+      // says so by throwing "This statement does not return data".
+      insert.run(BigInt(1), at);
+      insert.run(BigInt(2), away);
+      const nearest = db
+        .prepare("SELECT distance FROM probe WHERE v MATCH ? AND k = ?")
+        .all(at, 1) as Array<{ distance: number }>;
+      return nearest[0]?.distance ?? null;
+    });
+    result.selfDistance = selfDistance;
+    db.close();
+    return result;
   });
 }
 
-test.describe("the vector store, and what the app does without it", () => {
+test.describe("the vector store the app ships", () => {
   test.beforeAll(() => {
     if (!existsSync(MAIN_ENTRY)) {
       throw new Error(
@@ -107,41 +187,46 @@ test.describe("the vector store, and what the app does without it", () => {
     }
   });
 
-  test("the LanceDB binding loads exactly where a binary for it is published", async () => {
+  test("loads, on whichever Mac this is, and answers a nearest-neighbour query", async () => {
     const { app, close } = await launchApp();
 
     try {
-      const probe = await loadVectorStore(app);
+      const probe = await probeVectorStore(app);
 
       expect(
-        ["arm64", "x64"],
-        `the app's runtime reports ${probe.arch}, and this spec is about the two ` +
-          `architectures macOS comes in — a third branch here would be a hole, ` +
-          `not a pass.`,
-      ).toContain(probe.arch);
+        probe.failure,
+        `the vector store probe failed at the "${probe.phase}" step on ` +
+          `${probe.arch}: ${probe.failure}. If it read or loaded the shipped ` +
+          `sqlite-vec extension, that is the whole of semantic search on this ` +
+          `machine — search will still answer, with keywords, and say so.`,
+      ).toBeNull();
 
-      if (probe.arch === "arm64") {
-        expect(
-          probe.binding,
-          "the binding did not load on arm64, where `@lancedb/lancedb` publishes " +
-            "one — that is a broken install rather than a fact about the platform.",
-        ).toBe("loaded");
-      } else {
-        expect(
-          probe.binding,
-          `This is an x86_64 Mac and the binding loaded anyway (${probe.binding}). ` +
-            "The Intel leg assumes there is no vector store here: if LanceDB now " +
-            "publishes a darwin-x64 binary, that is good news, and both the note " +
-            "in `pnpm platforms:check` and the search assertion below need to " +
-            "hear it — shipping for Intel just stopped costing semantic search.",
-        ).not.toBe("loaded");
-      }
+      expect(
+        probe.path,
+        "the extension resolved to a path outside the app's own node_modules, " +
+          "so this probe is not looking at what the app would load.",
+      ).toContain("sqlite-vec");
+
+      expect(
+        probe.version,
+        "the extension loaded but would not report a version, which means the " +
+          "entry point in that file is not vec0.",
+      ).toMatch(/^v\d+\.\d+\.\d+/);
+
+      // Distance 0: the stored vector is its own nearest neighbour. Anything
+      // else means the extension answered, but not with the vector that was
+      // stored beside it.
+      expect(
+        probe.selfDistance,
+        "a stored vector was not its own nearest neighbour, so the extension " +
+          "is not really indexing what was written to it.",
+      ).toBe(0);
     } finally {
       await close();
     }
   });
 
-  test("with no vector store, search answers and the vector path's failure never escapes", async () => {
+  test("with no embedding provider, search answers with keywords and says why", async () => {
     const embeddings = await startMockEmbeddings();
     // `launchApp()` spreads this process's environment into the app, and the
     // control below is only a control where nothing else can answer.
@@ -161,13 +246,7 @@ test.describe("the vector store, and what the app does without it", () => {
         win.getByRole("link", { name: /^AllTheRepos$/i }),
       ).toBeVisible({ timeout: 15_000 });
 
-      const arch = await app.evaluate(() => process.arch);
-
       // ----- The control: a machine with no provider at all ----------------
-      // This is the state a runner is in. It must produce the warning, because
-      // that is what makes the assertion further down mean anything: a log
-      // channel that quietly stopped carrying main-process output would make
-      // "no error was logged" indistinguishable from "no error was looked for".
       const dead = await pointAtProvider(win, NO_PROVIDER_URL);
       expect(
         dead.after,
@@ -178,59 +257,109 @@ test.describe("the vector store, and what the app does without it", () => {
 
       const warningsBefore = unavailable();
       const deadHits = await searchCatalog(win, "demo");
+
       expect(
-        deadHits.map((hit) => hit.repo.name).sort(),
-        `search answered with ${JSON.stringify(deadHits)} while the provider was ` +
-          `unreachable — the catalog is ${SEEDED_REPO_NAMES.join(", ")}.`,
+        deadHits.hits.map((hit) => hit.repo.name).sort(),
+        `search answered with ${JSON.stringify(deadHits.hits)} while the ` +
+          `provider was unreachable — the catalog is ` +
+          `${SEEDED_REPO_NAMES.join(", ")}.`,
       ).toEqual(SEEDED_REPO_NAMES);
       expect(
+        deadHits.hits.every((hit) => hit.matchKind === "fts"),
+        `nothing can have come from the vector store here, but the search ` +
+          `returned ${JSON.stringify(deadHits.hits)}.`,
+      ).toBe(true);
+
+      // The part that used to be missing: the response says the results are
+      // keywords only, and which provider it looked for.
+      expect(
+        deadHits.semantic.state,
+        `the search degraded to keywords without saying so: ` +
+          `${JSON.stringify(deadHits.semantic)}.`,
+      ).toBe("off");
+      expect(
+        deadHits.semantic,
+        `the search degraded for the wrong reason: ` +
+          `${JSON.stringify(deadHits.semantic)}.`,
+      ).toMatchObject({ reason: "no-embedding-provider" });
+      expect(
+        deadHits.semantic.state === "off" ? deadHits.semantic.detail : null,
+        "the status carries no provider message, so a user cannot tell a " +
+          "misconfigured Ollama URL from a machine that is simply offline.",
+      ).toMatch(/\S/);
+
+      expect(
         unavailable(),
-        `the app never reported ${EMBEDDING_UNAVAILABLE} against a provider that ` +
-          `is not there, so nothing below can tell a quiet vector path from an ` +
-          `unwatched one.`,
+        `the app never reported ${EMBEDDING_UNAVAILABLE} against a provider ` +
+          `that is not there, so nothing here can tell a quiet vector path ` +
+          `from an unwatched one.`,
       ).toBeGreaterThan(warningsBefore);
+
+      // ----- The same fact, through the interface a person uses ------------
+      // The IPC assertions above are about the data; this is the delivered
+      // behaviour — the search box is driven for real, and the catalog has to
+      // tell the user these results are keywords only. In the search box rather
+      // than through the hook, because "the response carried the right field"
+      // and "a user can see why the results are what they are" are different
+      // claims, and only the second one is the feature.
+      const box = win.getByRole("searchbox", { name: /search repos/i });
+      await box.fill("demo");
+      await expect(
+        win.getByText(/Keyword matches only/i),
+        "the catalog ran a keyword-only search and said nothing about it, " +
+          "which is exactly the silent degradation this is meant to end.",
+      ).toBeVisible({ timeout: 15_000 });
 
       // ----- And now a provider that answers, so the vector path runs -------
       const live = await pointAtProvider(win, embeddings.url);
       expect(live.after).toBe(embeddings.url);
 
       const warningsBeforeLive = unavailable();
-      const hits = await searchCatalog(win, "demo");
+      const answered = await searchCatalog(win, "demo");
 
       expect(
-        hits.map((hit) => hit.repo.name).sort(),
-        `search answered with ${JSON.stringify(hits)} against a provider at ` +
-          `${embeddings.url}.`,
+        answered.hits.map((hit) => hit.repo.name).sort(),
+        `search answered with ${JSON.stringify(answered.hits)} against a ` +
+          `provider at ${embeddings.url}.`,
       ).toEqual(SEEDED_REPO_NAMES);
 
-      // No *new* warning: `embed()` reached the provider, which means the vector
-      // path was entered rather than skipped. This is the difference between
-      // exercising Intel's missing binding and exercising FTS twice.
+      // And the notice goes away, without a reload: a different query is a
+      // different cache key, so this is a fresh search against the provider
+      // that now answers. A notice that only ever appeared — or never went away
+      // — would be worse than none.
+      await box.fill("demo web");
+      await expect(
+        win.getByText(/Keyword matches only/i),
+        "the catalog still claims semantic search is off while a provider is " +
+          "answering it.",
+      ).toHaveCount(0);
+
+      // `"vectors"`: the query was embedded and the store was queried. It does
+      // not mean a vector *matched* — nothing has been embedded yet in this
+      // profile, which is `semantic-search.spec.ts`'s half of the story — only
+      // that the half of the pipeline which was off above is now on. That
+      // distinction is the one a UI needs, and the reason this field is a state
+      // and not a boolean.
+      expect(
+        answered.semantic,
+        `the vector store was reachable and a provider answered, and the ` +
+          `search still reported ${JSON.stringify(answered.semantic)}. ` +
+          `Requests the mock saw: ${embeddings.requests()}.`,
+      ).toEqual({ state: "vectors" });
+      expect(embeddings.requests()).toBeGreaterThan(0);
       expect(
         unavailable(),
-        `embed() did not reach the provider at ${embeddings.url}, so the vector ` +
-          `path was never entered. Requests the mock saw: ${embeddings.requests()}.`,
+        `embed() did not reach the provider at ${embeddings.url}, so the ` +
+          `vector path was never entered.`,
       ).toBe(warningsBeforeLive);
-      expect(embeddings.requests()).toBeGreaterThan(0);
 
-      // ----- The assertion with teeth --------------------------------------
-      // On an x86_64 Mac this is `lance.ts`'s own `catch` around a binding that
-      // cannot load. Without it the rejection lands in `hybridSearch`'s catch,
-      // one frame further out, and is logged exactly here.
+      // Whatever happened above, the app never had to fall through to its
+      // outer catches: the vector path reports, it does not throw.
       expect(
         mainLogs.filter((line) => line.includes(VECTOR_PATH_ERROR)),
-        `The vector path threw instead of degrading, so the app survived by its ` +
-          `outer catches rather than by the one Intel depends on.`,
+        "the vector path threw instead of degrading, so the app survived by " +
+          "its outer catches rather than by the guards that are supposed to hold.",
       ).toEqual([]);
-
-      if (arch === "x64") {
-        // No binding means no vector hits, whatever the provider returns.
-        expect(
-          hits.filter((hit) => hit.matchKind !== "fts"),
-          `Nothing can have come from a vector search on this machine: ` +
-            `${JSON.stringify(hits)}`,
-        ).toEqual([]);
-      }
     } finally {
       await close();
       await embeddings.stop();

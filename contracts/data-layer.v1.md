@@ -20,14 +20,14 @@ The exact files / directories the main process manages:
 | Purpose                | Path                                                         | Backed by                    |
 | ---------------------- | ------------------------------------------------------------ | ---------------------------- |
 | SQLite catalog DB      | `app.getPath('userData') + '/alltherepos.db'`                | `better-sqlite3` + Drizzle   |
-| LanceDB vector store   | `app.getPath('userData') + '/lance/'`                        | `@lancedb/lancedb`           |
+| Vector embeddings      | inside `app.getPath('userData') + '/alltherepos.db'`         | `sqlite-vec` extension, loaded into `better-sqlite3` |
 | User settings blob     | `app.getPath('userData') + '/settings.json'`                 | `electron-store`             |
 | Migration sentinel     | `app.getPath('userData') + '/MIGRATED'`                      | plain file (touch on copy)   |
 
 Resolved on a typical machine:
 
-- SQLite: `~/Library/Application Support/AllTheRepos/alltherepos.db`
-- LanceDB: `~/Library/Application Support/AllTheRepos/lance/`
+- SQLite: `~/Library/Application Support/AllTheRepos/alltherepos.db` —
+  the catalog, its FTS5 index, and the `repo_embeddings` vector table
 - Settings: `~/Library/Application Support/AllTheRepos/settings.json`
 
 No data is written outside `app.getPath('userData')` in Phase 1.
@@ -65,6 +65,12 @@ if (!fs.existsSync(sentinel) && fs.existsSync(legacyDir)) {
 }
 ```
 
+The copied `lance/` directory is legacy data. The Electron app stores its
+embeddings in the `repo_embeddings` table **inside `alltherepos.db`** and never
+reads `lance/`; the copy is kept because rule 1 leaves the legacy directory
+exactly as it is, not because the app can use it. A repository whose vector
+lived there is re-embedded by its next scan or rescan.
+
 Rules:
 
 1. **COPY, do not MOVE.** Phase 1 leaves the legacy `~/.alltherepos/`
@@ -90,9 +96,9 @@ Rules:
 - The existing `lib/db/client.ts` already configures `journal_mode=WAL`
   and `foreign_keys=ON`. **The Electron port MUST do the same.** Both
   PRAGMAs are required:
-  - `WAL` mode lets the (future) embed worker thread read while the
-    main thread writes, without blocking. It also speeds up the
-    `repos` upsert hot path during scans.
+  - `WAL` mode lets a worker thread read while the main thread writes,
+    without blocking. It also speeds up the `repos` upsert hot path
+    during scans.
   - `foreign_keys = ON` is what makes `groups:delete` cascade through
     `repo_groups`.
 
@@ -135,16 +141,44 @@ Rules:
 - Long-running writes (the scanner inserting hundreds of repos)
   SHOULD batch via Drizzle transactions to amortize the WAL fsync cost.
 
-## LanceDB
+## Vector store (`sqlite-vec`)
 
-- Storage path: `app.getPath('userData') + '/lance/'`. The directory
-  must exist before the first `lancedb.connect()` call (create it if
-  missing).
-- Table name: `repo_embeddings`. Vector dim 768 (nomic-embed-text).
-- Migration: copy the entire `~/.alltherepos/lance/` directory tree in
-  the first-run migration (see above).
-- The embed worker thread owns the LanceDB handle; main-thread code
-  reaches into LanceDB only via the worker.
+- **Where.** The `repo_embeddings` table **inside `alltherepos.db`** —
+  not a separate store and not a separate directory. FTS5 is in the
+  same file, so one `better-sqlite3` connection serves both halves of
+  search. There is no second data directory to migrate, back up, or
+  keep in sync.
+- **Engine.** The `sqlite-vec` extension, loaded into that connection
+  with `db.loadExtension(sqliteVec.getLoadablePath())`. The loadable
+  path resolves to a per-platform npm package — `sqlite-vec-darwin-arm64`,
+  `-darwin-x64`, `-linux-x64`, `-linux-arm64`, `-windows-x64` — which is
+  the point: every platform this app declares has a binary. It is a
+  loadable library rather than a Node addon, so `electron-builder.yml`
+  `asarUnpack`s both the wrapper and the platform package; a `.dylib`
+  inside the asar cannot be `dlopen`ed.
+- **Table shape.** `repo_id INTEGER PRIMARY KEY` (the `repos.id`),
+  `slug TEXT`, `content_hash TEXT`, `updated_at TEXT`,
+  `embedding float[768]`. Vector dim 768 (nomic-embed-text); the
+  declared width is enforced, so a provider returning a different
+  length fails the insert rather than filling the table with
+  incomparable vectors. Bind the key as a SQLite INTEGER —
+  `better-sqlite3` sends a JavaScript number as a REAL and `vec0`
+  rejects that with `Only integers are allows for primary key values`.
+- **Loading is lazy, memoised, and soft.** The extension is loaded and
+  the table created on first use, and the result is remembered; a
+  machine where either step fails keeps working with FTS5 alone. The
+  failure is *reported*, not swallowed — see `catalog:search` in
+  `contracts/ipc.v1.md`, which carries the status the renderer shows.
+- **Writes.** `indexRepoEmbedding` runs on the main thread,
+  fire-and-forget from the scan's `discovered` handler and from
+  `catalog:rescan`, gated on a content hash of the embedding input
+  (name + description + readme) so an unchanged repo is not re-embedded.
+  There is no embed worker thread; the one this contract originally
+  specified was never built.
+- **Migration.** Nothing to migrate: the first-run migration copies a
+  legacy `~/.alltherepos/lance/` directory as opaque files (see above)
+  and the table here starts empty. Embeddings are rebuilt by the scan
+  path.
 
 ## electron-store (Settings)
 
@@ -179,7 +213,7 @@ Rules:
 
 1. The renderer process has `nodeIntegration: false` and `sandbox: true`
    (see NEW-PLAN.md §3.4). It cannot `require('better-sqlite3')` or
-   `require('@lancedb/lancedb')` — the bindings live in main, period.
+   `require('sqlite-vec')` — the bindings live in main, period.
 2. Every renderer-side data read is `window.atr.<namespace>.<verb>()`.
    No `fetch('/api/...')` calls; there is no HTTP server in Phase 1.
 3. TanStack Query owns the renderer-side cache. Cache invalidation is
@@ -202,8 +236,11 @@ Rules:
 - **Scanner concurrency limit.** Not encoded in this contract. Pick a
   value (suggest `os.cpus().length / 2`) in the backend-services
   agent's implementation notes.
-- **Embed worker startup cost.** First call to `embed()` lazy-spawns
-  the worker; document the warmup latency in the QE report.
+- **Vector-store load cost.** The first call that needs a vector
+  loads the `sqlite-vec` extension, reads its version and creates the
+  table; the store memoises that, so the cost is once per process
+  rather than once per search. There is no embed worker to warm up —
+  embeddings run on the main thread (see the vector-store section).
 - **Bigger-than-RAM repos.** If a single `readme_content` exceeds the
   SQLite max blob size (rare), the upserter should truncate to the
   existing 2KB preview rule (`REPO_PREVIEW_MAX` in

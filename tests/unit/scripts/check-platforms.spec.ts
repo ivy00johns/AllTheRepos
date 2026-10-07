@@ -3,13 +3,12 @@
  *
  * The script exists because "macOS on Apple silicon" lives in
  * `electron-builder.yml` while the reason it is true lives in the dependency
- * tree, and nothing connected the two. Adding `x64` to the `dmg` and `zip`
- * targets would package, launch, and quietly lose semantic search on an Intel
- * Mac — `src/main/services/lance.ts` fails soft on purpose, so no gate would go
- * red. Most of what is asserted here is the shape of that mistake:
+ * tree, and nothing connected the two. Most of what is asserted here is the
+ * shape of that mistake:
  *
  *   - a package that ships **prebuilt** binaries is only as good as its platform
- *     matrix, and `@lancedb/lancedb` has no `darwin-x64` at all;
+ *     matrix — the shape a vector store used to cost this app on Intel, back when
+ *     `@lancedb/lancedb` had no `darwin-x64` package at all;
  *   - a package that ships **C++ sources and a `binding.gyp`** covers anything
  *     the toolchain does, which is why `find-git-repositories` — whose only
  *     published prebuild is for darwin-arm64 — is not the thing blocking Intel;
@@ -17,10 +16,17 @@
  *     and `left-pad-win32-x64-helper` have to be ignored by the same rule that
  *     recognises `@lancedb/lancedb-win32-x64-msvc`.
  *
- * The last block runs it against this repository, including the finding itself:
- * the day a LanceDB version restores `darwin-x64`, the assertion about the
- * expansion line fails and says so. That is the intent — an architecture that
- * becomes shippable is a decision somebody should make on purpose.
+ * The `@lancedb/lancedb` manifests below are kept as **fixtures**. They are the
+ * tarballs that produced the finding, which makes them the honest way to test a
+ * classifier whose whole job is reading a platform matrix — and they still pin
+ * the rule, because the rule is about matrices rather than about that package.
+ *
+ * The app no longer depends on it: vectors are stored by `sqlite-vec`, which
+ * publishes a binary for every platform this app could ship, so the last block
+ * — the one that runs the check against *this* repository — now expects the
+ * opposite answer for Intel. That is the intent. The finding was written down,
+ * the finding was fixed, and the assertion flipped instead of quietly
+ * disappearing with the dependency.
  *
  * The script is imported by URL (a `.mjs` CLI with no declarations) and driven
  * through its entry point with the root injected, which is how the other script
@@ -150,8 +156,8 @@ describe("what a package says about the platforms it has", () => {
       "win32-arm64",
       "win32-x64",
     ]);
-    // The finding: macOS on Intel is simply not in the list, and it is the only
-    // macOS architecture there is besides arm64.
+    // Not in this matrix, and never was — which is why the fixture is worth
+    // keeping: it is the matrix that made an Intel Mac a silent loss.
     expect(lancedb.platforms?.has("darwin-x64")).toBe(false);
   });
 
@@ -386,28 +392,35 @@ describe("this repository", () => {
     expect(modules).not.toBeNull();
 
     const names = (modules ?? []).map((module) => module.name).sort();
-    expect(names).toEqual(["@lancedb/lancedb", "better-sqlite3", "find-git-repositories"]);
+    expect(names).toEqual([
+      "better-sqlite3",
+      "find-git-repositories",
+      "sqlite-vec",
+    ]);
 
     const { code, said } = verdict(ROOT);
     expect(said).toContain("darwin-arm64 — 3 native module(s), a binary for each");
     expect(code).toBe(0);
   });
 
-  test("and Intel is the architecture that does not work, for the reason recorded", () => {
-    // This is the finding, pinned. When a LanceDB release restores `darwin-x64`
-    // this fails on purpose: an architecture that becomes shippable is a
-    // decision somebody should make deliberately, not discover in a changelog.
+  test("and Intel, which the vector store used to block, builds now", () => {
+    // This is the finding, resolved. While the store was LanceDB this asserted
+    // the opposite — no `darwin-x64` package existed, so an Intel Mac silently
+    // lost semantic search — and the last time it ran green it was saying so.
+    // `sqlite-vec` publishes one, so the expansion line flipped, and because
+    // nothing is degraded on any architecture any more there is nothing left to
+    // record in ACCEPTED_DEGRADATIONS.
     const { code, said } = verdict(ROOT);
 
     expect(code).toBe(0);
-    expect(said).toContain("darwin-x64 would NOT build today");
-    expect(said).toContain("@lancedb/lancedb");
+    expect(said).toContain("darwin-x64 would build today");
     expect(script.ACCEPTED_DEGRADATIONS).toEqual([]);
   });
 
-  test("and the two platforms that would work are named as such", () => {
-    // Windows and Linux carry no LanceDB problem at all — its matrix includes
-    // win32-x64 and linux-x64 — so the cheap expansion is not the Mac one.
+  test("as do the two platforms that never had the problem", () => {
+    // Windows and Linux were never blocked — LanceDB's matrix had win32-x64 and
+    // linux-x64 — so they keep saying what they always said. All three candidates
+    // agreeing is the state this change was for.
     const { said } = verdict(ROOT);
 
     expect(said).toContain("win32-x64 would build today");

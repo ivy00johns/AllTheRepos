@@ -15,8 +15,21 @@ files:
 asar: true
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
-  - "**/node_modules/@lancedb/**/*.node"
-  - "**/node_modules/@lancedb/**/*.dylib"
+  # `sqlite-vec` is a loadable SQLite extension, not a Node addon: the app calls
+  # `db.loadExtension()` on `vec0.dylib` at runtime, and a dynamic library inside
+  # an asar archive cannot be `dlopen`ed. (It replaced `@lancedb/**`, which
+  # shipped `.node` + `.dylib` files from a prebuilt binding — same problem, one
+  # file.)
+  #
+  # The second pattern is a belt-and-braces entry: the per-platform package is
+  # an `optionalDependency`, and electron-builder's collector walks
+  # `dependencies` only — so normally there is nothing here for it to match, and
+  # the `afterPack` hook below is what actually puts the library in the bundle.
+  # It is kept for the case where a future electron-builder does collect
+  # optional dependencies, in which case the file would be inside the asar and
+  # would need unpacking.
+  - "**/node_modules/sqlite-vec/**"
+  - "**/node_modules/sqlite-vec-*/**"
   - "**/node_modules/fsevents/**"
 npmRebuild: true
 
@@ -30,6 +43,13 @@ npmRebuild: true
 # an error, and a release can demand notarisation outright with
 # `ATR_NOTARIZE=require` — see scripts/notarize.mjs.
 afterSign: scripts/notarize.mjs
+
+# The vector store's binary is not a Node addon, and not a dependency
+# electron-builder collects: `sqlite-vec` loads `vec0.<ext>` at runtime, and the
+# library lives in a per-platform package that is an optional dependency. This
+# hook copies it into the bundle's resources and fails the build when it cannot
+# — see the file's header for the packaged build that shipped without it.
+afterPack: scripts/pack-vector-extension.mjs
 
 # Update feed. Artifacts are published to a PUBLIC releases-only repo while
 # the source stays private, so a shipped copy can read the feed with an

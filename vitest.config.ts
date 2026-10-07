@@ -9,7 +9,9 @@ import path from "node:path";
  * `*.test.ts` suite was removed with the stack in ATR-013.
  *
  * One config, one process. Projects are intentionally avoided because the
- * setup is single-fork (better-sqlite3 + LanceDB don't like worker isolation).
+ * setup is single-fork (better-sqlite3 and the `sqlite-vec` extension don't
+ * like worker isolation — an extension loads into one connection, not one
+ * process).
  */
 export default defineConfig({
   test: {
@@ -39,7 +41,9 @@ export default defineConfig({
         external: [
           /better-sqlite3/,
           /find-git-repositories/,
-          /@lancedb/,
+          // A loadable SQLite extension plus its per-platform package, read from
+          // disk and `dlopen`ed — never transformed.
+          /sqlite-vec/,
           // Electron itself is not importable from vitest (no Electron runtime);
           // any handler test that touches `electron` should mock it. Externalise
           // so vitest never tries to transform the binary module.

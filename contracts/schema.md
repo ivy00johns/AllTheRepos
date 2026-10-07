@@ -1,6 +1,6 @@
 # Database Schema — v1 (frozen)
 
-SQLite via `better-sqlite3` + Drizzle ORM. Data file: `{ATR_DATA_DIR}/alltherepos.db`. WAL mode.
+SQLite via `better-sqlite3` + Drizzle ORM. Data file: `{ATR_DATA_DIR}/alltherepos.db`. WAL mode. That one file holds everything: the tables below, the FTS5 index (`repos_fts`) and the vector table (`repo_embeddings`).
 
 ## Tables
 
@@ -130,12 +130,27 @@ CREATE TRIGGER repos_fts_delete AFTER DELETE ON repos BEGIN
 END;
 ```
 
-## LanceDB
+## Vector store
 
-Separate store at `{ATR_DATA_DIR}/lance/`. Table `repo_embeddings`:
+`repo_embeddings` is a `vec0` virtual table **in the same database file as the
+tables above**. It is created by the app on first use rather than by a Drizzle
+migration — the `sqlite-vec` extension has to be loaded into the connection
+before the DDL can run — and the app keeps working without it (keyword search
+only, as `catalog:search` reports):
 
-- `repo_id` (int, primary)
-- `slug` (string, indexed)
-- `vector` (float32[768])
-- `content_hash` (string)
-- `updated_at` (string, ISO-8601)
+```sql
+CREATE VIRTUAL TABLE IF NOT EXISTS repo_embeddings USING vec0(
+  repo_id INTEGER PRIMARY KEY,  -- repos.id
+  slug TEXT,
+  content_hash TEXT,            -- sha256 of name + description + readme
+  updated_at TEXT,              -- ISO-8601
+  embedding float[768]          -- nomic-embed-text
+);
+```
+
+`vec0` enforces the declared width, so a provider that returns a different
+number of floats fails the insert instead of writing incomparable rows. `slug`,
+`content_hash` and `updated_at` are metadata columns beside the vector, so the
+nearest-neighbour query and the content-hash gate read from the same row.
+`contracts/data-layer.v1.md` covers how the extension is loaded and where its
+platform binary comes from.

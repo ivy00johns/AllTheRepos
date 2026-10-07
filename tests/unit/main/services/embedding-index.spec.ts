@@ -1,7 +1,8 @@
 /**
  * ATR-018 Unit Test — embedding write-path (`indexRepoEmbedding`) + helpers.
  *
- * Native-free: `./lance` (LanceDB native binding) is mocked and the embedding
+ * Native-free: `./vector-store` (the sqlite-vec-backed store, which needs a
+ * native SQLite extension and a migrated database) is mocked and the embedding
  * provider is driven via a stubbed global `fetch`, so this runs under host
  * Node with no Electron ABI and no live Ollama. (We drive the *real* `embed()`
  * through `fetch` rather than spying on the module export, because
@@ -22,13 +23,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // --- Mocks -----------------------------------------------------------------
-// The LanceDB wrapper is the only native dependency of the write-path; mock it
+// The vector store is the only native dependency of the write-path; mock it
 // wholesale so no `.dylib` / Electron ABI is touched.
-const upsertEmbedding = vi.fn<(row: unknown) => Promise<void>>();
-const getEmbeddingContentHash =
-  vi.fn<(repoId: number) => Promise<string | null>>();
+//
+// Both functions are SYNCHRONOUS in the module under test. A promise-returning
+// mock would quietly invert two of the cases below: the content-hash gate
+// compares `prior === contentHash`, which no promise ever equals, so
+// "skips when unchanged" would re-embed and still look green.
+const upsertEmbedding = vi.fn<(row: unknown) => void>();
+const getEmbeddingContentHash = vi.fn<(repoId: number) => string | null>();
 
-vi.mock("@main/services/lance", () => ({
+vi.mock("@main/services/vector-store", () => ({
   upsertEmbedding: (row: unknown) => upsertEmbedding(row),
   getEmbeddingContentHash: (repoId: number) => getEmbeddingContentHash(repoId),
 }));
@@ -152,7 +157,7 @@ describe("indexRepoEmbedding", () => {
   const realFetch = globalThis.fetch;
 
   beforeEach(() => {
-    upsertEmbedding.mockReset().mockResolvedValue(undefined);
+    upsertEmbedding.mockReset().mockReturnValue(undefined);
     getEmbeddingContentHash.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -164,7 +169,7 @@ describe("indexRepoEmbedding", () => {
   });
 
   it("(a) embeds + upserts with the right shape when the readme hash changed", async () => {
-    getEmbeddingContentHash.mockResolvedValue(null); // no prior embedding
+    getEmbeddingContentHash.mockReturnValue(null); // no prior embedding
     const fetchSpy = fetchReturnsVector();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
@@ -192,7 +197,7 @@ describe("indexRepoEmbedding", () => {
   });
 
   it("(a') re-embeds when a stored hash exists but differs", async () => {
-    getEmbeddingContentHash.mockResolvedValue("stale-hash-from-old-readme");
+    getEmbeddingContentHash.mockReturnValue("stale-hash-from-old-readme");
     globalThis.fetch = fetchReturnsVector() as unknown as typeof fetch;
 
     const outcome = await indexRepoEmbedding(sampleRepo);
@@ -202,7 +207,7 @@ describe("indexRepoEmbedding", () => {
   });
 
   it("(b) skips embed + upsert when the stored hash is unchanged", async () => {
-    getEmbeddingContentHash.mockResolvedValue(embeddingContentHash(sampleRepo));
+    getEmbeddingContentHash.mockReturnValue(embeddingContentHash(sampleRepo));
     const fetchSpy = fetchReturnsVector();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
@@ -214,7 +219,7 @@ describe("indexRepoEmbedding", () => {
   });
 
   it("(c) does NOT throw and does NOT upsert when embed() fails (Ollama DOWN)", async () => {
-    getEmbeddingContentHash.mockResolvedValue(null);
+    getEmbeddingContentHash.mockReturnValue(null);
     globalThis.fetch = fetchConnectionRefused() as unknown as typeof fetch;
 
     // Must resolve, not reject — the scan cannot be blocked/failed by this.
@@ -227,7 +232,9 @@ describe("indexRepoEmbedding", () => {
   it("still attempts a (re)embed when the content-hash gate read fails", async () => {
     // A failed gate read must be treated as 'not embedded', i.e. it must NOT
     // cause a silent skip — it falls through to embed + upsert.
-    getEmbeddingContentHash.mockRejectedValue(new Error("lance down"));
+    getEmbeddingContentHash.mockImplementation(() => {
+      throw new Error("vector store read failed");
+    });
     globalThis.fetch = fetchReturnsVector() as unknown as typeof fetch;
 
     const outcome = await indexRepoEmbedding(sampleRepo);
@@ -237,9 +244,11 @@ describe("indexRepoEmbedding", () => {
   });
 
   it("returns 'skipped-unavailable' (and does not throw) when upsert fails", async () => {
-    getEmbeddingContentHash.mockResolvedValue(null);
+    getEmbeddingContentHash.mockReturnValue(null);
     globalThis.fetch = fetchReturnsVector() as unknown as typeof fetch;
-    upsertEmbedding.mockRejectedValue(new Error("lance write failed"));
+    upsertEmbedding.mockImplementation(() => {
+      throw new Error("vector store write failed");
+    });
 
     await expect(indexRepoEmbedding(sampleRepo)).resolves.toBe(
       "skipped-unavailable",

@@ -97,7 +97,11 @@ function CurateLinkForm({
 
   const linked = React.useMemo(() => new Set(linkedSlugs), [linkedSlugs]);
   const search = useSearch(q, { limit: 8 });
-  const hits = (search.data ?? []).filter((hit) => hit.repo.slug !== fromSlug);
+  // `.hits`, not the payload itself: the search response carries the semantic
+  // status beside the hits, so it can say when the results are keyword-only.
+  const hits = (search.data?.hits ?? []).filter(
+    (hit) => hit.repo.slug !== fromSlug,
+  );
   const typed = q.trim().length > 0;
 
   const sentence = target

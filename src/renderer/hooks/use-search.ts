@@ -8,9 +8,14 @@
  * the last `q` change before firing the query — the result is that
  * cache keys settle to the user's final typed term, not every prefix.
  *
- * Empty / whitespace-only queries short-circuit to an empty array
+ * Empty / whitespace-only queries short-circuit to an empty result
  * without invoking the bridge (otherwise the main process would FTS
  * for the empty string, returning everything).
+ *
+ * The payload is `{ hits, semantic }` rather than a bare array: the backend
+ * degrades to keyword-only when no embedding provider is reachable, and a
+ * caller that cannot tell that apart from a normal result set has no way to say
+ * so. `semantic.state === "off"` is the half the catalog renders as a notice.
  */
 
 import { useEffect, useState } from "react";
@@ -18,11 +23,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { getAtr } from "@renderer/lib/atr";
 import { queryKeys } from "@renderer/lib/query-client";
-import type {
-  SearchHit,
-  SearchReposInput,
-  SearchReposResult,
-} from "@shared/types";
+import type { SearchReposInput, SearchReposResult } from "@shared/types";
 
 export interface UseSearchOptions {
   /** Filters forwarded to the IPC. */
@@ -38,7 +39,7 @@ export interface UseSearchOptions {
 export function useSearch(
   q: string,
   opts: UseSearchOptions = {},
-): UseQueryResult<SearchHit[], Error> {
+): UseQueryResult<SearchReposResult, Error> {
   const { filters, mode = "hybrid", limit, debounceMs = 200 } = opts;
   const [debouncedQ, setDebouncedQ] = useState(q);
 
@@ -52,7 +53,16 @@ export function useSearch(
   return useQuery<SearchReposResult, Error>({
     queryKey: queryKeys.search.query(trimmed, mode),
     queryFn: async () => {
-      if (trimmed.length === 0) return [];
+      // Not `"vectors"`: no search was issued, so no vector was consulted.
+      // `"requested"` is the honest label — a choice, not a failure — and it
+      // keeps a caller from rendering an "unavailable" notice over an empty
+      // query that never went to the backend at all.
+      if (trimmed.length === 0) {
+        return {
+          hits: [],
+          semantic: { state: "off", reason: "requested", detail: null },
+        };
+      }
       const atr = getAtr();
       if (!atr) {
         throw new Error("Preload bridge unavailable — cannot search.");

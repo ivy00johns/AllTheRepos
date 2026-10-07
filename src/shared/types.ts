@@ -147,8 +147,55 @@ export interface SearchReposInput {
   limit?: number;
 }
 
-/** Response for `catalog:search`. */
-export type SearchReposResult = SearchHit[];
+/**
+ * Why the semantic (vector) half of a search did not run.
+ *
+ * - `requested`             — the caller asked for keyword-only (`mode: "fts"`).
+ * - `no-vector-store`       — the vector store is not usable on this machine:
+ *                             the `sqlite-vec` extension did not load, or a
+ *                             query against it failed. Both are local to the
+ *                             app rather than to a provider, which is why the
+ *                             UI's wording covers either.
+ * - `no-embedding-provider` — no Ollama and no `OPENAI_API_KEY`, so the query
+ *                             could not be turned into a vector at all.
+ *
+ * The two failures are kept apart because they have different remedies — one is
+ * a machine problem, the other is a Settings problem — and because a UI that
+ * says "semantic search is off" without being able to say which one is a UI
+ * nobody can act on.
+ */
+export type SemanticSearchUnavailableReason =
+  | "requested"
+  | "no-vector-store"
+  | "no-embedding-provider";
+
+/**
+ * Whether a search consulted the vector store, and why not when it did not.
+ *
+ * Carried on every search response so the renderer can say so out loud. The old
+ * behaviour was that a search silently degraded to keyword-only and the result
+ * looked exactly like a successful one.
+ */
+export type SemanticSearchStatus =
+  | { state: "vectors" }
+  | {
+      state: "off";
+      reason: SemanticSearchUnavailableReason;
+      /**
+       * The underlying message (provider error, extension load failure), for
+       * the tooltip / settings surface. `null` when the caller opted out.
+       */
+      detail: string | null;
+    };
+
+/**
+ * Response for `catalog:search`: the ranked hits, plus whether the vector half
+ * of the pipeline took part in producing them.
+ */
+export interface SearchReposResult {
+  hits: SearchHit[];
+  semantic: SemanticSearchStatus;
+}
 
 /** Input for `catalog:rescan` — refresh metadata for one repo. */
 export interface RescanRepoInput {

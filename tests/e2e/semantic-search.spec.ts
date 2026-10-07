@@ -4,33 +4,32 @@
  *
  * Two halves live in this app and no test had put them together. The write half
  * is `services/embedding.ts`, wired into the scan's `discovered` handler and into
- * `catalog:rescan`; the read half is `services/lance.ts` feeding the RRF merge in
- * `services/search.ts`. The unit specs around them either mock the vector store
- * or mock the write path (`scan-embedding-wiring.spec.ts` asserts the *call*, with
- * `indexRepoEmbedding` stubbed), so nothing had ever written a real vector and
- * read it back through a real search — which is exactly the seam where a
- * dimension mismatch, a slug that disagrees with SQLite, or a merge that drops
- * the vector side would hide, with every gate still green. The audit of
- * 2026-05-31 made the opposite claim ("EMBEDDINGS ARE NEVER WRITTEN"); that was
- * true of the commit it read and is not true of this one, and a claim of this
- * shape deserves a test rather than a grep.
+ * `catalog:rescan`; the read half is `services/vector-store.ts` (a `vec0` table
+ * in the app's own SQLite file, through the `sqlite-vec` extension) feeding the
+ * RRF merge in `services/search.ts`. The unit specs around them either mock the
+ * vector store or mock the write path (`scan-embedding-wiring.spec.ts` asserts
+ * the *call*, with `indexRepoEmbedding` stubbed), so nothing had ever written a
+ * real vector and read it back through a real search — which is exactly the seam
+ * where a dimension mismatch, a slug that disagrees with SQLite, a table that was
+ * never created, or a merge that drops the vector side would hide, with every
+ * gate still green. The audit of 2026-05-31 made the opposite claim
+ * ("EMBEDDINGS ARE NEVER WRITTEN"); that was true of the commit it read and is
+ * not true of this one, and a claim of this shape deserves a test rather than a
+ * grep.
  *
  * This walks the whole path through the app's own surfaces, in the order a person
  * would: run a scan with a provider answering, then search.
  *
- * What makes the result mean something is the profile. Every launch copies the
- * seeded template's SQLite file and settings — and *not* its LanceDB directory
- * (`_launch-app.ts`), which is written per launch and starts empty. So a vector
- * hit below cannot have been inherited, seeded, or left over from another spec:
- * it is a row this run's scan put there. There is no way to pass this file
- * without the app having stored an embedding.
- *
- * It also runs on the Intel leg of the CI job, where the answer is the opposite
- * one: no binding means the scan's write cannot land, so what is pinned there is
- * the *degradation* — the scan completes, the provider is asked, and the search
- * still answers with every hit FTS-only. The expectation is architecture-shaped
- * and both branches run, one per leg, because "this machine has no vector store so
- * we did not look" cannot be told apart from a guard that stopped guarding.
+ * The control is what makes the result mean something, and it is stronger now
+ * than when it was written. Every launch copies the seeded template's SQLite
+ * file — which holds the vectors too, since the store moved into that file — so
+ * "no vector hit could have been inherited" is no longer something a reader can
+ * take on the fixture's word. It is asserted instead: before the scan, a search
+ * must come back **without** a single vector-shaped hit, because the seeder
+ * writes repo rows and nothing else and no embedding has been stored yet. After
+ * the scan, every one of those repos must come back `hybrid`. That pairing is
+ * the difference between "the app can read a vector" and "this run put it
+ * there", and it is why this file would go red today if nothing were stored.
  *
  * What it does not claim: the provider is the mock in `_vector-path.ts`, so the
  * ranking is token overlap by construction. The assertion is about the seam —
@@ -168,6 +167,24 @@ test.describe("semantic search, after a scan writes the vectors", () => {
           `test would be measuring the wrong thing.`,
       ).toBe(embeddings.url);
 
+      // ----- The control: this profile starts with no vectors at all --------
+      // The seeded rows are in the database (and in FTS), and the vector store
+      // is empty: the seeder writes rows over plain SQL and never embeds. So a
+      // search now must return FTS-only hits, and every hit the scan later
+      // turns `hybrid` has to be one this run stored.
+      const before = await searchCatalog(win, "demo");
+      expect(
+        before.hits.length,
+        `the profile this spec inherits already has vector hits in it, so the ` +
+          `scan below would prove nothing: ${JSON.stringify(before.hits)}`,
+      ).toBeGreaterThan(0);
+      expect(
+        before.hits.filter((hit) => hit.matchKind !== "fts"),
+        `a vector hit was inherited from the seeded profile — the fixture ` +
+          `copies its SQLite file, vectors included, so the assertion after ` +
+          `the scan cannot be evidence that the scan stored anything.`,
+      ).toEqual([]);
+
       // ----- The write half: a scan, with a provider answering -------------
       const status = await scanToCompletion(win, [seededLibraryDir()]);
 
@@ -180,79 +197,66 @@ test.describe("semantic search, after a scan writes the vectors", () => {
         `the scan found ${status.processed} of the seeded repos — the fixture ` +
           `is ${SEEDED_REPO_DIRS.join(", ")}.`,
       ).toBe(SEEDED_REPO_DIRS.length);
-      // True on both architectures, and that is the point: the app asks for an
-      // embedding before it tries to store one, so on x86_64 the request goes out
-      // and the write is what fails.
       expect(
         embeddings.requests(),
         "the scan wrote nothing for the provider to embed",
       ).toBeGreaterThan(0);
 
-      // ----- ... and the read half, which is architecture-shaped -------------
-      // LanceDB publishes a binding for one of the two architectures a Mac comes
-      // in (`tests/e2e/vector-store.spec.ts` asserts which, on both legs). On a
-      // Mac that has one, the scan's embeddings land and the search ranks with
-      // them. On x86_64 they cannot be stored at all — and what is pinned there is
-      // the documented degradation instead: the scan completes, the provider is
-      // asked, and a search still answers, FTS-only. Both branches run on every
-      // run, one per leg; neither is a skip.
-      const arch = await app.evaluate(() => process.arch);
-      const storesVectors = arch === "arm64";
-
+      // ----- ... and the read half -----------------------------------------
+      // Fire-and-forget means the writes may still be in flight when `done`
+      // arrives, so this waits for the effect rather than assuming it.
       let hits: SearchHit[] = [];
-      if (storesVectors) {
-        // Fire-and-forget means the writes may still be in flight when `done`
-        // arrives, so this waits for the effect rather than assuming it.
-        await expect
-          .poll(
-            async () => {
-              hits = await searchCatalog(win, "demo");
-              return hits.filter((hit) => hit.matchKind !== "fts").length;
-            },
-            {
-              timeout: 30_000,
-              message:
-                "no search hit ever came from the vector store: the scan's " +
-                "embeddings are not in the table, or the merge is not finding them",
-            },
-          )
-          .toBe(SEEDED_REPO_DIRS.length);
-      } else {
-        hits = await searchCatalog(win, "demo");
-      }
+      await expect
+        .poll(
+          async () => {
+            hits = (await searchCatalog(win, "demo")).hits;
+            return hits.filter((hit) => hit.matchKind !== "fts").length;
+          },
+          {
+            timeout: 30_000,
+            message:
+              "no search hit ever came from the vector store: the scan's " +
+              "embeddings are not in the table, or the merge is not finding them",
+          },
+        )
+        .toBe(SEEDED_REPO_DIRS.length);
 
       // Every seeded repo is a hit, exactly once. `hybrid` and not `vector` on
-      // purpose: all three repos match the FTS query too, so on a Mac with a
-      // vector store a repo that came back `fts` is a repo whose vector was not
-      // stored — or whose stored slug disagrees with SQLite's, which is the
-      // failure a duplicate row here would reveal. On x86_64 the same query has
-      // to come back `fts` for every one of them, because there is nothing that
-      // could have put a vector beside it.
-      const expectedKind = storesVectors ? "hybrid" : "fts";
+      // purpose: all three repos match the FTS query too, so a repo that came
+      // back `fts` is a repo whose vector was not stored — or whose stored slug
+      // disagrees with SQLite's, which is the failure a duplicate row here
+      // would reveal.
       expect(
         hits
           .map((hit) => ({ name: hit.repo.name, kind: hit.matchKind }))
           .sort((a, b) => a.name.localeCompare(b.name)),
-        `search for "demo" returned ${JSON.stringify(hits)} on ${arch}`,
+        `search for "demo" returned ${JSON.stringify(hits)}`,
       ).toEqual(
         [...SEEDED_REPO_DIRS]
           .sort((a, b) => a.localeCompare(b))
-          .map((name) => ({ name, kind: expectedKind })),
+          .map((name) => ({ name, kind: "hybrid" })),
       );
 
-      if (storesVectors) {
-        // The ranking half, such as the mock can honestly support it: the mock's
-        // vectors are token overlap, so a query naming one repo must put that repo
-        // first rather than merely including it.
-        const ranking = await searchCatalog(win, "demo web");
-        expect(
-          ranking[0]?.repo.name,
-          `"demo web" ranked ${JSON.stringify(ranking.map((hit) => hit.repo.name))}`,
-        ).toBe("demo-web");
-      }
+      // The ranking half, such as the mock can honestly support it: the mock's
+      // vectors are token overlap, so a query naming one repo must put that repo
+      // first rather than merely including it.
+      const ranking = await searchCatalog(win, "demo web");
+      expect(
+        ranking.hits[0]?.repo.name,
+        `"demo web" ranked ${JSON.stringify(ranking.hits.map((hit) => hit.repo.name))}`,
+      ).toBe("demo-web");
 
-      // And the app never had to say the vector path went wrong: the failure
-      // this whole feature is one `catch` away from.
+      // And the search says which halves of the pipeline produced it, so a
+      // reader of this result can tell it apart from the keyword-only answer
+      // the control above got.
+      expect(
+        ranking.semantic,
+        `the query was embedded and the store answered, but the search ` +
+          `reported ${JSON.stringify(ranking.semantic)}.`,
+      ).toEqual({ state: "vectors" });
+
+      // The app never had to say the vector path went wrong: the failure this
+      // whole feature is one `catch` away from.
       expect(
         mainLogs.filter((line) => line.includes(VECTOR_PATH_ERROR)),
         "the vector path threw somewhere during the scan or the search",

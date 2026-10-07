@@ -201,13 +201,48 @@ describe("handleCatalogGet", () => {
 
 describe("handleCatalogSearch", () => {
   it("returns the search hits", async () => {
-    vi.mocked(searchService.search).mockResolvedValue([
-      { repo: fixtureRepo, score: 0.9, matchKind: "hybrid", snippet: "hit" },
-    ]);
+    vi.mocked(searchService.search).mockResolvedValue({
+      hits: [
+        {
+          repo: fixtureRepo,
+          score: 0.9,
+          matchKind: "hybrid",
+          snippet: "hit",
+        },
+      ],
+      semantic: { state: "vectors" },
+    });
     const out = await handleCatalogSearch({ q: "rust", mode: "hybrid" });
     expect(searchService.search).toHaveBeenCalledTimes(1);
-    expect(out).toHaveLength(1);
-    expect(out[0].matchKind).toBe("hybrid");
+    expect(out.hits).toHaveLength(1);
+    expect(out.hits[0].matchKind).toBe("hybrid");
+    expect(out.semantic).toEqual({ state: "vectors" });
+  });
+
+  /**
+   * The status is the whole reason this response stopped being an array: it is
+   * how the renderer knows to say "keyword matches only" rather than showing a
+   * smaller result set that looks exactly like a complete one. So it is asserted
+   * on the way back out, not just on the way in.
+   */
+  it("returns the semantic status when the vector half did not run", async () => {
+    const detail =
+      "No embedding provider available (Ollama unreachable, no OPENAI_API_KEY)";
+    vi.mocked(searchService.search).mockResolvedValue({
+      hits: [],
+      semantic: {
+        state: "off",
+        reason: "no-embedding-provider",
+        detail,
+      },
+    });
+    const out = await handleCatalogSearch({ q: "rust" });
+    expect(out.hits).toEqual([]);
+    expect(out.semantic).toEqual({
+      state: "off",
+      reason: "no-embedding-provider",
+      detail,
+    });
   });
 
   it("rejects an empty q", async () => {

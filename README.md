@@ -51,7 +51,7 @@ Most repository tools answer *"what is in this repo?"*. AllTheRepos answers the 
 - 🔒 **Local-first, and provably so** — every git command, filesystem write and network request is inventoried with citations in [`docs/COMMAND-DISCLOSURE.md`](./docs/COMMAND-DISCLOSURE.md).
 - 📦 **A release pipeline that ships itself** — tag a version and a GitHub Actions runner typechecks, tests, packages a DMG + ZIP, signs and notarises them when it has a Developer ID certificate to do it with, publishes them to a public releases repo, and verifies the update feed it just wrote.
 
-**Status:** the desktop app boots, the type-safe IPC layer works end to end, and the catalog runs against a migrated SQLite + LanceDB store. Phases 0–2 are structurally complete and Phase 3 (deep integrations) is wired; several Phase 1–3 surfaces are still stubbed, and [`docs/PLAN.md`](./docs/PLAN.md) keeps the honest, verified phase-by-phase list rather than this paragraph. This is **alpha software that touches your entire repository collection** — read the disclosure above before pointing it at your machine.
+**Status:** the desktop app boots, the type-safe IPC layer works end to end, and the catalog runs against a migrated SQLite store whose full-text index and vector table live in the same file. Phases 0–2 are structurally complete and Phase 3 (deep integrations) is wired; several Phase 1–3 surfaces are still stubbed, and [`docs/PLAN.md`](./docs/PLAN.md) keeps the honest, verified phase-by-phase list rather than this paragraph. This is **alpha software that touches your entire repository collection** — read the disclosure above before pointing it at your machine.
 
 Downloads live in [`alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases/releases/latest) — that link redirects to the newest release, so it is the only one worth bookmarking, and the badge above carries the version. Download the **`.dmg`**; the `.zip`, `.blockmap` and `latest-mac.yml` beside it are the update feed, not another installer. It is ad-hoc signed and not notarised, so macOS refuses the first launch and you allow it once through **System Settings → Privacy & Security → Open Anyway** (the right-click shortcut older macOS accepted was removed in macOS 15, and the steps are also in `READ-ME-FIRST.txt` inside the DMG), and its updater **checks** for new versions and hands you the release page rather than installing them — a build macOS will not update is not offered the option. Publish with a Developer ID certificate and the same updater downloads the release and restarts to install it — see [Releasing](#-releasing).
 
@@ -67,7 +67,7 @@ Downloads live in [`alltherepos-releases`](https://github.com/ivy00johns/allther
 | **pnpm ≥9** | Pinned through the `packageManager` field. |
 | **macOS** | Required for `pnpm electron:pack` / `dist` (DMG output). The dev app builds anywhere Electron does, but only macOS is exercised. |
 | **Xcode command line tools** | `better-sqlite3` and `find-git-repositories` are compiled locally. On Xcode 26 set `SDKROOT` — see [Known Issues](#%EF%B8%8F-known-issues). |
-| **Optional: [Ollama](http://localhost:11434)** | Embedding-based hybrid search. Without it, search degrades to FTS5 only. |
+| **Optional: [Ollama](http://localhost:11434)** | Embedding-based hybrid search. Without it, search answers from FTS5 alone — and the results say so rather than looking like a complete set. |
 
 ### Run it
 
@@ -120,21 +120,19 @@ flowchart LR
     ui["🖥️ Renderer<br/>React 19 · Vite · Tailwind 4<br/>TanStack Router + Query · Zustand"]
     bridge["🌉 Preload<br/>contextBridge — window.atr"]
     main["⚙️ Main process<br/>Node services, singleton"]
-    db[("🗃️ SQLite + FTS5<br/>userData/alltherepos.db")]
-    lance[("🧭 LanceDB<br/>vectors")]
+    db[("🗃️ SQLite + FTS5 + vec0<br/>userData/alltherepos.db")]
     disk["📁 Your repositories"]
 
     ui -- "70 typed IPC channels" --> bridge
     bridge --> main
     main --> db
-    main --> lance
     main -- "git + filesystem reads" --> disk
 ```
 
 | Layer | What lives there |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`src/shared/`** | Types, Zod schemas and the IPC channel table. The single source of truth for both processes. |
-| **`src/main/`** | The Node half: catalog (Drizzle + better-sqlite3 + FTS5), scan (`find-git-repositories` in a worker thread), search (FTS + LanceDB hybrid with RRF), git (`simple-git`), settings (atomic-rename JSON store), groups, process/port detection, the tray and the spotlight window. |
+| **`src/main/`** | The Node half: catalog (Drizzle + better-sqlite3 + FTS5), scan (`find-git-repositories` in a worker thread), search (FTS5 + vector hybrid with RRF), git (`simple-git`), settings (atomic-rename JSON store), groups, process/port detection, the tray and the spotlight window. |
 | **`src/preload/`** | `contextBridge.exposeInMainWorld('atr', …)`. The renderer reaches the main process **only** through `window.atr.<namespace>.<method>()`. |
 | **`src/renderer/`** | A pure web app: Vite + React 19 + Tailwind 4 + shadcn primitives + TanStack Router (memory history) + TanStack Query + Zustand. |
 
@@ -154,8 +152,8 @@ flowchart LR
 
 ### Where your data lives
 
-- **`~/Library/Application Support/AllTheRepos/`** (`app.getPath('userData')`) holds `alltherepos.db` (SQLite + FTS5), the Lance vector store, and `settings.json`.
-- On first boot, if `~/.alltherepos/` exists, that legacy SQLite / Lance / notes data is **copied** (never moved) into the new location and a `MIGRATED` sentinel is written. The original is preserved for muscle-memory CLI access.
+- **`~/Library/Application Support/AllTheRepos/`** (`app.getPath('userData')`) holds `alltherepos.db` — the catalog, its FTS5 index, and its `repo_embeddings` vector table, all in one SQLite file, through the `sqlite-vec` extension — plus `settings.json`.
+- On first boot, if `~/.alltherepos/` exists, that legacy SQLite / Lance / notes data is **copied** (never moved) into the new location and a `MIGRATED` sentinel is written. The original is preserved for muscle-memory CLI access. The legacy `lance/` directory comes along as a file copy and is never read — embeddings are rebuilt by the next scan.
 
 ---
 
@@ -167,7 +165,7 @@ flowchart LR
 | UI | React 19 · Vite 7 · Tailwind 4 · shadcn primitives |
 | Routing & state | TanStack Router (memory history) · TanStack Query · Zustand |
 | Catalog store | SQLite via `better-sqlite3` + Drizzle, with FTS5 full-text search |
-| Vector search | LanceDB, embeddings through Ollama (`nomic-embed-text` by default) |
+| Vector search | `sqlite-vec` — a `vec0` table in the catalog's own SQLite file; embeddings through Ollama (`nomic-embed-text` by default) |
 | Scanning | `find-git-repositories` in a Node worker thread |
 | Git | `simple-git` |
 | Contracts | Zod schemas shared by both processes |
@@ -229,7 +227,7 @@ pnpm versions:check        # the front door links the feed instead of naming a r
 pnpm platforms:check       # every architecture we build has a binary for every native module, and which ones would
 ```
 
-Current status: the unit suite, `typecheck` and `pnpm lint` are green on every push and pull request, and the Electron E2E job runs against a real window driven over the debugger protocol on two machines — `macos-14` (Apple silicon) and `macos-15-intel` (x86_64) — so a runner's GUI session is sufficient on either. The Intel leg builds and launches a build nobody can download, because releases are arm64-only: it is there to answer whether the app runs on x86_64 at all, and what the missing vector store costs there — `pnpm platforms:check` reports that `@lancedb/lancedb` publishes no darwin-x64 binary, and the suite's `vector-store` spec asks the app's own runtime to confirm it, then drives a real search with the embedding provider arranged on the runner, so the fail-soft path in `services/lance.ts` is measured rather than assumed. Counts are deliberately absent: the specs that need something a runner does not have stop with a reason rather than failing, so a tally written here moves without the suite changing — the tests badge above is generated from the run instead.
+Current status: the unit suite, `typecheck` and `pnpm lint` are green on every push and pull request, and the Electron E2E job runs against a real window driven over the debugger protocol on two machines — `macos-14` (Apple silicon) and `macos-15-intel` (x86_64) — so a runner's GUI session is sufficient on either. The Intel leg builds and launches a build nobody can download, because releases are arm64-only: it is there to answer whether the app runs on x86_64 at all. `pnpm platforms:check` reports that every native module in the bundle has a binary for every architecture the app declares, and the vector store is now a SQLite extension published for `darwin-x64` as well as `darwin-arm64` — so an Intel build no longer trades semantic search away, and what the leg has left to answer is whether the app runs there. Counts are deliberately absent: the specs that need something a runner does not have stop with a reason rather than failing, so a tally written here moves without the suite changing — the tests badge above is generated from the run instead.
 
 `pnpm test:packaged-update-refused` is the third job in `ci.yml`, and it covers the branch a green run would otherwise skip through. It builds **two** bundles, because it asserts every test that reads the feed — including the one that only does so after finding a build that is behind the release. Dispatching the workflow (`gh workflow run ci.yml`) runs one more job on top: a `drill` that throws the refusal mock (`ATR_REFUSE_GITHUB=off`) and asserts the check comes back **failed**, since the regression worth fearing is the quiet one — the mock loading, refusing nothing, and the gate staying green while it stops being worth anything. When GitHub declines an anonymous read the update check **stops with a reason instead of failing** — a 403 says nothing about the release — and a skip path nobody runs cannot be told apart from a guard that stopped guarding. So the refusal is arranged rather than awaited: a committed mock answers every `github.com` read with GitHub's own 403, and the job fails unless the tests that read the feed stopped *because of that refusal*, left a `::warning::`, and nothing else in the suite failed. It has its own job because it packages the app rather than only building it, and because it is the one job here whose apparatus has to lie about the network.
 
@@ -336,7 +334,7 @@ GitHub renders its own workflow badges through an authenticated-only endpoint fo
 | [`NEW-PLAN.md`](./NEW-PLAN.md) | Frozen architecture and feature design brief |
 | [`mcp/README.md`](./mcp/README.md) | The MCP server for curated repo relationships |
 | [`contracts/ipc.v3b.md`](./contracts/ipc.v3b.md) | Current IPC channel contract (older: v1, v3) |
-| [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md) | SQLite + LanceDB + settings locations and migration |
+| [`contracts/data-layer.v1.md`](./contracts/data-layer.v1.md) | SQLite (catalog + FTS5 + vectors) and settings locations, and the legacy migration |
 | [`docs/agents/`](./docs/agents/) | Project agent-config — context, contracts, work tracker |
 | [`docs/audits/`](./docs/audits/) | Point-in-time ground-truth audit reports |
 | [`docs/archive/`](./docs/archive/) | Superseded planning docs |

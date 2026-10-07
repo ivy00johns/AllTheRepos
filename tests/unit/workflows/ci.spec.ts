@@ -214,10 +214,12 @@ describe("the jobs that were already here", () => {
  * anybody can download: `electron-builder.yml` publishes arm64 and nothing else,
  * so the Intel leg tests no product. It exists for the question this repository
  * has never been able to answer — **does the app run on x86_64 at all?**
- * `pnpm platforms:check` can report that `@lancedb/lancedb` ships no darwin-x64
- * binary; nothing can report what the app does about it, because the vector
- * store fails soft on purpose, semantic search degrades to FTS, and the suite
- * stays green either way.
+ * The native-module half of that question is now answered before the leg runs:
+ * vectors are stored by `sqlite-vec`, which publishes a `darwin-x64` binary, so
+ * `pnpm platforms:check` reports `darwin-x64 would build today` rather than the
+ * silent loss of semantic search this leg used to be the only witness to. What
+ * `platforms:check` still cannot report is what the app *does* on the machine —
+ * that is what the leg is for.
  *
  * Which makes this the kind of coverage that can be deleted without anything
  * going red — drop the second entry from the matrix, or leave a leg's premise

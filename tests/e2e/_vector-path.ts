@@ -10,6 +10,12 @@
  * the vector *store* has to arrange a provider first, or it exercises the FTS
  * half twice and calls it coverage.
  *
+ * The store itself is `services/vector-store.ts` — a `vec0` table inside the
+ * app's own SQLite file, through the `sqlite-vec` extension. A search response
+ * says whether it took part ({@link SemanticSearchStatus}), which is both the
+ * feature these specs assert and the reason a search that lost its vector half
+ * can no longer pass for a complete one.
+ *
  * The vectors the mock returns are deliberately crude: each token of the prompt
  * bumps one bucket, and the result is normalised, so similarity is token
  * overlap. That is enough to prove plumbing — the query's vector reaches the
@@ -24,8 +30,9 @@ import { createServer } from "node:http";
 import type { ConsoleMessage, ElectronApplication, Page } from "@playwright/test";
 
 /**
- * `services/lance.ts` seeds its table with a 768-float row so Arrow has a sample
- * to infer the schema from, and any other length is a dimension error.
+ * `vec0` is declared as `float[768]` and rejects any other width outright
+ * (`Dimension mismatch`), from the model this project defaults to:
+ * `nomic-embed-text` returns 768 floats, and so does `text-embedding-3-small`.
  */
 export const EMBEDDING_DIM = 768;
 
@@ -43,21 +50,56 @@ export interface SearchHit {
   snippet: string | null;
 }
 
-/** Search the catalog over the real IPC, the way the renderer does. */
-export async function searchCatalog(win: Page, q: string): Promise<SearchHit[]> {
+/** Mirrors `SemanticSearchStatus` in `@shared/types`. */
+export type SemanticSearchStatus =
+  | { state: "vectors" }
+  | {
+      state: "off";
+      reason: "requested" | "no-vector-store" | "no-embedding-provider";
+      detail: string | null;
+    };
+
+/** Mirrors `SearchReposResult` in `@shared/types`. */
+export interface SearchResponse {
+  hits: SearchHit[];
+  semantic: SemanticSearchStatus;
+}
+
+/**
+ * Search the catalog over the real IPC, the way the renderer does.
+ *
+ * Returns the whole response rather than the hits alone: `semantic` is the part
+ * that says whether these results came from keywords, vectors, or both, and a
+ * helper that dropped it would leave every spec unable to see the difference
+ * between a search that used the vector store and one that only claimed to.
+ */
+export async function searchCatalog(
+  win: Page,
+  q: string,
+): Promise<SearchResponse> {
   return win.evaluate(async (query) => {
     const atr = (
       window as unknown as {
         atr: {
           catalog: {
-            search(input: { q: string }): Promise<
-              Array<{
+            search(input: { q: string }): Promise<{
+              hits: Array<{
                 repo: { name: string; slug: string };
                 matchKind: "fts" | "vector" | "hybrid";
                 score: number;
                 snippet: string | null;
-              }>
-            >;
+              }>;
+              semantic:
+                | { state: "vectors" }
+                | {
+                    state: "off";
+                    reason:
+                      | "requested"
+                      | "no-vector-store"
+                      | "no-embedding-provider";
+                    detail: string | null;
+                  };
+            }>;
           };
         };
       }

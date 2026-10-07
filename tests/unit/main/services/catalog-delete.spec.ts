@@ -1,11 +1,17 @@
 /**
- * ATR-028 Integration Test (REAL DB, Lance mocked) — `catalogService.deleteRepo`.
+ * ATR-028 Integration Test (REAL DB, vector store mocked) —
+ * `catalogService.deleteRepo`.
  *
  * The service-level contract: deleting a repo removes the catalog row AND
- * clears its LanceDB vector (the audit found `deleteEmbedding` had zero
+ * clears its stored embedding (the audit found `deleteEmbedding` had zero
  * callers, so ghost vectors kept matching in semantic search forever).
  * A vector-cleanup failure must not fail the delete — the row is the
  * source of truth; the vector is best-effort enrichment.
+ *
+ * `deleteEmbedding` is synchronous in `services/vector-store`, so the throwing
+ * case is arranged with `mockImplementationOnce` rather than a rejected
+ * promise: the caller's `try`/`catch` has to survive a *throw*, and a mock that
+ * only ever rejects would leave that untested.
  *
  * !!! REAL better-sqlite3 DB !!! Needs host-ABI natives.
  */
@@ -14,8 +20,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import { isolateDataDir } from "../../../helpers/test-db.js";
 
-const deleteEmbedding = vi.fn().mockResolvedValue(undefined);
-vi.mock("@main/services/lance", () => ({
+const deleteEmbedding = vi.fn<(repoId: number) => void>();
+vi.mock("@main/services/vector-store", () => ({
   deleteEmbedding: (repoId: number) => deleteEmbedding(repoId),
 }));
 
@@ -100,8 +106,10 @@ describe("catalogService.deleteRepo (ATR-028)", () => {
     expect(deleteEmbedding).not.toHaveBeenCalled();
   });
 
-  it("still deletes the row when vector cleanup rejects", async () => {
-    deleteEmbedding.mockRejectedValueOnce(new Error("lance down"));
+  it("still deletes the row when vector cleanup throws", async () => {
+    deleteEmbedding.mockImplementationOnce(() => {
+      throw new Error("vector store down");
+    });
     const { upsertRepo } = await import("@main/db/queries");
     const { getSqlite } = await import("@main/db/client");
     const { catalogService } = await import("@main/services/catalog");
