@@ -149,7 +149,10 @@ jobs:
   # with an embedding provider arranged on the runner, which is what puts
   # `lance.ts`'s own `catch` under test rather than one of the two around it.
   # Delete that catch and this leg goes red, the only place in this repository
-  # that would notice.
+  # that would notice. `tests/e2e/semantic-search.spec.ts` is the other side of
+  # the same seam: it scans the seeded repos with a provider on the runner and
+  # asserts a search comes back with a vector contribution, which is the only
+  # test where a stored embedding and a query meet.
   #
   # `macos-13` was the Intel label this leg was first asked for, and it no longer
   # exists: GitHub retired the macOS 13 images on 2025-12-04 (the last x86_64

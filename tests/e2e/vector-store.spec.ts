@@ -44,42 +44,27 @@
  * branches below run on every run, one per leg.
  */
 
-import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import {
-  expect,
-  test,
-  type ConsoleMessage,
-  type ElectronApplication,
-  type Page,
-} from "@playwright/test";
+import { expect, test, type ElectronApplication } from "@playwright/test";
 
+import {
+  collectMainLogs,
+  EMBEDDING_UNAVAILABLE,
+  NO_PROVIDER_URL,
+  pointAtProvider,
+  searchCatalog,
+  startMockEmbeddings,
+  VECTOR_PATH_ERROR,
+} from "./_vector-path";
 import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
 
-/**
- * `services/lance.ts` seeds its table with a 768-float row to give Arrow a
- * sample, so a query vector of any other length is a dimension error — on the
- * arm64 leg, where the binding is real and the query is actually run.
- */
-const EMBEDDING_DIM = 768;
-
 /** What `_global-setup.ts` seeds, which is the whole catalog every launch sees. */
 const SEEDED_REPO_NAMES = ["Demo CLI", "Demo Library", "Demo Web"];
-
-/** The vector path's own failure log, and the warning that says it wasn't reached. */
-const VECTOR_PATH_ERROR = "[backend] vector path error";
-const EMBEDDING_UNAVAILABLE = "embedding unavailable; FTS-only";
-
-/**
- * Nothing listens on port 1 — a privileged port with no service behind it — so
- * this is what "the machine has no Ollama" looks like from `ollamaEmbed`.
- */
-const NO_PROVIDER_URL = "http://127.0.0.1:1";
 
 /**
  * Whether the app's runtime can load the vector store, and on what architecture
@@ -111,117 +96,6 @@ async function loadVectorStore(
       };
     }
   });
-}
-
-/**
- * Main-process console output, collected for the length of one launch. The app's
- * own logging is the only place the vector path reports on itself, and both
- * lines this spec looks for are written there.
- */
-function collectMainLogs(app: ElectronApplication): string[] {
-  const lines: string[] = [];
-  app.on("console", (message: ConsoleMessage) => lines.push(message.text()));
-  return lines;
-}
-
-/**
- * Point the app's embedding provider at `url`, the way a person would. Returns
- * what the setting said before and after, so a caller can tell a write from a
- * no-op rather than assuming the app took it.
- */
-async function pointAtProvider(
-  win: Page,
-  url: string,
-): Promise<{ before: string; after: string }> {
-  return win.evaluate(async (baseUrl) => {
-    const atr = (
-      window as unknown as {
-        atr: {
-          settings: {
-            get(): Promise<{ ollamaBaseUrl: string }>;
-            update(patch: {
-              ollamaBaseUrl: string;
-            }): Promise<{ ollamaBaseUrl: string }>;
-          };
-        };
-      }
-    ).atr;
-    const before = await atr.settings.get();
-    const updated = await atr.settings.update({ ollamaBaseUrl: baseUrl });
-    return { before: before.ollamaBaseUrl, after: updated.ollamaBaseUrl };
-  }, url);
-}
-
-/** Search the catalog over the real IPC, the way the renderer does. */
-async function searchCatalog(
-  win: Page,
-  q: string,
-): Promise<Array<{ repo: { name: string }; matchKind: string }>> {
-  return win.evaluate(async (query) => {
-    const atr = (
-      window as unknown as {
-        atr: {
-          catalog: {
-            search(input: { q: string }): Promise<
-              Array<{ repo: { name: string }; matchKind: string }>
-            >;
-          };
-        };
-      }
-    ).atr;
-    return atr.catalog.search({ q: query });
-  }, q);
-}
-
-/**
- * A stand-in for Ollama, answering the one request `ollamaEmbed` makes:
- * `POST /api/embeddings` → `{ embedding: number[] }`. It exists to make
- * `embed()` succeed so the vector path is entered — nothing is asserted about
- * the vector it returns, only that the app asked for one.
- */
-async function startMockEmbeddings(): Promise<{
-  url: string;
-  requests: () => number;
-  stop: () => Promise<void>;
-}> {
-  let requests = 0;
-  const server = createServer((req, res) => {
-    if (req.method !== "POST" || !req.url?.startsWith("/api/embeddings")) {
-      res.writeHead(404).end();
-      return;
-    }
-    requests += 1;
-    // Drain the body before answering: the app writes `{model, prompt}`, and a
-    // socket closed under it would surface as a provider failure instead.
-    req.resume();
-    req.on("end", () => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ embedding: vector() }));
-    });
-  });
-
-  await new Promise<void>((listening) =>
-    server.listen(0, "127.0.0.1", () => listening()),
-  );
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("[vector-store] the mock embedding server has no port");
-  }
-
-  return {
-    url: `http://127.0.0.1:${address.port}`,
-    requests: () => requests,
-    stop: () =>
-      new Promise<void>((closed) => {
-        server.closeAllConnections();
-        server.close(() => closed());
-      }),
-  };
-}
-
-/** A deterministic 768-float vector — the shape, not the meaning, is the point. */
-function vector(): number[] {
-  return Array.from({ length: EMBEDDING_DIM }, (_, i) => ((i % 13) - 6) / 6);
 }
 
 test.describe("the vector store, and what the app does without it", () => {

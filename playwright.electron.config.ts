@@ -34,6 +34,8 @@ export default defineConfig({
   // vector-store.spec.ts — the LanceDB binding and what the app does without
   // one, which is the whole subject of the Intel leg of the CI job: it asserts
   // an arch-dependent expectation in both directions, so it runs on both legs.
+  // semantic-search.spec.ts — a scan storing an embedding and a search coming
+  // back ranked with it, which is the only place the two halves meet.
   // Everything else shares the seeded template profile built in global setup
   // (see tests/e2e/_global-setup.ts).
   // packaged-update-check.spec.ts also matches, but skips itself unless
@@ -43,7 +45,7 @@ export default defineConfig({
   // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
   // version is below the feed by construction.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|packaged-update-check)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
