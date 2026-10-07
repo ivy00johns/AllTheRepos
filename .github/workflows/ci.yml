@@ -83,6 +83,14 @@ jobs:
       # Pure Node, no network, so it belongs in the fast job.
       - name: The first-launch instructions, and the advice they must not give
         run: pnpm first-launch:check
+      # The front door must not name a release version. `README.md` said "The
+      # current release is `v0.1.6`" for two releases after that stopped being
+      # true, and the link check cannot see it: `.../alltherepos-releases/releases`
+      # resolved the whole time, next to prose naming a superseded version. The
+      # number belongs to the feed and the badge, which are read from it, and the
+      # README links `.../releases/latest`, which redirects. Pure Node, no network.
+      - name: The front door, and the versions it must not name
+        run: pnpm versions:check
       # The unit suite writes its own totals to a JSON report and the badge is
       # drawn from them, so the number in the README is always the number this
       # run just produced. It went stale by hand three times before this.
