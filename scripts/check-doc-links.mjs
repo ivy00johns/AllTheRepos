@@ -139,11 +139,32 @@ const API_ROOT = "https://api.github.com";
  * excuse, and every link is judged on its own.
  */
 export function pendingReleaseUrl(root) {
+  const version = versionBeingReleased(root);
+  if (version === null) return null;
+  try {
+    return `https://github.com/${readReleasesRepo(root)}/releases/tag/v${version}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The version `package.json` says is being released, or null when it says none.
+ *
+ * Read on its own as well as through {@link pendingReleaseUrl} because a release
+ * leaves **two** links pointing at a version that does not exist yet. The second
+ * is the changelog's own `[Unreleased]: …/compare/v<version>...HEAD`, which
+ * `scripts/next-release.mjs` writes when it prepares a release. Excusing only the
+ * release page meant that *preparing* one — the version and the section, and
+ * nothing else — left this check red for a state the repository is supposed to be
+ * in, which is how it was found: on the bump that added v0.1.8 to the changelog.
+ */
+export function versionBeingReleased(root) {
   try {
     const version = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf8"),
     ).version;
-    return `https://github.com/${readReleasesRepo(root)}/releases/tag/v${version}`;
+    return version ?? null;
   } catch {
     return null;
   }
@@ -283,7 +304,10 @@ export function githubApiPath(url) {
  *           {action: "check", via: "api" | "http", target: string,
  *            repoApi: string | null}}
  */
-export function planFor(url, { pendingRelease = null } = {}) {
+export function planFor(
+  url,
+  { pendingRelease = null, pendingVersion = null } = {},
+) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -300,6 +324,23 @@ export function planFor(url, { pendingRelease = null } = {}) {
       action: "skip",
       reason:
         "the version being released — its page appears when the release workflow publishes it, and that workflow verifies the publish",
+    };
+  }
+
+  // The same excuse in the other shape: the changelog's compare against the
+  // version being released, which 404s until that tag exists. Matched by shape
+  // rather than by exact URL because its base is the *source* repository, which
+  // this script otherwise never needs to name — and it still has to be the
+  // version being released, so a compare against any other one is checked.
+  if (
+    pendingVersion &&
+    GITHUB_HOSTS.has(parsed.hostname) &&
+    parsed.pathname.endsWith(`/compare/v${pendingVersion}...HEAD`)
+  ) {
+    return {
+      action: "skip",
+      reason:
+        "the compare for the version being released — it resolves when the release workflow pushes the tag",
     };
   }
 
@@ -400,7 +441,10 @@ async function request(target, options) {
  * exercise the private-repository branch without a private repository.
  */
 export async function checkLink(link, options) {
-  const plan = planFor(link.url, { pendingRelease: options.pendingRelease });
+  const plan = planFor(link.url, {
+    pendingRelease: options.pendingRelease,
+    pendingVersion: options.pendingVersion,
+  });
   if (plan.action === "skip") {
     return { ...link, state: "skipped", reason: plan.reason };
   }
@@ -512,6 +556,7 @@ export async function run({
   token = resolveToken(),
   timeoutMs = TIMEOUT_MS,
   pendingRelease = pendingReleaseUrl(root),
+  pendingVersion = versionBeingReleased(root),
   verbose = false,
   log = console.log,
   error = console.error,
@@ -522,6 +567,7 @@ export async function run({
     token,
     timeoutMs,
     pendingRelease,
+    pendingVersion,
   });
   const local = collectLocalLinks(root, files).map((link) => ({
     ...link,

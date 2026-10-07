@@ -65,7 +65,10 @@ interface CheckDocLinksModule {
     line: number;
   }[];
   githubApiPath(url: string | URL): string | null;
-  planFor(url: string, options?: { pendingRelease?: string | null }): Plan;
+  planFor(
+    url: string,
+    options?: { pendingRelease?: string | null; pendingVersion?: string | null },
+  ): Plan;
   verdictFor(input: {
     via: "api" | "http";
     status: number;
@@ -333,6 +336,33 @@ describe("planFor", () => {
     // Without a pending version to excuse, it is judged like any other link —
     // which is what happens on the next run after a bump moves it on.
     expect(links.planFor(pending)).toMatchObject({ action: "check", via: "api" });
+  });
+
+  test("excuses the changelog's compare against the version being released, and only that", () => {
+    // A release leaves *two* links pointing at a version that does not exist
+    // yet: the release page above, and the changelog's own `[Unreleased]`
+    // compare, which `scripts/next-release.mjs` rewrites on the bump commit.
+    // Excusing only the first left this check red for a release that had been
+    // prepared and not yet pushed — which is exactly what the repository's own
+    // tooling asks a person to do, and how this was found.
+    const pending =
+      "https://github.com/ivy00johns/AllTheRepos/compare/v0.1.8...HEAD";
+
+    expect(links.planFor(pending, { pendingVersion: "0.1.8" })).toEqual({
+      action: "skip",
+      reason:
+        "the compare for the version being released — it resolves when the release workflow pushes the tag",
+    });
+    // Still only the version being released: a compare against an older one is
+    // judged, so the excuse cannot swallow a genuinely dead link.
+    expect(
+      links.planFor(
+        "https://github.com/ivy00johns/AllTheRepos/compare/v0.1.7...HEAD",
+        { pendingVersion: "0.1.8" },
+      ),
+    ).toMatchObject({ action: "check" });
+    // And with nothing being released, it is judged like any other link.
+    expect(links.planFor(pending)).toMatchObject({ action: "check" });
   });
 
   test("checks GitHub through the API, and remembers the repository root", () => {
