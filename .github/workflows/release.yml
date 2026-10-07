@@ -31,15 +31,27 @@ on:
   push:
     tags:
       - "v*"
+  # The same job a tag push runs, rehearsed every week against `main`.
+  #
+  # A release pipeline is otherwise only ever exercised *by releasing*, so a break
+  # in it — the tag/version guard, the notes step, electron-builder's config, the
+  # publish block — is found at the worst possible moment: with a version already
+  # tagged and pushed. This finds it on a quiet Monday instead. What it builds
+  # cannot become visible; see the gate on the release job below, where only a tag
+  # push can publish.
+  schedule:
+    # Mondays, 14:00 UTC — after the link check and the feed check of the same
+    # morning, so a break they can see is reported before this spends a macOS
+    # runner on it. GitHub disables a scheduled workflow after 60 days without
+    # repository activity, and that is the one way this goes quietly idle.
+    - cron: "0 14 * * 1"
   # On demand, for the two things that otherwise never run: `drill`, which proves
   # the draft cleanup against a real draft, and the release pipeline itself,
-  # through the `rehearse` input below — which builds the same artifacts under a
-  # scratch version and publishes none of them.
+  # through the `rehearse` input below.
   #
-  # The updater feed check used to be a third job here. It has its own workflow
-  # now (`.github/workflows/updater-feed.yml`), because it also has to run on a
-  # schedule: a feed can rot without a commit in this repository, and a tag-push
-  # trigger cannot see that.
+  # The updater feed check used to be a job here. It has its own workflow now
+  # (`.github/workflows/updater-feed.yml`), because it needs a clock more than it
+  # needs this pipeline.
   workflow_dispatch:
     inputs:
       rehearse:
@@ -62,20 +74,24 @@ concurrency:
 
 jobs:
   release:
-    name: ${{ github.event.inputs.rehearse == 'true' && 'rehearse into a scratch channel' || 'build and publish' }}
-    # A tag push is the only thing that publishes. A dispatch reaches this job
-    # only through `rehearse`, which builds the same artifacts under a scratch
-    # version and leaves the release a **draft** — and a draft is invisible to
-    # `releases/latest`, which is the only place an update check looks.
+    name: ${{ github.event_name == 'push' && 'build and publish' || 'rehearse into a scratch channel' }}
+    # A tag push is the only thing that publishes. The two other ways in — a
+    # dispatch with `rehearse`, and the weekly schedule — both build the same
+    # artifacts under a scratch version and leave the release a **draft**, and a
+    # draft is invisible to `releases/latest`, the only place an update check
+    # looks.
     #
-    # `github.event.inputs` rather than the `inputs` context on purpose: on a
-    # push there are no inputs at all, and an absent value is exactly what this
-    # needs to see.
-    if: github.event_name == 'push' || github.event.inputs.rehearse == 'true'
+    # `github.event.inputs` rather than the `inputs` context on purpose: on a push
+    # or on a schedule there are no inputs at all, and an absent value is exactly
+    # what this needs to see.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.rehearse == 'true'
     runs-on: macos-14
     env:
-      # Reads as `false` on a tag push, where there is no input at all.
-      REHEARSE: ${{ github.event.inputs.rehearse == 'true' }}
+      # Not-a-push means a rehearsal, and that direction is the deliberate one:
+      # `--draft=false` is reachable only from the push branch of the step that
+      # sets it, so a trigger added to this workflow later rehearses by accident
+      # rather than publishing by accident.
+      REHEARSE: ${{ github.event_name != 'push' }}
       # Valid semver, and deliberately *lower* than anything released. Even in
       # the failure this whole design exists to avoid — a scratch release
       # escaping into `releases/latest` — a 0.1.x install would read it as older

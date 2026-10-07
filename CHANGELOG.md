@@ -28,6 +28,16 @@ source of truth for the current version.
   check went red on its own first dispatch for exactly that reason, and a gate that cries wolf is
   one people stop reading. A missing repo, or a crash, still fails: that is the checker rather
   than the world.
+- A release is rehearsed every week. The whole pipeline — the tag/version guard, typecheck, the
+  unit suite, the native rebuild, packaging, the upload, `release:verify` against its own draft,
+  and the notes and body it would attach — now runs against `main` on a schedule (Mondays,
+  14:00 UTC) as well as on demand, under a scratch version, leaving what it builds a draft that
+  the same run deletes. A release pipeline is otherwise only ever exercised *by releasing*, which
+  is the one moment a break in the guard, the notes step or electron-builder's configuration
+  costs a version that is already tagged and pushed; now it turns up on a quiet Monday instead.
+  Only a tag push can publish — inside that job "rehearse" means only "not a push", so a trigger
+  added to the workflow later rehearses by accident rather than publishing by accident. It costs
+  about five macOS runner minutes a week.
 
 ## [0.1.6] - 2026-10-07
 

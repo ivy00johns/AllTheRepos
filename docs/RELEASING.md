@@ -139,20 +139,29 @@ everything a plain dispatch of that workflow can do.
 The whole pipeline can be run without publishing anything:
 
 ```bash
-gh workflow run release.yml -f rehearse=true
+gh workflow run release.yml -f rehearse=true   # by hand, now
 ```
 
-That runs the same job a tag push runs — the tag/version guard, typecheck, the unit suite, the
+It runs the same job a tag push runs — the tag/version guard, typecheck, the unit suite, the
 native rebuild, packaging, the upload, `release:verify` against its own draft, and the notes and
 release body a real release would attach — with the version, the tag and the draft flag settled
 differently. The build is stamped `0.0.0-rehearse.<run id>` and uploaded under that tag, the
 release stays a **draft**, and the run deletes the draft when it is finished, so a botched
 rehearsal leaves no more trace than a clean one.
 
-Two reasons that is safe. `releases/latest` skips drafts, so nothing a rehearsal creates can
-reach the update feed at all; and `0.0.0-rehearse.<run id>` sorts below every released `0.1.x`,
+And it runs itself: **every Monday at 14:00 UTC, against `main`**. That is the point of it. A
+release pipeline is otherwise only ever exercised *by releasing*, which is the one moment a break
+in the guard, the notes step or electron-builder's configuration costs a version that is already
+tagged and pushed. Five macOS runner minutes a week is a cheap price for finding that on a quiet
+Monday instead. (GitHub disables a scheduled workflow after 60 days without repository activity,
+which is the one way this goes quietly idle.)
+
+Three reasons that is safe. `releases/latest` skips drafts, so nothing a rehearsal creates can
+reach the update feed at all; `0.0.0-rehearse.<run id>` sorts below every released `0.1.x`,
 because semver compares the version before it looks at any pre-release tag — so even a scratch
-release that somehow escaped could not be offered to an install as an update.
+release that somehow escaped could not be offered to an install as an update; and only a tag push
+can publish, because inside that job "rehearse" means only "not a push", so a trigger added to
+this workflow later rehearses by accident rather than publishing by accident.
 
 It is the *same* job rather than a copy of it on purpose. A rehearsal that ran its own steps
 could drift from the ones that ship, which is the thing it exists to prevent.

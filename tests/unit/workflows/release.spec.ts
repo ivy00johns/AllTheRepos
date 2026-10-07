@@ -85,6 +85,12 @@ const releaseJob = jobBlock("release");
 const SETTLE_STEP = "Settle the version, the tag, and whether this publishes";
 const settle = stepBlock(SETTLE_STEP);
 
+/** The `on:` block, which ends where the top-level `permissions:` begins. */
+const on = workflow.slice(
+  workflow.indexOf("\non:"),
+  workflow.indexOf("\npermissions:"),
+);
+
 describe("the draft cleanup step", () => {
   test("exists, and runs only when the build failed or was cancelled", () => {
     expect(cleanup).toContain(`- name: ${CLEANUP_STEP}`);
@@ -124,11 +130,12 @@ describe("the draft cleanup step", () => {
 describe("the workflow can prove the cleanup on demand", () => {
   test("a plain dispatch cannot even reach the release job", () => {
     // The `rehearse` input is the only door from a dispatch into that job, and
-    // what it does once inside is a rehearsal — see the block below.
+    // what it does once inside is a rehearsal — see the block below. The weekly
+    // schedule is the third way in, and it rehearses too.
     expect(workflow).toMatch(/^  workflow_dispatch:/m);
     expect(workflow).toMatch(/^      rehearse:/m);
-    expect(jobBlock("release")).toMatch(
-      /if: github\.event_name == 'push' \|\| github\.event\.inputs\.rehearse == 'true'/,
+    expect(releaseJob).toMatch(
+      /if: github\.event_name == 'push' \|\| github\.event_name == 'schedule' \|\| github\.event\.inputs\.rehearse == 'true'/,
     );
   });
 
@@ -203,6 +210,33 @@ describe("the workflow can prove the cleanup on demand", () => {
 
 describe("rehearsing a release without publishing one", () => {
   const publish = stepBlock(PUBLISH_STEP);
+
+  test("runs on a weekly clock, so a break is found before the next tag is", () => {
+    // A pipeline is otherwise only exercised by releasing, which is the one time
+    // a failure costs a version that is already tagged and pushed.
+    expect(on).toMatch(/- cron: "0 14 \* \* 1"/);
+    expect(releaseJob).toMatch(/github\.event_name == 'schedule'/);
+  });
+
+  test("only a tag push can publish, whatever else may trigger this", () => {
+    // The fail-safe direction, and the whole reason a schedule here is safe:
+    // inside this job "rehearse" means only "not a push", and `--draft=false` is
+    // reachable exclusively from the push branch of the step that sets it. A
+    // trigger added to this workflow later rehearses by accident rather than
+    // publishing by accident.
+    expect(releaseJob).toContain("REHEARSE: ${{ github.event_name != 'push' }}");
+  });
+
+  test("a scheduled rehearsal cleans up after itself like a dispatched one", () => {
+    // The schedule is a rehearsal that started on a clock, so everything keyed to
+    // being a rehearsal has to key on that rather than on the event name — or a
+    // weekly run would leave a scratch release behind every Monday.
+    const rehearsalCleanup = stepBlock(
+      "Delete the scratch release a rehearsal created",
+    );
+    expect(rehearsalCleanup).toMatch(/REHEARSE/);
+    expect(rehearsalCleanup).not.toContain("workflow_dispatch");
+  });
 
   test("the draft flag is the one thing that decides whether anything shows", () => {
     // One flag, set in one place, one value per branch: `true` for a rehearsal,

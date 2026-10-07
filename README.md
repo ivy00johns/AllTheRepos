@@ -256,6 +256,8 @@ git tag v0.1.3 && git push origin v0.1.3
 
 Pushing a `v*` tag runs [`.github/workflows/release.yml`](./.github/workflows/release.yml), which typechecks and tests the tagged commit, packages the DMG and the ZIP, uploads them to a **draft** in the public releases-only repo, verifies the draft, attaches the changelog, publishes it, and verifies it again in the state users actually see.
 
+That same pipeline can be run **without releasing anything** — `gh workflow run release.yml -f rehearse=true`, and every Monday at 14:00 UTC against `main`. Both build the real artifacts under a scratch version (`0.0.0-rehearse.<run>`) and delete what they make, leaving nothing visible. It runs weekly because a pipeline is otherwise only ever exercised by releasing, which is the one moment a break in the guard, the notes step or the packaging costs a version that is already tagged and pushed.
+
 The artifacts deliberately do **not** land in this repository. They go to [`ivy00johns/alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases) — the repo the app's updater reads — so anyone who installs a build can check for updates anonymously while the source stays private. Two things about those builds:
 
 - They are **ad-hoc signed and not notarised**. Download the DMG, then right-click the app → **Open** once; after that it launches normally.
