@@ -33,9 +33,19 @@
  *   node scripts/check-updater-feed.mjs
  *   node scripts/check-updater-feed.mjs --repo owner/name
  *
- * Exit codes: 0 — the feed is complete and coherent · 1 — it is not, and every
- * reason is printed · 2 — the check could not run (no network, or GitHub refused
- * the anonymous read), which says nothing about the feed.
+ * Exit codes, and the difference between the last two is the point:
+ *
+ *   0 — the feed is complete and coherent.
+ *   1 — it is not, and every reason is printed. A verdict.
+ *   2 — the check could not run, for a reason that is **not about the feed**: no
+ *       network, or GitHub refusing the anonymous read. The workflow reports
+ *       this and does **not** fail on it, because an unauthenticated address gets
+ *       60 requests an hour and a runner shares its address with every other job
+ *       on that machine — a red run there would be somebody else's. The same
+ *       bargain `pnpm links:check` strikes with a bot wall.
+ *   3 — the check could not run because it was asked to do something impossible:
+ *       no repo to read, or it crashed. That is a broken checker, not a broken
+ *       feed and not somebody else's rate limit, so it fails loudly.
  */
 
 import { createHash } from "node:crypto";
@@ -220,7 +230,7 @@ export async function runFeedCheck({
 } = {}) {
   if (!repo) {
     error("[check-updater-feed] no repo to check — pass --repo or set RELEASES_REPO");
-    return 2;
+    return 3;
   }
 
   log(
@@ -352,7 +362,9 @@ if (isMainModule()) {
   runFeedCheck({ repo })
     .then((code) => process.exit(code))
     .catch((thrown) => {
+      // Not 2: reaching here means the checker itself threw, which is a fault in
+      // the checker rather than a rate limit or a feed that has rotted.
       console.error(`[check-updater-feed] ${thrown?.message ?? thrown}`);
-      process.exit(2);
+      process.exit(3);
     });
 }

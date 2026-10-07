@@ -175,8 +175,12 @@ ever been published.
 So `.github/workflows/updater-feed.yml` performs that read — `GET /releases/latest` with **no
 credential at all**, the live `latest-mac.yml`, and the archive it names, downloaded and hashed.
 Exit `0` means the feed is usable, `1` means it is broken (every reason printed), and `2` means
-the check could not run — GitHub rate-limits anonymous reads to 60 an hour per address, so a
-refusal says nothing about the feed.
+the check could not run for a reason that is **not about the feed** — GitHub allows an
+unauthenticated address 60 API requests an hour, and a runner shares its address with every
+other job on the machine. The workflow reports `2` and does **not** fail on it, the way the link
+check treats a bot wall: a red run there would be somebody else's job, and a gate that cries
+wolf is one people stop reading. `3` — no repo to read, or a crash — does fail, because that is
+the checker being wrong rather than the world being unavailable.
 
 It has its own workflow rather than a job in `release.yml`, for the reason `pnpm links:check`
 left `ci.yml`: it is a gate that has to run when **nothing here changed**, and a feed rots

@@ -22,7 +22,12 @@ source of truth for the current version.
   one job that needs nothing built. It now runs weekly (Mondays, 13:30 UTC, half an hour behind
   the link check's own sweep) and on any change to what it reads: the check itself, the manifest
   parser and repo lookup it reuses, and the `electron-builder.yml` publish block that is the
-  feed's address. Running it by hand is `gh workflow run updater-feed.yml`.
+  feed's address. Running it by hand is `gh workflow run updater-feed.yml`. A rate limit or a lost
+  network is reported and does not fail the run, because a runner shares its address with every
+  other job on the machine and an unauthenticated address gets 60 API requests an hour — the
+  check went red on its own first dispatch for exactly that reason, and a gate that cries wolf is
+  one people stop reading. A missing repo, or a crash, still fails: that is the checker rather
+  than the world.
 
 ## [0.1.6] - 2026-10-07
 

@@ -72,7 +72,7 @@ const INPUTS = [
 describe("the updater feed workflow", () => {
   test("reads the live feed, and nothing else needs building for it", () => {
     expect(workflow).toContain("name: Updater feed");
-    expect(body).toContain("run: node scripts/check-updater-feed.mjs");
+    expect(body).toContain("node scripts/check-updater-feed.mjs");
     expect(body).toContain("runs-on: ubuntu-latest");
     // Nothing here builds or installs anything: the check reads a release that
     // already exists.
@@ -104,6 +104,21 @@ describe("the updater feed workflow", () => {
       const occurrences = on.split(input).length - 1;
       expect(occurrences, `${input} (push and pull_request)`).toBe(2);
     }
+  });
+
+  test("reports a rate limit instead of failing on somebody else's", () => {
+    // Exit 2 is "could not run": an unauthenticated address gets 60 API requests
+    // an hour and a runner shares its address with every other job on the
+    // machine, so the allowance is routinely spent by somebody else. The check
+    // itself contains one such request, and this step still went red on its very
+    // first dispatch for that reason — which is how a gate stops being trusted.
+    //
+    // A warning, then, and only for 2. `exit "$status"` passes everything else
+    // through: 1 is the feed being wrong, and 3 is this checker being wrong.
+    expect(body).toContain('if [ "$status" = "2" ]');
+    expect(body).toContain("::warning::");
+    expect(body).toContain('exit "$status"');
+    expect(body).not.toMatch(/status.*=.*"1"/);
   });
 
   test("carries no credential at all, because an install has none", () => {

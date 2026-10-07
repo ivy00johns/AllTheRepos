@@ -428,11 +428,21 @@ describe("runFeedCheck", () => {
     expect(output).toContain("could not reach GitHub");
   });
 
-  test("refuses to guess which repo to read", async () => {
+  test("refuses to guess which repo to read, as a fault and not as a rate limit", async () => {
     const { status, output } = await run({}, { repo: "" });
 
-    expect(status).toBe(2);
+    // 3, not 2: the workflow reports 2 and fails on 3. Being handed no repo is
+    // this checker being broken — nobody else will notice that if it passes.
+    expect(status).toBe(3);
     expect(output).toContain("no repo to check");
+  });
+
+  test("keeps the two kinds of could-not-run apart", async () => {
+    // The distinction the workflow's tolerance depends on: an environment that
+    // refuses (2) is somebody else's problem and must not paint the run red, a
+    // checker that cannot be used as asked (3) is ours and must.
+    expect((await run({ latestStatus: 403 })).status).toBe(2);
+    expect((await run({}, { repo: "" })).status).toBe(3);
   });
 });
 

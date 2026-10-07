@@ -71,7 +71,26 @@ jobs:
         with:
           node-version: 22
       # No `pnpm install`: the checker imports nothing but Node and two files
-      # from this repository. No `GH_TOKEN` either, anywhere above — the read has
-      # to be the one an install with no account can make.
+      # from this repository. No `GH_TOKEN` either, anywhere in this file — the
+      # read has to be the one an install with no account can make.
       - name: Read the feed the way the app does
-        run: node scripts/check-updater-feed.mjs
+        run: |
+          set +e
+          node scripts/check-updater-feed.mjs
+          status=$?
+          # 2 is "could not run", and it is deliberately not a failure: an
+          # unauthenticated address gets 60 API requests an hour, and a runner
+          # shares its address with every other job on the machine, so the
+          # allowance is regularly spent by somebody else's workflow. This step
+          # was red on its first dispatch for exactly that reason, which is how a
+          # gate stops being trusted. It is reported instead — the same bargain
+          # the link check strikes with a bot wall and a rate limit.
+          #
+          # 1 and 3 still fail the run. 1 is the feed being wrong, which is the
+          # whole point; 3 is this checker being wrong, which nobody else will
+          # notice if it is allowed to pass.
+          if [ "$status" = "2" ]; then
+            echo "::warning::the feed check could not run — a rate limit or no network says nothing about the feed, so this run does not fail on it"
+            exit 0
+          fi
+          exit "$status"
