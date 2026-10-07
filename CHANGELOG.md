@@ -11,6 +11,8 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-07
+
 ### Added
 
 - The release workflow deletes the draft it leaves behind when a run fails partway.
@@ -34,6 +36,7 @@ source of truth for the current version.
 
 ### Fixed
 
+- repair the dangling 0.1.1 changelog link, and clean up the draft a failed release leaves
 - The changelog's link for the one version that was never published points somewhere
   real again. `[0.1.1]` aimed at a release tag that does not exist, because the
   release was deleted along with its tag; it now compares against the release commit
@@ -214,7 +217,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
