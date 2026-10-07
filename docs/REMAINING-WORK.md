@@ -177,7 +177,11 @@ not by running a documented command on one machine:
   mock embedding provider on the runner, so the vector path is entered and `lance.ts`'s own
   `catch` is what gets exercised. It is the innermost of three, so nothing else in this
   repository would notice its removal; built with the catch deleted and the app reporting
-  `x86_64`, that spec goes red on `[backend] vector path error`.
+  `x86_64`, that spec goes red on `[backend] vector path error`. **Green on both legs**
+  (CI run `37683034472`): 15 tests, 10 passed / 5 skipped, 27.3s of suite on `macos-14` and
+  1.3m on `macos-15-intel` — the binding probe 425ms there against 2.3s on Intel, where it is
+  answering no. Neither leg skips it: the expectations are architecture-dependent, which is
+  the difference between a leg that checks Intel and a leg that runs on it.
 
 **Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
 first-class part of the app, and then the app was handed the pen as well:
