@@ -25,6 +25,17 @@
  * from a 404 on a deleted page, so one extra request asks whether the repository
  * itself is visible; if it is not, the link is `unverified` rather than dead.
  *
+ * One URL is done differently. The `chore: release vX` commit is pushed before
+ * the artifacts are — that is the whole point of tagging — so for the minutes
+ * between the bump and the publish, the changelog's newest version link answers
+ * 404. That is not rot, it is a release in flight, and failing on it would make
+ * every release commit red. It is excused **by exact URL**: the version
+ * `package.json` names, at the repo releases are published to. Nothing else is.
+ * The moment the next bump moves `package.json` on, that version's link is an
+ * ordinary one again — so a release that never published is still caught, just
+ * on the next run instead of this one. Until then the release workflow owns that
+ * check, and it fails the job if the release never appears (`release:verify`).
+ *
  * Text extraction, not a Markdown parser: the repo has no Markdown dependency
  * and does not need one to find `https://`. URLs inside code fences are
  * therefore checked too — a URL in a fence is still a URL a reader may paste —
@@ -45,6 +56,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { readReleasesRepo } from "./release-config.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -101,6 +114,24 @@ export const NOT_A_LINK = new Map([
 const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
 
 const API_ROOT = "https://api.github.com";
+
+/**
+ * The release page for the version in `package.json`, which does not exist yet.
+ *
+ * Returns null when the repo has no `package.json` or no publish config, which
+ * is the case in the tests' throwaway checkouts — there is then nothing to
+ * excuse, and every link is judged on its own.
+ */
+export function pendingReleaseUrl(root) {
+  try {
+    const version = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf8"),
+    ).version;
+    return `https://github.com/${readReleasesRepo(root)}/releases/tag/v${version}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Every `http(s)` URL in one Markdown file, with the line it came from.
@@ -165,7 +196,7 @@ export function githubApiPath(url) {
  *           {action: "check", via: "api" | "http", target: string,
  *            repoApi: string | null}}
  */
-export function planFor(url) {
+export function planFor(url, { pendingRelease = null } = {}) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -175,6 +206,14 @@ export function planFor(url) {
 
   if (LOCAL_HOSTS.has(parsed.hostname)) {
     return { action: "skip", reason: "answers only on the reading machine" };
+  }
+
+  if (pendingRelease && url === pendingRelease) {
+    return {
+      action: "skip",
+      reason:
+        "the version being released — its page appears when the release workflow publishes it, and that workflow verifies the publish",
+    };
   }
 
   const illustration = NOT_A_LINK.get(url);
@@ -266,7 +305,7 @@ async function request(target, options) {
  * exercise the private-repository branch without a private repository.
  */
 export async function checkLink(link, options) {
-  const plan = planFor(link.url);
+  const plan = planFor(link.url, { pendingRelease: options.pendingRelease });
   if (plan.action === "skip") {
     return { ...link, state: "skipped", reason: plan.reason };
   }
@@ -367,12 +406,18 @@ export async function run({
   fetchImpl = globalThis.fetch,
   token = resolveToken(),
   timeoutMs = TIMEOUT_MS,
+  pendingRelease = pendingReleaseUrl(root),
   verbose = false,
   log = console.log,
   error = console.error,
 } = {}) {
   const links = collectLinks(root, files);
-  const results = await checkLinks(links, { fetchImpl, token, timeoutMs });
+  const results = await checkLinks(links, {
+    fetchImpl,
+    token,
+    timeoutMs,
+    pendingRelease,
+  });
 
   const ok = results.filter((result) => result.state === "ok");
   const dead = results.filter((result) => result.state === "dead");

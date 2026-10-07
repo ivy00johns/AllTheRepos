@@ -54,7 +54,7 @@ type Plan =
 interface CheckDocLinksModule {
   extractLinks(markdown: string): { url: string; line: number }[];
   githubApiPath(url: string | URL): string | null;
-  planFor(url: string): Plan;
+  planFor(url: string, options?: { pendingRelease?: string | null }): Plan;
   verdictFor(input: {
     via: "api" | "http";
     status: number;
@@ -70,6 +70,7 @@ interface CheckDocLinksModule {
     options: Record<string, unknown>,
   ): Promise<Result[]>;
   collectLinks(root: string, files?: string[]): Link[];
+  pendingReleaseUrl(root: string): string | null;
   run(options: Record<string, unknown>): Promise<number>;
   LOCAL_HOSTS: Set<string>;
   NOT_A_LINK: Map<string, string>;
@@ -193,6 +194,29 @@ describe("planFor", () => {
     // The placeholder at the top of the list is the one that would otherwise be
     // the check's first false positive.
     expect(links.planFor("https://github.com/user/repo.git").action).toBe("skip");
+  });
+
+  test("excuses the release page of the version being released, and only that URL", () => {
+    // The bump commit lands minutes before the artifacts do, so the newest
+    // version link 404s in that window. It is excused by exact URL, so a 404 on
+    // any *other* version is still a dead link.
+    const pending =
+      "https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.5";
+
+    expect(links.planFor(pending, { pendingRelease: pending })).toEqual({
+      action: "skip",
+      reason:
+        "the version being released — its page appears when the release workflow publishes it, and that workflow verifies the publish",
+    });
+    expect(
+      links.planFor(
+        "https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4",
+        { pendingRelease: pending },
+      ),
+    ).toMatchObject({ action: "check", via: "api" });
+    // Without a pending version to excuse, it is judged like any other link —
+    // which is what happens on the next run after a bump moves it on.
+    expect(links.planFor(pending)).toMatchObject({ action: "check", via: "api" });
   });
 
   test("checks GitHub through the API, and remembers the repository root", () => {
@@ -470,6 +494,34 @@ describe("checkLinks", () => {
   });
 });
 
+describe("pendingReleaseUrl", () => {
+  const BUILDER = `appId: com.acme.fixture
+publish:
+  provider: github
+  owner: acme
+  repo: fixture-releases
+  releaseType: release
+`;
+
+  test("builds the release page of the version being released", () => {
+    const root = fixture({
+      "package.json": JSON.stringify({ version: "1.2.3" }),
+      "electron-builder.yml": BUILDER,
+    });
+
+    expect(links.pendingReleaseUrl(root)).toBe(
+      "https://github.com/acme/fixture-releases/releases/tag/v1.2.3",
+    );
+  });
+
+  test("excuses nothing when the checkout has no version or no publish config", () => {
+    expect(
+      links.pendingReleaseUrl(fixture({ "package.json": '{"version":"1.2.3"}' })),
+    ).toBeNull();
+    expect(links.pendingReleaseUrl(fixture({"README.md": "nothing"}))).toBeNull();
+  });
+});
+
 // --- the CLI, against a temporary checkout --------------------------------
 
 const dirs: string[] = [];
@@ -557,6 +609,36 @@ describe("run", () => {
 
     expect(code).toBe(2);
     expect(errors.join("\n")).toContain("nothing could be checked");
+  });
+
+  test("passes a checkout whose changelog links the version being released", async () => {
+    // This is the state CI sees on the bump commit, and the reason the check
+    // does not go red on every release: v1.2.3 is in package.json and its
+    // release page does not exist yet.
+    const root = fixture({
+      "package.json": '{"version":"1.2.3"}',
+      "electron-builder.yml":
+        "publish:\n  provider: github\n  owner: acme\n  repo: fixture-releases\n",
+      "CHANGELOG.md":
+        "# Changelog\n\n[1.2.3]: https://github.com/acme/fixture-releases/releases/tag/v1.2.3\n",
+    });
+    const { fetchImpl, calls } = stubFetch(() => ({ status: 404 }));
+    const lines: string[] = [];
+
+    const code = await links.run({
+      root,
+      files: ["CHANGELOG.md"],
+      fetchImpl,
+      token: null,
+      log: (line: string) => lines.push(line),
+      error: (line: string) => lines.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(calls).toEqual([]);
+    const output = lines.join("\n");
+    expect(output).toContain("skipped https://github.com/acme/fixture-releases/releases/tag/v1.2.3");
+    expect(output).toContain("the version being released");
   });
 
   test("reads the repository's own tracked Markdown through git", async () => {

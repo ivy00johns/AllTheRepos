@@ -11,6 +11,19 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Fixed
+
+- `pnpm links:check` no longer fails on every release commit. A `chore: release vX`
+  commit is pushed before its artifacts are — that is what tagging means — so the
+  version link it writes to the changelog answers 404 for the minutes until the
+  release workflow publishes, and the check called that rot on its first two CI
+  runs. That one URL is now excused by name, because it is the release in flight
+  and the workflow's own `release:verify` owns the question of whether the release
+  ever appears. Everything else is judged as before, and as soon as the next bump
+  moves `package.json` on, that version's link is an ordinary one again — so a
+  release that never published is still caught, on the next run rather than this
+  one.
+
 ## [0.1.5] - 2026-10-07
 
 ### Added
