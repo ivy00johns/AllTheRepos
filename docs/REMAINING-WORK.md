@@ -167,11 +167,17 @@ not by running a documented command on one machine:
   with `find-git-repositories` compiling from source and `better-sqlite3` loading on Intel. The
   leg is not free: 188s of runner against the arm64 leg's 61s, because the Intel image is three
   cores and `pnpm install` builds both natives from source there (71s against 6s).
-  **Nothing in the suite calls into the vector path**, so that green says the app builds,
-  boots, renders, navigates, spawns and kills processes on x86_64 — it does not say semantic
-  search works there, and it cannot: `@lancedb/lancedb` publishes no darwin-x64 binary, so the
-  app runs FTS-only on Intel and `services/lance.ts` fails soft rather than saying so. That
-  half is still an inference from the code, not a measurement.
+  **Nothing in the suite called into the vector path** on that first run, so that green said
+  the app builds, boots, renders, navigates, spawns and kills processes on x86_64 — not that
+  semantic search works there, which it cannot: `@lancedb/lancedb` publishes no darwin-x64
+  binary, so an Intel Mac runs FTS-only and `services/lance.ts` fails soft rather than saying
+  so. **That half is a measurement now**, in `tests/e2e/vector-store.spec.ts`: the app's own
+  runtime is asked whether the binding loads (on x86_64 it does not — the premise the leg
+  rests on, asserted instead of assumed), and then a real search is driven over IPC with a
+  mock embedding provider on the runner, so the vector path is entered and `lance.ts`'s own
+  `catch` is what gets exercised. It is the innermost of three, so nothing else in this
+  repository would notice its removal; built with the catch deleted and the app reporting
+  `x86_64`, that spec goes red on `[backend] vector path error`.
 
 **Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
 first-class part of the app, and then the app was handed the pen as well:
