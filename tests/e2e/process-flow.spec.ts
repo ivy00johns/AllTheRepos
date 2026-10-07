@@ -1,40 +1,96 @@
 /**
  * Phase 3a E2E — Process panel flow.
  *
- * Validates the `/processes` route end-to-end inside a built Electron
- * app. Two strategies are exercised here:
+ * Validates the `/processes` route end-to-end inside a built Electron app.
+ * Two strategies are exercised here:
  *
- *   1. Route chrome smoke: navigate to `/processes` via the Activity
- *      top-bar nav button, assert the page heading + the empty-state
- *      OR populated-table renders without crashing.
- *   2. Listening-port detection: spawn a real `http.createServer`
- *      child process listening on an ephemeral port. The main-side
- *      ProcessService polls lsof every 3s when focused, so we wait
- *      up to ~10s for the row to appear in the table.
+ *   1. Route chrome smoke: navigate to `/processes` via the Activity top-bar
+ *      nav button, assert the page heading and that the body renders the
+ *      empty-state copy or the populated table without crashing.
+ *   2. Listening-port detection: spawn a real `http.createServer` child inside
+ *      one of the seeded repos and assert that its row — repo, port and PID —
+ *      reaches the table, then that killing it clears the row.
  *
- * The detection leg is best-effort: the catalog's repo trie is keyed
- * to the seeded full_path values in the local userData SQLite DB.
- * Because we spawn the http server from a temp dir, the row's
- * `repoSlug` is intentionally null — but the row itself (PID + port)
- * MUST appear. If lsof returns nothing on the test host (rare, but
- * possible inside sandboxed CI), we accept an "empty" state without
- * failing — the unit specs already cover parser semantics in depth.
+ * ## Why leg 2 pins the repo and not just the PID
+ *
+ * The pid and port come straight out of the `lsof` sweep. The repo does not:
+ * it is matched by looking the listener's cwd up in the catalog's path trie,
+ * and `lsof` reports the cwd the kernel resolved. So a row that links to the
+ * seeded repo slug is what proves the cwd → repo binding works end to end —
+ * and that binding is the whole feature, since a port with no repo beside it
+ * tells you nothing. It also happens to cover the trap documented on
+ * `runLsofCwds` in `services/process.ts`: without `lsof -a` the cwd query ORs
+ * its selection options and answers with some *other* process's cwd, which
+ * reads exactly like "this server belongs to no repo".
+ *
+ * The wait here is a couple of poller ticks, not a couple of hundred
+ * milliseconds: the main-side poller runs on an interval (3s focused, 15s
+ * blurred), so a row that appears between ticks waits for the next one.
  *
  * Owner: qe-agent (Phase 3a).
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { dirname, join, resolve } from "node:path";
+import { expect, test, type Page } from "@playwright/test";
 
-import { launchApp } from "./_launch-app";
+import { TEMPLATE_PROFILE_ENV, launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
+
+/**
+ * The seeded repo the spawned server runs inside — one of `SEEDED_REPOS` in
+ * `_global-setup.ts`, which builds them beside the template profile.
+ */
+const SEEDED_REPO = "demo-cli";
+
+/**
+ * Both ceilings are the poller's cadence, not the cost of a tick: detecting a
+ * listener is now a fraction of a second of `lsof`/`ps` work, but the app only
+ * ticks on an interval (3s focused, 15s blurred), so a row that appears
+ * between ticks waits for the next one. Measured on a developer Mac: the row
+ * lands in ~25ms when a tick catches it, and clears ~3s after the kill.
+ */
+const DETECTION_TIMEOUT_MS = 30_000;
+const CLEAR_TIMEOUT_MS = 30_000;
+
+/** Where `_global-setup.ts` put the seeded repos. */
+function seededRepoDir(name: string): string {
+  const template = process.env[TEMPLATE_PROFILE_ENV];
+  if (!template) {
+    throw new Error(
+      `[process-flow] ${TEMPLATE_PROFILE_ENV} is unset — run this spec through Playwright so _global-setup.ts can build the seeded profile.`,
+    );
+  }
+  const dir = join(dirname(template), "repos", name);
+  if (!existsSync(dir)) {
+    throw new Error(
+      `[process-flow] no seeded repo at ${dir} — is "${name}" still in SEEDED_REPOS (tests/e2e/_global-setup.ts)?`,
+    );
+  }
+  return dir;
+}
+
+/** Ask the app itself which slug it gives a repo path. */
+async function catalogSlugFor(win: Page, fullPath: string): Promise<string> {
+  return win.evaluate(async (dir) => {
+    const atr = (
+      window as unknown as {
+        atr: {
+          catalog: {
+            list(
+              input: unknown,
+            ): Promise<{ items: Array<{ slug: string; fullPath: string }> }>;
+          };
+        };
+      }
+    ).atr;
+    const page = await atr.catalog.list({});
+    return page.items.find((item) => item.fullPath === dir)?.slug ?? "";
+  }, fullPath);
+}
 
 test.describe("Phase 3a process flow", () => {
   test.beforeAll(() => {
@@ -69,9 +125,9 @@ test.describe("Phase 3a process flow", () => {
         win.getByRole("heading", { name: /^processes$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
-      // The page is either an empty state ("No dev servers detected.")
-      // OR a populated table. Both are acceptable — the suite is
-      // documenting that the route renders without crashing.
+      // This leg is route chrome only: the host may genuinely have nothing
+      // listening, so either state is fine here. Leg 2 is the one that
+      // asserts detection.
       const body = win.locator("body");
       const text = (await body.textContent()) ?? "";
       const hasEmptyState =
@@ -87,15 +143,19 @@ test.describe("Phase 3a process flow", () => {
     }
   });
 
-  test("spawned http server surfaces in /processes table (best-effort)", async () => {
-    const tempDir = mkdtempSync(path.join(tmpdir(), "atr-proc-e2e-"));
+  test("a spawned server appears in /processes bound to its repo, and killing it clears the row", async () => {
+    // Setup, then a tick to detect and a tick to clear.
+    test.setTimeout(180_000);
+
+    const repoDir = seededRepoDir(SEEDED_REPO);
     let child: ChildProcess | null = null;
 
     const { app, close } = await launchApp();
 
     try {
-      // 1. Spawn a tiny http server listening on an ephemeral port.
-      //    Pipe stdout so we can capture the chosen port.
+      // 1. Spawn a tiny http server listening on an ephemeral port, with its
+      //    cwd inside a repo the catalog knows about. Pipe stdout so we can
+      //    capture the chosen port.
       child = spawn(
         process.execPath,
         [
@@ -103,7 +163,7 @@ test.describe("Phase 3a process flow", () => {
           "const s=require('http').createServer((q,r)=>r.end('ok'));s.listen(0,()=>{console.log('PORT='+s.address().port);});",
         ],
         {
-          cwd: tempDir,
+          cwd: repoDir,
           stdio: ["ignore", "pipe", "ignore"],
         },
       );
@@ -133,6 +193,8 @@ test.describe("Phase 3a process flow", () => {
       });
 
       expect(port).toBeGreaterThan(1024);
+      const pid = child.pid!;
+      expect(pid).toBeGreaterThan(0);
 
       // 2. Drive the renderer to /processes.
       const win = await app.firstWindow();
@@ -145,40 +207,39 @@ test.describe("Phase 3a process flow", () => {
         win.getByRole("heading", { name: /^processes$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
-      // 3. Poll for the row. The main-side service polls lsof every
-      //    3s when focused; we wait up to 15s for it to surface.
-      const rowSelector = win.locator(
-        `tr:has-text("${port}"):has-text("${child!.pid}")`,
-      );
+      // 3. The row has to arrive. Match on cells rather than `has-text` on the
+      //    <tr>: a bare substring lets a 4-digit port match a longer one (port
+      //    5000 lives inside port 15000). The port renders inside its own
+      //    <span> next to a decorative dot; the PID cell holds only the number.
+      const rowSelector = win
+        .locator("tbody tr")
+        .filter({ has: win.locator(`span:text-is("${port}")`) })
+        .filter({ has: win.locator(`td:text-is("${pid}")`) });
 
-      // Best-effort wait: if lsof on the test host can't see the
-      // child (sandbox / SIP / lsof denied), we don't fail — we
-      // just document the gap. Use a try/catch instead of a hard
-      // expect so the spec doesn't go red on quirky hosts.
-      let saw = false;
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        if ((await rowSelector.count()) > 0) {
-          saw = true;
-          break;
-        }
-        await win.waitForTimeout(500);
-      }
+      const detectedAt = Date.now();
+      await expect(
+        rowSelector,
+        `expected PID ${pid} on port ${port} to appear in the /processes table. ` +
+          `The main-side lsof poller never surfaced it within ${DETECTION_TIMEOUT_MS}ms.`,
+      ).toHaveCount(1, { timeout: DETECTION_TIMEOUT_MS });
+      const detectionMs = Date.now() - detectedAt;
 
-      if (!saw) {
-        // Don't fail the suite — the parser + state machine are
-        // pinned by unit specs. Print a diagnostic so a CI run on
-        // a non-lsof-friendly host still surfaces the gap.
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[process-flow] lsof poller did not surface PID ${child!.pid} on port ${port} within 15s; accepting empty state. This may be a host-level lsof limitation, not a bug.`,
-        );
-        return;
-      }
+      // 4. ...and it has to name the repo the server was started in.
+      const repoSlug = await catalogSlugFor(win, repoDir);
+      expect(
+        repoSlug,
+        `the app's catalog has no repo at ${repoDir}, so the attribution assertion below cannot mean anything`,
+      ).not.toBe("");
+      await expect(
+        rowSelector.getByRole("link", { name: repoSlug }),
+        `expected the row for PID ${pid} to link to the ${SEEDED_REPO} repo. ` +
+          `The listener's cwd (which lsof reports as the kernel resolved it) ` +
+          `did not match the catalog path ${repoDir}.`,
+      ).toBeVisible();
 
-      // 4. Click the kill button on this row.
+      // 5. Click the kill button on this row.
       const killBtn = rowSelector.getByRole("button", {
-        name: new RegExp(`kill pid ${child!.pid}`, "i"),
+        name: new RegExp(`kill pid ${pid}`, "i"),
       });
       await expect(killBtn).toBeVisible({ timeout: 5_000 });
 
@@ -188,16 +249,23 @@ test.describe("Phase 3a process flow", () => {
       });
       await killBtn.click();
 
-      // 5. Wait for the row to disappear (next poll cycle clears it).
-      await expect(rowSelector).toHaveCount(0, { timeout: 15_000 });
+      // 6. The row clears on the next snapshot — the poller runs again without
+      //    the dead child in it.
+      const killedAt = Date.now();
+      await expect(
+        rowSelector,
+        `PID ${pid} was killed but its row is still in the /processes table ` +
+          `after ${CLEAR_TIMEOUT_MS}ms — the poller is not refreshing.`,
+      ).toHaveCount(0, { timeout: CLEAR_TIMEOUT_MS });
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[process-flow] PID ${pid} on port ${port} appeared as ${repoSlug} after ${detectionMs}ms; ` +
+          `row cleared ${Date.now() - killedAt}ms after the kill`,
+      );
     } finally {
       try {
         if (child && !child.killed) child.kill("SIGKILL");
-      } catch {
-        // ignore
-      }
-      try {
-        rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // ignore
       }

@@ -3,7 +3,10 @@
  *
  * Covers the pure test seams exported by `@main/services/process`:
  *   - parseLsofListen (field-prefixed lsof TCP-listen parser)
- *   - parseLsofCwd   (one-DIR-line cwd parser)
+ *   - parseLsofCwdMap (batched `lsof -a -p <pids>` listing → pid → cwd)
+ *   - parsePsTree     (`ps -axo pid=,ppid=` → pid → ppid)
+ *   - cwdCandidates / resolveRepoSlugFor (the parent-walk pair — the
+ *     resolver must only ever ask for PIDs the candidate set fetched)
  *   - RepoPathTrie   (deepest-prefix slug lookup)
  *   - snapshot equality (signature stability across input order)
  *   - kill state machine (SIGINT → SIGTERM → SIGKILL via global process.kill)
@@ -32,7 +35,10 @@ vi.mock("@main/db/client", () => ({
 
 import {
   parseLsofListen,
-  parseLsofCwd,
+  parseLsofCwdMap,
+  parsePsTree,
+  cwdCandidates,
+  resolveRepoSlugFor,
   RepoPathTrie,
   processService,
 } from "@main/services/process";
@@ -125,41 +131,117 @@ describe("parseLsofListen", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseLsofCwd
+// parseLsofCwdMap
 // ---------------------------------------------------------------------------
 
-describe("parseLsofCwd", () => {
-  it("extracts the n field value", () => {
-    const out = ["p1234", "fcwd", "n/Users/me/foo"].join("\n");
-    expect(parseLsofCwd(out)).toBe("/Users/me/foo");
-  });
-
-  it("returns null when no n-line is present", () => {
-    const out = ["p1234", "fcwd"].join("\n");
-    expect(parseLsofCwd(out)).toBeNull();
-  });
-
-  it("returns null on empty input", () => {
-    expect(parseLsofCwd("")).toBeNull();
-  });
-
-  it("tolerates noisy non-prefixed lines (returns first n)", () => {
+describe("parseLsofCwdMap", () => {
+  it("maps each PID block to its cwd", () => {
     const out = [
-      "lsof: WARNING: can't stat() /something",
       "p1234",
       "fcwd",
       "n/Users/me/foo",
+      "p2345",
+      "fcwd",
+      "n/Users/me/bar",
     ].join("\n");
-    expect(parseLsofCwd(out)).toBe("/Users/me/foo");
+    expect([...parseLsofCwdMap(out)]).toEqual([
+      [1234, "/Users/me/foo"],
+      [2345, "/Users/me/bar"],
+    ]);
+  });
+
+  it("keeps the first cwd line of a PID block", () => {
+    const out = ["p1234", "fcwd", "n/Users/me/foo", "n/Users/me/later"].join(
+      "\n",
+    );
+    expect(parseLsofCwdMap(out).get(1234)).toBe("/Users/me/foo");
+  });
+
+  it("omits a PID whose cwd line is blank", () => {
+    const out = [
+      "p1234",
+      "fcwd",
+      "n   ",
+      "p2345",
+      "fcwd",
+      "n/Users/me/bar",
+    ].join("\n");
+    const map = parseLsofCwdMap(out);
+    expect(map.has(1234)).toBe(false);
+    expect(map.get(2345)).toBe("/Users/me/bar");
+  });
+
+  it("omits a PID with no cwd line at all", () => {
+    expect(parseLsofCwdMap(["p1234", "fcwd"].join("\n")).size).toBe(0);
+  });
+
+  it("drops n-lines that precede any p-block", () => {
+    const out = [
+      "lsof: WARNING: can't stat() /something",
+      "n/Users/me/orphan",
+      "p1234",
+      "fcwd",
+      "n/Users/me/bar",
+    ].join("\n");
+    const map = parseLsofCwdMap(out);
+    expect(map.size).toBe(1);
+    expect(map.get(1234)).toBe("/Users/me/bar");
+  });
+
+  it("ignores a malformed p-line and resumes at the next block", () => {
+    const out = [
+      "pnotapid",
+      "fcwd",
+      "n/Users/me/foo",
+      "p7",
+      "fcwd",
+      "n/Users/me/bar",
+    ].join("\n");
+    const map = parseLsofCwdMap(out);
+    expect(map.size).toBe(1);
+    expect(map.get(7)).toBe("/Users/me/bar");
   });
 
   it("trims trailing whitespace on the cwd value", () => {
-    const out = "n/Users/me/foo   ";
-    expect(parseLsofCwd(out)).toBe("/Users/me/foo");
+    expect(parseLsofCwdMap("p1\nfcwd\nn/Users/me/foo   ").get(1)).toBe(
+      "/Users/me/foo",
+    );
   });
 
-  it("returns null when the n-line is empty", () => {
-    expect(parseLsofCwd("n  ")).toBeNull();
+  it("returns an empty map for empty input", () => {
+    expect(parseLsofCwdMap("").size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parsePsTree
+// ---------------------------------------------------------------------------
+
+describe("parsePsTree", () => {
+  it("maps pid -> ppid", () => {
+    const out = ["    1     0", "  360     1", "  438     1"].join("\n");
+    expect([...parsePsTree(out)]).toEqual([
+      [1, 0],
+      [360, 1],
+      [438, 1],
+    ]);
+  });
+
+  it("skips a header line", () => {
+    expect(parsePsTree("  PID  PPID\n  1     0\n").size).toBe(1);
+  });
+
+  it("skips lines that are not two integers", () => {
+    const out = ["  1     0", "garbage", "  2     x", "3", ""].join("\n");
+    expect([...parsePsTree(out)]).toEqual([[1, 0]]);
+  });
+
+  it("skips pid 0 (its own row would make every lookup terminate)", () => {
+    expect(parsePsTree("0 0").size).toBe(0);
+  });
+
+  it("returns an empty map for empty input", () => {
+    expect(parsePsTree("").size).toBe(0);
   });
 });
 
@@ -222,6 +304,186 @@ describe("RepoPathTrie", () => {
     trie.insert("/a/b", "first");
     trie.insert("/a/b", "second");
     expect(trie.lookup("/a/b")).toBe("second");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cwdCandidates + resolveRepoSlugFor
+//
+// These two are a pair: the resolver decides which PIDs it wants cwds for,
+// and the candidate set is what the service fetches in one batched `lsof`
+// before the walk runs in memory. If the resolver ever asks about a PID the
+// candidate set left out, the walk silently loses a hop — so the last test
+// here asserts the invariant directly.
+// ---------------------------------------------------------------------------
+
+/** Build a `ppidOf` from a plain tree, mirroring the service's 0-for-unknown. */
+function ppidOfFrom(tree: Record<number, number>): (pid: number) => number {
+  return (pid) => tree[pid] ?? 0;
+}
+
+/** A linear chain `start -> start+1 -> ... -> end`, ending at 0. */
+function chain(start: number, hops: number): Record<number, number> {
+  const tree: Record<number, number> = {};
+  for (let i = 0; i < hops; i++) tree[start + i] = start + i + 1;
+  tree[start + hops] = 0;
+  return tree;
+}
+
+describe("cwdCandidates", () => {
+  it("includes the listener itself", () => {
+    expect(cwdCandidates([10], ppidOfFrom({ 10: 0 }))).toEqual([10]);
+  });
+
+  it("includes the ancestors of a short chain", () => {
+    const got = cwdCandidates([10], ppidOfFrom({ 10: 20, 20: 30, 30: 0 }));
+    expect(got.sort((a, b) => a - b)).toEqual([10, 20, 30]);
+  });
+
+  it("stops after PPID_WALK_HOPS ancestors", () => {
+    // 10 -> 11 -> ... -> 26: fifteen ancestors available, ten wanted.
+    const got = cwdCandidates([10], ppidOfFrom(chain(10, 15)));
+    expect(got).toHaveLength(11);
+    expect(got).toContain(20);
+    expect(got).not.toContain(21);
+  });
+
+  it("stops at pid 1 and does not include it", () => {
+    expect(
+      cwdCandidates([10], ppidOfFrom({ 10: 1 })).sort((a, b) => a - b),
+    ).toEqual([10]);
+  });
+
+  it("terminates on a self-parent cycle", () => {
+    expect(cwdCandidates([10], ppidOfFrom({ 10: 10 }))).toEqual([10]);
+  });
+
+  it("dedupes an ancestor shared by two listeners", () => {
+    const got = cwdCandidates(
+      [10, 11],
+      ppidOfFrom({ 10: 20, 11: 20, 20: 0 }),
+    );
+    expect(got.sort((a, b) => a - b)).toEqual([10, 11, 20]);
+  });
+});
+
+describe("resolveRepoSlugFor", () => {
+  function trieFor(...paths: string[]): RepoPathTrie {
+    const trie = new RepoPathTrie();
+    for (const path of paths) trie.insert(path, path.split("/").pop()!);
+    return trie;
+  }
+
+  it("matches the listener's own cwd", () => {
+    const trie = trieFor("/repos/foo");
+    const slug = resolveRepoSlugFor(
+      10,
+      () => 0,
+      () => "/repos/foo/src",
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBe("foo");
+  });
+
+  it("falls back to an ancestor's cwd when the listener's is elsewhere", () => {
+    const trie = trieFor("/repos/foo");
+    const cwds: Record<number, string> = { 10: "/", 20: "/repos/foo" };
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom({ 10: 20, 20: 0 }),
+      (pid) => cwds[pid] ?? null,
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBe("foo");
+  });
+
+  it("reaches an ancestor exactly PPID_WALK_HOPS away", () => {
+    // chain(10, 10) walks 11..20, so 20 is the tenth and last hop.
+    const trie = trieFor("/repos/deep");
+    const cwds: Record<number, string> = { 20: "/repos/deep" };
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom(chain(10, 10)),
+      (pid) => cwds[pid] ?? null,
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBe("deep");
+  });
+
+  it("does not reach one hop beyond PPID_WALK_HOPS", () => {
+    const trie = trieFor("/repos/toofar");
+    const cwds: Record<number, string> = { 21: "/repos/toofar" };
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom(chain(10, 15)),
+      (pid) => cwds[pid] ?? null,
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBeNull();
+  });
+
+  it("returns null when no cwd in the chain matches a repo", () => {
+    const trie = trieFor("/repos/foo");
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom({ 10: 20, 20: 0 }),
+      () => "/somewhere/else",
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBeNull();
+  });
+
+  it("returns null when neither the cwd nor the parent is known", () => {
+    expect(
+      resolveRepoSlugFor(
+        10,
+        () => 0,
+        () => null,
+        () => "anything",
+      ),
+    ).toBeNull();
+  });
+
+  it("terminates on a self-parent cycle", () => {
+    const trie = trieFor("/repos/foo");
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom({ 10: 10 }),
+      () => "/elsewhere",
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBeNull();
+  });
+
+  it("prefers the listener's own repo over an ancestor's", () => {
+    const trie = trieFor("/repos/inner", "/repos/outer");
+    const cwds: Record<number, string> = { 10: "/repos/inner", 20: "/repos/outer" };
+    const slug = resolveRepoSlugFor(
+      10,
+      ppidOfFrom({ 10: 20, 20: 0 }),
+      (pid) => cwds[pid] ?? null,
+      (cwd) => trie.lookup(cwd),
+    );
+    expect(slug).toBe("inner");
+  });
+
+  it("consults only PIDs the candidate set already prefetched", () => {
+    const tree = chain(10, 12);
+    const ppidOf = ppidOfFrom(tree);
+    const consulted: number[] = [];
+    resolveRepoSlugFor(
+      10,
+      ppidOf,
+      (pid) => {
+        consulted.push(pid);
+        return null;
+      },
+      () => null,
+    );
+
+    expect(consulted.length).toBeGreaterThan(1);
+    const candidates = new Set(cwdCandidates([10], ppidOf));
+    for (const pid of consulted) expect(candidates.has(pid)).toBe(true);
   });
 });
 

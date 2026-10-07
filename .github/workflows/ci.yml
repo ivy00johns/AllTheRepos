@@ -47,9 +47,11 @@ jobs:
   # builds the bundle, which is exactly the state the check job must not be in
   # while it runs. It also fails for reasons the unit suite never sees.
   #
-  # The catalog on a fresh runner is empty, so the specs assert their
-  # empty-state branches (documented per spec) — the suite is written to
-  # tolerate that, and a scanned library is not available on CI.
+  # The suite no longer depends on a scanned library: global setup seeds a
+  # small synthetic catalog into a throwaway profile that every launch copies
+  # (tests/e2e/_global-setup.ts), so specs exercise their populated branches
+  # on a fresh runner too. Host-dependent legs (process detection) wait on
+  # real `lsof` polling and are asserted, not tolerated.
   e2e:
     name: electron e2e
     runs-on: macos-14

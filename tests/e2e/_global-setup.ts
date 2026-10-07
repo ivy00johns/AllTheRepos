@@ -29,10 +29,21 @@
  * out of it. Doing this once per suite rather than once per spec matters: the
  * migrate-then-seed-then-boot dance costs an extra app boot, and repeating it
  * in ten specs would double the run.
+ *
+ * The profile is deliberately cut off from the developer's real data first
+ * (`MIGRATED` + `__legacyPromoted`, see {@link buildTemplateProfile}), so the
+ * three demo repos are the whole catalog — the same on a laptop and on a
+ * fresh CI runner.
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -123,7 +134,13 @@ async function buildTemplateProfile(): Promise<{
   profileDir: string;
   root: string;
 }> {
-  const root = mkdtempSync(join(tmpdir(), "atr-e2e-template-"));
+  // Canonicalise the temp root before anything is seeded into it. macOS
+  // hands out `/var/folders/...` while the kernel reports `/private/var/...`
+  // — and the process panel matches a listener's cwd (always canonical, the
+  // kernel resolves it) against the catalog's stored path. Seeding the
+  // unresolved form would make every seeded repo unmatchable, which is a
+  // fixture artifact: a developer's own repos sit under canonical paths.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "atr-e2e-template-")));
   const profileDir = join(root, "profile");
   const libraryDir = join(root, "repos");
   mkdirSync(profileDir, { recursive: true });
@@ -134,6 +151,22 @@ async function buildTemplateProfile(): Promise<{
     seedClaudeArtifacts(dir);
     return { name, dir };
   });
+
+  // 0. Claim both one-shot legacy imports before the app ever boots here.
+  //    Without the `MIGRATED` sentinel a fresh profile copies the developer's
+  //    real `~/.alltherepos/` database in, so the "seeded" catalog would be
+  //    their whole library plus three demo rows — and the suite would depend
+  //    on whose machine it ran on, which is the thing a private profile was
+  //    meant to end. `__legacyPromoted` is the settings half of the same
+  //    trap: the app would otherwise treat settings.json as un-migrated,
+  //    overwrite it from the SQLite settings row, and scan the paths those
+  //    defaults imply. `scripts/make-readme-shots.mjs` claims both for the
+  //    same reason.
+  writeFileSync(join(profileDir, "MIGRATED"), new Date().toISOString());
+  writeFileSync(
+    join(profileDir, "settings.json"),
+    `${JSON.stringify({ scanPaths: [], __legacyPromoted: true }, null, 2)}\n`,
+  );
 
   // 1. Boot once so the app migrates an empty database into the profile —
   //    schema, FTS triggers and all. The seeder fills an existing DB, it does

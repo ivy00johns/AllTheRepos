@@ -20,6 +20,13 @@ source of truth for the current version.
   isolating each profile also surfaced a `claude-flow` assertion that could never have
   passed — it looked for "install Claude Code" text this app does not render, which the
   empty-catalog fallback had been hiding.
+- Process detection reads the host in three subprocess rounds per tick instead of one per
+  parent hop per listener. The parent map is a single `ps -axo pid=,ppid=`; the cwd lookups
+  are batched (32 PIDs per `lsof`, up to 4 batches in flight) for the listeners plus every
+  ancestor the walk can reach; and the walk itself now runs in memory. A tick measured
+  24–45s on a developer Mac and is now ~0.5s of subprocess work, so the process panel
+  answers within a poll interval rather than most of a minute. The `process-flow` spec's
+  detection leg went from 30s to 13ms and that spec from 1.1m to 13s.
 
 ### Fixed
 
@@ -31,6 +38,19 @@ source of truth for the current version.
   go through `tests/e2e/_launch-app.ts`, which gives each one a private `--user-data-dir`
   and deletes it again on close. The suite stops reading and writing your real catalog and
   settings as a side effect.
+- A listening port is bound to its repo again. The cwd lookup ran
+  `lsof -p <pid> -F n -d cwd` without `-a`, and lsof ORs its selection options — so the
+  query answered with *every* process's cwd and the parser read the first line of that
+  listing (`/` on a developer Mac) as the listener's own. Every row was therefore
+  unattributed, which also sent each one down the full ten-hop parent walk that made a tick
+  take tens of seconds. The batched lookup carries `-a`, and `process-flow` now spawns a
+  server inside a seeded repo and asserts the row links to that repo's slug.
+- The seeded e2e profile no longer imports your real library. A fresh profile has no
+  `MIGRATED` sentinel, so the app's one-shot legacy migration copied `~/.alltherepos/` into
+  the template — the "three synthetic repos" were three repos sitting on top of your whole
+  catalog, and the suite depended on whose machine it ran. Global setup now claims both
+  legacy sentinels before the first boot and canonicalises the temp root, so the seeded
+  repo paths match the cwd the kernel reports to `lsof`.
 
 ## [0.1.3] - 2026-10-06
 

@@ -103,15 +103,23 @@ can be interpreted as a shell command.
 
 | Command | Purpose | Source |
 | --- | --- | --- |
-| `lsof -nP -iTCP -sTCP:LISTEN -F pcnTL` | Find listening ports | `process.ts:575` |
-| `lsof -p <pid> -F n -d cwd` | Map a process to a repo | `process.ts:599` |
-| `ps -o ppid= -p <pid>` | Walk to the parent process | `process.ts:621` |
-| `ps -p <pid> -o pid=` | Liveness check | `process.ts:635` |
+| `lsof -nP -iTCP -sTCP:LISTEN -F pcnTL` | Find listening ports | `process.ts:729` |
+| `ps -axo pid=,ppid=` | Read the whole parent map in one call | `process.ts:758` |
+| `lsof -a -p <pids> -F pn -d cwd` | Map processes to repos | `process.ts:800` |
+| `ps -p <pid> -o pid=` | Liveness check | `process.ts:815` |
 
 Poll interval: 3s focused, 15s unfocused, paused after 60s idle
-(`process.ts:46-48`). Each call has a 1s timeout. The only dynamic
-argument is a PID, Zod-validated as a positive integer
-(`schemas.ts:1034`).
+(`process.ts:46-47`). A tick is three rounds: the listening sweep and the
+parent map run together, then the cwd lookups are batched 32 PIDs per
+call, up to 4 calls at once (`process.ts` `CWD_BATCH_SIZE` /
+`CWD_BATCH_CONCURRENCY`). Single-PID probes have a 1s timeout, a batched
+cwd call 5s. The `-a` in that last command is load-bearing: lsof ORs its
+selection options without it, so `-d cwd` would widen the query to every
+process on the machine instead of the requested PIDs.
+
+PIDs handed to the kill path are Zod-validated as positive integers
+(`schemas.ts:1034`). The PIDs in the cwd batch are never renderer input —
+they come from lsof's own listening-socket listing.
 
 ### 3.2 Editor and terminal detection — automatic, read-only
 
