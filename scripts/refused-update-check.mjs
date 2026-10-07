@@ -120,6 +120,12 @@ export const REFUSAL_WORDS = REFUSAL.anonymousRead;
  *
  * The unit test asserts each of these titles still exists in the spec, so renaming
  * one fails loudly instead of leaving this list matching nothing.
+ *
+ * Not listed, and deliberately: the spec's other describe refuses the app's **own**
+ * read through the updater's session (`tests/e2e/_refused-github.ts`), which the
+ * worker's `fetch` mock cannot reach. That refusal is arranged rather than
+ * ambient, so it behaves the same in this run as in any other — and it is the one
+ * test in the file that asserts the refusal instead of stopping on it.
  */
 export const FEED_TEST = "reaches the public feed anonymously and reports up to date";
 export const BEHIND_TEST =

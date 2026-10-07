@@ -89,6 +89,21 @@ source of truth for the current version.
   ordinary reasons — `gh workflow run ci.yml` additionally dispatches a `drill` job that runs the same
   command with `ATR_REFUSE_GITHUB=off`, and asserts the check comes back *failed*, naming the refusal.
   A check that passed, or that failed because a bundle was missing, is a failed drill.
+- The sentence a person is shown when GitHub declines an anonymous check is asserted end to end,
+  instead of only tolerated. The packaged update check *stopped* on the app's own refusal — the right
+  answer to meeting one on a runner whose address has spent its hour — which meant the string itself
+  was asserted only by its absence, by a test that would have gone on passing if the app had stopped
+  producing it at all. The worker's `fetch` mock cannot reach that read: `electron-updater` builds an
+  `ElectronHttpExecutor` and calls `net.request`, so it rides Chromium's network stack in the main
+  process rather than the worker's `fetch`. `tests/e2e/_refused-github.ts` refuses the request where it
+  is really made: it points the updater's own session at a loopback proxy, lets that session accept the
+  certificate the test signs for itself, and answers inside the tunnel with the status a refusal is
+  served with — read from the same shared definition as everything else. The app is not told and does
+  not branch: it makes its own request, gets GitHub's own answer, classifies it with its own
+  `describeError`, and renders the sentence it has always shown. A refusal met at the wrong layer does
+  not look like one, which is why the test also fails on the raw error a refused `CONNECT` produces —
+  `net::ERR_TUNNEL_CONNECTION_FAILED` — rather than accepting a message that merely *is* a message. It
+  needs no network, so unlike the tests beside it, this one cannot be reduced by a rate limit.
 - There is a linter (ATR-054). `lint` was `next lint`, it left with the Next stack, and `ci.yml`
   carried a comment explaining why it ran no linter at all. `eslint.config.mjs` is a flat config on
   `typescript-eslint`'s recommended set, wired into the fast job as `pnpm lint` — no build, no network,
@@ -98,7 +113,11 @@ source of truth for the current version.
   for it. The first run found fourteen real things — unused imports, a `require` reached for out of
   habit, four empty input interfaces that accept `0`, a string and an array — and twenty-seven
   `eslint-disable` comments naming rules belonging to the linter that no longer exists. All of them are
-  fixed or gone, so the gate starts clean rather than starting ignored.
+  fixed or gone, so the gate starts clean rather than starting ignored. It also fails on a suppression
+  that suppresses nothing, which is how the twenty-seven were found: a dead `eslint-disable` reads as a
+  decision somebody made, so the next person keeps the shape it was working around and never learns the
+  rule was satisfied or has gone. Asked for in the config rather than by a flag on the command, so an
+  editor's ESLint integration, a hook and CI all answer the same.
 
 ## [0.1.7] - 2026-10-07
 

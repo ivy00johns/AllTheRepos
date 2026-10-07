@@ -531,6 +531,16 @@ is what `pnpm electron:pack-older` produces (the same app stamped `0.0.1`). The
 check fails when a test that reads the feed does not stop for the refusal, so a
 missing bundle fails the run rather than quietly narrowing it.
 
+One test in that spec is deliberately **not** in that list. The app reads the feed
+with `electron-updater`'s own `net.request`, which the worker's `fetch` mock cannot
+reach, so the describe that covers the app's own refusal refuses it inside the
+app instead — the updater's session pointed at a loopback proxy that answers
+inside the tunnel. That needs no network and no exhausted address, so it asserts
+the sentence rather than stopping on it, and it runs the same way in the refusal
+job as anywhere else. It is the only test that proves the app can still recognise
+a refusal at all; `tests/e2e/_refused-github.ts` explains how, and what was tried
+first.
+
 Dispatching the workflow (`gh workflow run ci.yml`) runs one more job: a **drill**
 that runs the same command with the mock thrown — `ATR_REFUSE_GITHUB=off`, which
 installs it and refuses nothing — and asserts the check comes back **failed**,

@@ -66,6 +66,14 @@
  * from `src/shared/github-refusal.ts` — one definition, read here, by the weekly
  * feed check and by the app a person is looking at.
  *
+ * The one thing all of that could not do is make the app's own refusal *happen*:
+ * the worker's `fetch` mock never reaches Electron, so the sentence a person is
+ * shown was only ever asserted by its absence. The second describe arranges that
+ * refusal inside the app's own session instead — deterministically, with no
+ * network at all — so the branch that tells somebody their check was
+ * rate-limited is asserted rather than skipped on. See
+ * `tests/e2e/_refused-github.ts` for how, and for what was tried first.
+ *
  * The last describe leaves the app's status aside and walks the whole install
  * path: the archive `latest-mac.yml` names, downloaded, hashed against the
  * digest it promises, unpacked, and handed to `codesign`. An update that hashes
@@ -94,6 +102,8 @@ import {
   isRefusalStatus,
   REFUSED_REQUEST_MESSAGE,
 } from "../../src/shared/github-refusal";
+
+import { refuseTheAppsOwnGithub } from "./_refused-github";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const CURRENT_BUNDLE = resolve(REPO_ROOT, "release", "mac-arm64", "AllTheRepos.app");
@@ -364,10 +374,22 @@ function isOlder(a: string, b: string): boolean {
   return left.prerelease && !right.prerelease;
 }
 
-/** Launch a packaged bundle, isolated, with no credentials in its environment. */
-async function launchPackagedApp(bundle: string): Promise<{
+/**
+ * Launch a packaged bundle, isolated, with no credentials in its environment.
+ *
+ * `prepare` runs against the app the moment it is up and **before the first
+ * window exists**, which is the only window in which something can be arranged
+ * for the check the app schedules eight seconds into its own launch. One caller
+ * uses it: the describe that refuses the app's own read.
+ */
+async function launchPackagedApp<T = undefined>(
+  bundle: string,
+  prepare?: (app: ElectronApplication) => Promise<T>,
+): Promise<{
   app: ElectronApplication;
   page: Page;
+  /** Whatever `prepare` produced, or null when there was no `prepare`. */
+  prepared: T | null;
   cleanup: () => void;
 }> {
   const profile = mkdtempSync(resolve(tmpdir(), "atr-packaged-update-"));
@@ -392,6 +414,9 @@ async function launchPackagedApp(bundle: string): Promise<{
     env,
     timeout: 180_000,
   });
+
+  const prepared = prepare ? await prepare(app) : null;
+
   const page = await app.firstWindow({ timeout: 180_000 });
 
   // Settings is the only place the check can be triggered from; the router uses
@@ -402,6 +427,7 @@ async function launchPackagedApp(bundle: string): Promise<{
   return {
     app,
     page,
+    prepared,
     cleanup: () => {
       rmSync(profile, { recursive: true, force: true });
     },
@@ -423,6 +449,14 @@ async function checkForUpdates(page: Page): Promise<void> {
  *
  * The refusal alternative is the app's own words, from the shared definition
  * rather than typed again here — see {@link APP_REFUSAL_TEXT}.
+ *
+ * The last alternative is the branch `describeError` keeps for an error it
+ * cannot classify: the raw first line of it, which is Chromium's `net::…` or a
+ * bare status line out of an `HttpError`. It belongs here because it, too, is a
+ * way the section answers a check — and leaving it out made both waits below
+ * worse than they read. `checkUntilSettled` could not retry it, only time out,
+ * and the app-refusal test could not say *what* was wrong: a two-minute wait and
+ * then "element not found", instead of "the section is showing a raw error".
  */
 const OUTCOMES = new RegExp(
   [
@@ -431,6 +465,7 @@ const OUTCOMES = new RegExp(
     "no releases published",
     "no network connection",
     "not a packaged build",
+    "net::|HttpError|internal server error",
   ].join("|"),
   "i",
 );
@@ -764,6 +799,93 @@ test.describe("the packaged app's update check", () => {
     } finally {
       await app.close();
       cleanup();
+    }
+  });
+});
+
+/**
+ * The sentence a person is shown when GitHub declines — asserted, not skipped on.
+ *
+ * Every other test in this file treats the app's refusal as a reason to stop:
+ * `skipIfTheAppWasRefused` is the right answer to *meeting* one on a runner whose
+ * address has spent its hour, and the wrong answer to whether the app can still
+ * recognise one at all. A skip is not a pass, and this branch was the last one in
+ * the app with nothing but a skip behind it — the string was asserted only by
+ * `toHaveCount(0)`, in a test that would go on passing if the app stopped using
+ * it entirely.
+ *
+ * So the refusal is arranged rather than waited for, through the updater's own
+ * session, before the app's startup check can run. Nothing is mocked inside the
+ * app and the app is not told: it makes its own request, gets GitHub's own
+ * answer, classifies it with its own `describeError`, and renders the sentence
+ * from `src/shared/github-refusal.ts`. The only thing that changed is who was
+ * listening at the other end of the socket.
+ *
+ * It needs no network and no published release, so unlike the two tests above it
+ * cannot be reduced by a rate limit — which is exactly why it belongs on every
+ * push rather than only on a release.
+ */
+test.describe("when GitHub refuses the app's own read", () => {
+  test.skip(!process.env.ATR_PACKAGED_UPDATE_E2E, "opt-in — run `pnpm test:packaged-update`");
+  test.skip(
+    !existsSync(binaryIn(CURRENT_BUNDLE)),
+    `no packaged app at ${CURRENT_BUNDLE} — build one with \`pnpm electron:pack\``,
+  );
+  test.setTimeout(300_000);
+
+  test("tells the person GitHub refused, rather than a raw error or a verdict", async () => {
+    // The refusal is installed before the app's first window exists, so the
+    // check it schedules eight seconds into its own launch is already refused.
+    const { app, page, prepared: refused, cleanup } = await launchPackagedApp(
+      CURRENT_BUNDLE,
+      refuseTheAppsOwnGithub,
+    );
+
+    try {
+      await checkForUpdates(page);
+
+      // Wait for the section to settle on *some* outcome before judging which
+      // one. Waiting for the wanted sentence instead would turn a wrong branch
+      // into two minutes of nothing and then a timeout, when the wrong branch is
+      // the one case worth failing quickly and precisely.
+      await expect(updatesSection(page).getByText(OUTCOMES)).toBeVisible({
+        timeout: 120_000,
+      });
+
+      // So: not the branch `describeError` keeps for anything it cannot
+      // classify. That one renders the raw first line of the error — a bare
+      // `HttpError` status line, or Chromium's `net::…` — and a refusal met at
+      // the wrong layer (a `CONNECT` the proxy declines, a dead proxy) produces
+      // exactly that. A test that accepted it would be asserting the wrong half.
+      await expect(
+        updatesSection(page).getByText(
+          /net::|no network connection|HttpError|internal server error/i,
+        ),
+      ).toHaveCount(0);
+
+      // A refusal is not a verdict on the release, so nothing may be claimed
+      // about it — neither "you're on the latest release" nor an offer.
+      await expect(
+        updatesSection(page).getByText(/you're on the latest release|Get \d/i),
+      ).toHaveCount(0);
+
+      // And now the app's own words, whole: the string the shared definition
+      // holds, and the one `skipIfTheAppWasRefused` above stops on.
+      await expect(
+        updatesSection(page).getByText(REFUSED_REQUEST_MESSAGE),
+      ).toBeVisible();
+
+      // Last, that the refusal came from the tunnel rather than from a machine
+      // with no network at all: indistinguishable from the section alone, and
+      // only one of the two is a refusal.
+      expect(
+        refused?.refusals() ?? 0,
+        `the app's read never reached ${refused?.origin ?? "the refusal"} — did electron-updater rename the session it reads through?`,
+      ).toBeGreaterThan(0);
+    } finally {
+      await app.close();
+      cleanup();
+      refused?.stop();
     }
   });
 });

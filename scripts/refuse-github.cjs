@@ -49,6 +49,29 @@
  * `--require` loads. The repository is otherwise ESM.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
+
+/**
+ * The status a refusal is served with, read from the one shared definition.
+ *
+ * Not written as `403` here: `tests/e2e/_refused-github.ts` arranges a refusal
+ * inside Electron for the app's *own* request, and the two rigs have to answer
+ * with the same status or one of them stops testing what the other does.
+ *
+ * Read rather than `require`d, the way `scripts/refused-update-check.mjs` and
+ * `scripts/check-updater-feed.mjs` read the same file — and `require`ing a
+ * `.json` is a `require`, which this repository's linter forbids for the same
+ * reason it forbids the rest of them. From `__dirname`, so a process that loads
+ * this by `--require` finds it whatever its working directory is.
+ */
+const REFUSAL_STATUS = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "..", "src", "shared", "github-refusal.json"),
+    "utf8",
+  ),
+).refusalStatus;
+
 /** How GitHub answers a request from an address that is out of allowance. */
 const REFUSAL_BODY = JSON.stringify({
   message: "API rate limit exceeded for 203.0.113.7.",
@@ -102,7 +125,7 @@ function readUrl(input) {
 /** The refusal itself, in the shape `fetch` resolves with. */
 function refusal() {
   return new Response(REFUSAL_BODY, {
-    status: 403,
+    status: REFUSAL_STATUS,
     statusText: "Forbidden",
     headers: {
       "content-type": "application/json; charset=utf-8",
@@ -156,6 +179,7 @@ module.exports = {
   MARKER,
   OFF,
   REFUSAL_BODY,
+  REFUSAL_STATUS,
   REFUSED,
   SWITCH,
   install,

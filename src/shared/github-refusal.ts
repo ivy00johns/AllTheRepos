@@ -48,6 +48,22 @@ import refusal from "./github-refusal.json";
  */
 export const REFUSED_STATUSES: readonly number[] = refusal.refusedStatuses;
 
+/**
+ * The status a refusal is **served** with, as opposed to recognised by.
+ *
+ * {@link REFUSED_STATUSES} is the set the app and the scripts accept; this is
+ * the member of it GitHub itself sends to an unauthenticated address that has
+ * spent its hour — so it is the answer both refusal rigs give. Together they are
+ * the two halves of "GitHub declined": what is sent, and what is understood.
+ *
+ * `scripts/refuse-github.cjs` answers with it in the Playwright worker, where the
+ * spec's own `fetch` calls are refused; `tests/e2e/_refused-github.ts` answers
+ * with it inside Electron, where the app's `electron-updater` request is refused.
+ * Two independent rigs, one status, read from one file — the same reason the
+ * sentences live here rather than being typed beside each use.
+ */
+export const REFUSAL_STATUS: number = refusal.refusalStatus;
+
 /** Is this HTTP status a refusal, rather than something about the feed? */
 export function isRefusalStatus(status: number): boolean {
   return REFUSED_STATUSES.includes(status);
