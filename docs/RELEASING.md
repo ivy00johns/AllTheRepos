@@ -14,6 +14,10 @@ pnpm icons          # regenerate resources/icon.icns from the design tokens
 pnpm electron:dist  # build a local DMG + ZIP into release/ (no publishing)
 pnpm release        # build AND publish to GitHub Releases (runs release:check first)
 
+node scripts/signing-identity.mjs  # which certificate would sign a build ("-" = ad-hoc)
+node scripts/notarize.mjs          # what notarisation would do to a built .app
+pnpm electron:dist:signed          # a signed, notarised DMG + ZIP (needs a certificate)
+
 gh workflow run release.yml                  # prove the draft cleanup
 gh workflow run updater-feed.yml             # read the live update feed the way the app does
 node scripts/check-updater-feed.mjs          # ... the same check, on this machine
@@ -47,6 +51,12 @@ git tag v0.2.0 && git push origin v0.2.0
 > first tag. The workflow cannot publish to the releases repo with its own
 > `GITHUB_TOKEN`, and the first step fails with instructions if the secret is
 > missing — see *Where the artifacts live*.
+>
+> **Optional, and the difference between an installable release and a
+download-only one:** `CSC_LINK`, `CSC_KEY_PASSWORD` and one notarisation
+credential set. Without them a release still publishes — ad-hoc signed, with a
+`::warning::` saying it is not installable. See *Signing, notarising, and
+installing*.
 
 `.github/workflows/release.yml` then:
 
@@ -57,8 +67,11 @@ git tag v0.2.0 && git push origin v0.2.0
    ever carried. The Electron E2E suite is deliberately *not* repeated here: it is the
    push/PR gate and it needs a GUI session, so making it a release prerequisite would let
    a flaky window launch block a DMG that is already correct.
-3. **Builds and uploads as a draft** (`EP_DRAFT=true`), so the assets exist before anyone
-   can see a release with no notes on it.
+3. **Resolves the signing identity, then builds and uploads as a draft** (`EP_DRAFT=true`), so
+   the assets exist before anyone can see a release with no notes on it. With `CSC_LINK` set the
+   build is Developer-ID signed and notarised, and the bundle is verified on the runner before it
+   goes anywhere; without it the build is ad-hoc signed and the run emits a `::warning::` that
+   this release is not installable. See *Signing, notarising, and installing*.
 4. **Verifies the draft** — `pnpm release:verify --allow-draft` reads it back and fails the
    job if the DMG, the ZIP or `latest-mac.yml` is missing, or if the manifest disagrees with
    what was uploaded. The release is still invisible at this point, which is the whole
@@ -200,9 +213,13 @@ downloads the archive `latest-mac.yml` names, hashes it against the sha512 the m
 unpacks it, and runs `codesign --verify --deep --strict` on the bundle inside — then checks that
 bundle's version is the one the manifest names. A download that hashes correctly and cannot be
 launched is still a broken update, and it is the failure nobody sees until the hundred megabytes are
-already on disk. It is deliberately not `spctl`: this build is ad-hoc signed and **not notarised**,
-so Gatekeeper refuses a downloaded copy by design — that is the documented right-click → Open, not
-rot. On a tag push the archive it verifies is the one that run just published; on a rehearsal it is
+already on disk. On a release that is **Developer-ID signed** it goes further and requires what an
+install actually needs: `spctl --assess` accepting the unpacked bundle, and a notarisation ticket
+stapled to it — because a signature Gatekeeper will not honour is an update that downloads and
+cannot be applied. On an **ad-hoc** release it deliberately stops at `codesign`: Gatekeeper
+refusing a downloaded copy is then the documented right-click → Open rather than rot, and the spec
+reports which of the two it found instead of deciding for itself which release it is looking at.
+On a tag push the archive it verifies is the one that run just published; on a rehearsal it is
 the release that is live, which is the previous one.
 
 ### Checking the update feed
@@ -375,16 +392,27 @@ or name a baseline with `--from <ref>`.
 ## How updating works today
 
 The app checks GitHub about eight seconds after launch, and whenever you
-press **Check for updates** in Settings. When a newer version exists, an
-"Update to X" button appears in the top bar; clicking it opens the release
-page so you can download the DMG.
+press **Check for updates** in Settings. When a newer version exists it says
+so — and what the button beside it does then depends on one thing: whether
+macOS will let *this build* update itself.
 
-**Installing is manual, on purpose.** macOS applies updates through
-Squirrel.Mac, which refuses anything that isn't validly code-signed. This
-build is ad-hoc signed, not Developer ID signed, so a silent auto-update
-would download ~115 MB and then fail at the last step with an error you
-couldn't do anything about. Checking is the half that genuinely works, so
-that's the half that's wired.
+**On a Developer-ID signed, notarised build, it installs.** The ZIP the
+manifest names is downloaded, a **Restart to install** button appears, and
+pressing it relaunches into the new version. That is the real path, through
+`electron-updater` and Squirrel.Mac — which is why the signing below is not
+cosmetic.
+
+**On an ad-hoc signed build — every build this project makes without an Apple
+Developer membership — it offers the DMG instead.** Squirrel.Mac refuses to
+install anything that is not validly code-signed *and* accepted by Gatekeeper,
+so a silent auto-update would download ~115 MB and then fail at the last step
+with an error you couldn't do anything about. So on that build the updater
+keeps `autoDownload` off entirely and the button opens the release page.
+
+Which of the two you have is decided at runtime, off the bundle on disk rather
+than off the build config — see *Will this build install updates?* below. Those
+differ exactly when it matters: a build that silently fell back to ad-hoc
+because a certificate was missing, or a copy whose signature broke in transit.
 
 ### Where the artifacts live
 
@@ -433,6 +461,7 @@ through the environment:
 ```bash
 ATR_PACKAGED_UPDATE_BEHIND_BUNDLE=<a bundle> pnpm test:packaged-update  # must offer the release that is live
 ATR_PACKAGED_UPDATE_EXPECT=current           pnpm test:packaged-update  # must be on the latest release
+ATR_REQUIRE_NOTARIZED=1                      pnpm test:packaged-update  # the archive must be signed *and* stapled
 ```
 
 A bundle named that way has to exist and has to be behind the feed — the caller
@@ -440,6 +469,15 @@ asked for that branch, so a skip would be a check that reported success without
 asserting anything — while `current` waits for the feed to name the build's own
 version before it asks the app, because a tag push does this seconds after
 publishing the release it is asserting on.
+
+`ATR_REQUIRE_NOTARIZED` is the other end of the signing promise. Set, the bundle
+inside the archive the feed offers must be Developer-ID signed, accepted by
+Gatekeeper, and carry a **stapled** notarisation ticket — so a release that
+resolved a certificate cannot pass by publishing something unnotarised, which is
+the one state that looks signed and still will not launch from a download.
+Unset, those assertions run only when the archive turns out to be Developer-ID
+signed anyway, which is what lets an ad-hoc release be verified *as* an ad-hoc
+release instead of failing for not being something it never claimed to be.
 
 The file's third test needs no packaged app and no bundle name: it works on the
 release the live feed offers, whoever built it — the archive `latest-mac.yml`
@@ -456,37 +494,152 @@ appear.
 
 ---
 
-## Turning on real auto-update
+## Signing, notarising, and installing
 
-Everything except the certificate is already in place. Once you have an
-Apple Developer account ($99/yr):
+The whole install path is wired. What is missing on a machine without one — and
+the only thing missing — is a certificate: a **Developer ID Application**
+certificate, which requires a paid Apple Developer membership ($99/yr).
 
-1. **Install a Developer ID Application certificate** in the login
-   keychain. `security find-identity -v -p codesigning` should list it.
+### Will this build install updates?
 
-2. **Update `electron-builder.yml`:**
+`src/main/services/signing.ts` asks that about the *running* bundle, once, at
+first use:
 
-   ```yaml
-   mac:
-     identity: "Developer ID Application: Your Name (TEAMID)"
-     hardenedRuntime: true
-     notarize: true
-   ```
+- `codesign -dvvv` — is this bundle signed by a **Developer ID Application**
+  authority? (`scripts/notarize.mjs` classifies the same output the same way,
+  because the two decisions have to agree about what "Developer ID signed"
+  means; a unit test drives both with the same fixtures and fails if they ever
+  drift.)
+- `spctl --assess --type execute` — would *this machine's* Gatekeeper run it?
+  That additionally requires the notarisation ticket, stapled to the bundle or
+  available from Apple.
 
-3. **Provide notarisation credentials** as environment variables:
-   `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+Both, or the answer is no. A Developer-ID signed bundle with no ticket passes the
+first and fails the second, and it is the second that decides whether an update
+can actually be applied. The answer travels in every `UpdateStatus` as
+`canInstall` and `signature`, and it is what the UI explains when it offers a
+download instead of an install.
 
-4. **Enable installing** in `src/main/services/updater.ts`: set
-   `autoUpdater.autoDownload = true`, handle the `update-downloaded`
-   event, and call `autoUpdater.quitAndInstall()`. The feed, the version
-   comparison, the status stream and the UI are already wired — this is
-   the only code change.
+That is the whole gate. Nothing else in the app changes behaviour between the
+two builds: it checks on the same schedule, against the same feed, and reports
+the same way.
+
+### Building one
+
+```bash
+security find-identity -v -p codesigning   # is there a Developer ID here at all?
+node scripts/signing-identity.mjs          # what would we sign with? ("-" = ad-hoc)
+pnpm electron:dist:signed                  # build a signed, notarised DMG + ZIP
+```
+
+`scripts/signing-identity.mjs` prints the identity name, or a bare `-` for the
+ad-hoc fallback. It deliberately refuses to pick an "Apple Development"
+certificate, which the Xcode toolchain creates on demand: that one signs a build
+that runs locally and **cannot be notarised**. `pnpm electron:dist:signed` feeds
+its answer to electron-builder as `-c.mac.identity=…` and demands notarisation —
+the same command-line override `extraMetadata.version` already uses for a
+rehearsal, which is why `electron-builder.yml` can keep `identity: "-"` as a
+default that works everywhere. `pnpm electron:dist` stays the no-certificate
+build.
+
+### What notarisation does, and when it declines
+
+`scripts/notarize.mjs` is electron-builder's `afterSign` hook. It reads
+`ATR_NOTARIZE`:
+
+| `ATR_NOTARIZE`  | Behaviour                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| unset (`auto`)  | Notarise a Developer-ID signed bundle whose credentials are complete. Anything else is skipped, silently. |
+| `require`       | Fail unless *both* are true. This is what a tag push sets.                                   |
+| `skip`          | Do nothing.                                                                                  |
+
+The `require` mode is the reason the mode exists at all: it makes it impossible
+for a release to quietly publish something that looks installable and is not. If
+the secrets behind a signed release go missing, the run goes red rather than
+shipping a build whose install button does nothing.
+
+Credentials are one of two **complete** sets:
+
+```bash
+# App Store Connect API key — preferred: revocable on its own, and it does not
+# have to be regenerated whenever the Apple ID password changes.
+APPLE_API_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
+APPLE_API_KEY_ID=XXXXXXXXXX
+APPLE_API_ISSUER=<uuid>          # Team keys only; omit it for an Individual key
+
+# ... or an Apple ID with an app-specific password.
+APPLE_ID=you@example.com
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+APPLE_TEAM_ID=XXXXXXXXXX
+```
+
+A *partly* configured set is always an error, naming the variables that are
+missing — never a silent skip. "One secret out of three" is a mistake, not an
+absent certificate, and the two deserve different answers.
+
+Once Apple accepts the build, the hook checks the result rather than trusting it:
+`xcrun stapler validate` has to find the ticket on the bundle, or the run fails. A
+missing ticket is exactly the state that looks fine in a log and fails on
+somebody else's machine.
+
+None of it needs a build to inspect:
+
+```bash
+node scripts/notarize.mjs                # what would happen to release/mac-arm64/AllTheRepos.app
+node scripts/notarize.mjs --app <path>   # ... to some other bundle
+node scripts/notarize.mjs --notarize     # actually submit it
+```
+
+It prints the signature it detected (`developer-id`, `ad-hoc`, `unsigned` or
+`unknown`), which credential set it found, whether a ticket is stapled, and the
+decision — then exits `1` when the decision is to fail, so it works as a gate and
+not only as a report. On this repository's own ad-hoc bundle it says, correctly:
+
+```
+[notarize] signature    ad-hoc
+[notarize] credentials  none
+[notarize] decision     skip — this build is ad-hoc, not Developer-ID signed
+```
+
+### In CI
+
+`release.yml` resolves the identity before it packages:
+
+- **With `CSC_LINK` set** — a base64-encoded Developer ID Application `.p12` — it
+  imports the certificate into a temporary keychain, points `security` at it,
+  requires a Developer ID identity from `scripts/signing-identity.mjs --require`,
+  and sets `ATR_NOTARIZE=require` for the rest of the job. After packaging it
+  verifies the bundle it built: `codesign --verify --deep --strict` always, and on
+  this path also that the authority really is a Developer ID one and that a
+  notarisation ticket is stapled. It then tests the install path with
+  `ATR_REQUIRE_NOTARIZED=1`, so the archive the feed actually offers is held to
+  the same standard as the bundle on the runner.
+- **With no `CSC_LINK`** — the fallback. The build is ad-hoc signed,
+  `ATR_NOTARIZE=skip`, the release still publishes, and the run emits a
+  `::warning::` saying exactly what that means: this release is not installable and
+  its updater will offer the DMG. A release is not blocked on a procurement
+  decision; it is required to say which kind of release it is.
+
+New repository secrets: `CSC_LINK` and `CSC_KEY_PASSWORD`, plus whichever
+notarisation credential set you use. `RELEASES_TOKEN` is unchanged.
 
 Signing also removes the Gatekeeper friction below.
 
 ---
 
-## Installing an unsigned build
+## Installing an ad-hoc signed build
+
+This is the **no-certificate fallback** — what `pnpm electron:dist` produces, and
+what a CI release produces when its run printed the `::warning::` about not being
+installable. To tell which kind of build you are holding:
+
+```bash
+codesign -dvvv /Applications/AllTheRepos.app 2>&1 | grep -E 'Authority|Signature='
+```
+
+`Authority=Developer ID Application: …` is a signed, notarised build that updates
+itself. `Signature=adhoc` is this section. The app says the same thing in words on
+its Settings page, because that is where somebody will actually look.
 
 The DMG is ad-hoc signed, which is enough for macOS to _run_ it locally
 but not enough for Gatekeeper to trust a copy that was downloaded.
@@ -535,6 +688,13 @@ bundle that fails `codesign --verify`.
 - **A repository with no `v*` tag has no baseline.** `release:next` stops rather than
   counting the whole history, which would fold already-released work into the next
   version. Tag the version that shipped, or pass `--from <ref>`.
+- **A Developer ID signature is not enough on its own — the *ticket* is what
+  Gatekeeper checks.** A bundle can be validly Developer-ID signed and still be
+  refused from a download if it was never notarised, or if the ticket was not
+  stapled to it. That is why `scripts/notarize.mjs` runs `stapler validate` after
+  Apple accepts a build and fails when there is no ticket, and why the app's
+  install gate checks `spctl` as well as `codesign`. Sign without notarising and
+  the failure looks like "the update downloaded and nothing happened".
 - **Ship the ZIP, not just the DMG.** `latest-mac.yml` references the ZIP;
   without it a check succeeds and the download fails.
 - **`resources/**/\*`must stay in`files`** in `electron-builder.yml`.

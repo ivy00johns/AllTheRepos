@@ -22,6 +22,7 @@
     "electron:pack": "pnpm electron:rebuild && electron-vite build && electron-builder --mac --dir",
     "electron:pack-older": "node scripts/ensure-native-abi.mjs electron && electron-vite build && electron-builder --mac --dir -c.directories.output=release/older -c.extraMetadata.version=0.0.1",
     "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac",
+    "electron:dist:signed": "pnpm electron:rebuild && electron-vite build && IDENTITY=\"$(node scripts/signing-identity.mjs --require)\" && ATR_NOTARIZE=require electron-builder --mac -c.mac.identity=\"$IDENTITY\"",
     "release:check": "node scripts/release-notes.mjs",
     "release:next": "node scripts/next-release.mjs",
     "release:verify": "node scripts/verify-release.mjs",

@@ -48,11 +48,11 @@ Most repository tools answer *"what is in this repo?"*. AllTheRepos answers the 
 - 🧭 **Ownership marks** — *mine*, *cloned*, *local only*, derived from the git remote, so a fork can never be mistaken for your work.
 - 🖥️ **A real desktop app** — Electron, not a browser tab: menu-bar presence, a global spotlight window, native menus, and dev-server/port detection for the repos you are actually running.
 - 🔒 **Local-first, and provably so** — every git command, filesystem write and network request is inventoried with citations in [`docs/COMMAND-DISCLOSURE.md`](./docs/COMMAND-DISCLOSURE.md).
-- 📦 **A release pipeline that ships itself** — tag a version and a GitHub Actions runner typechecks, tests, packages a DMG + ZIP, publishes them to a public releases repo, and verifies the update feed it just wrote.
+- 📦 **A release pipeline that ships itself** — tag a version and a GitHub Actions runner typechecks, tests, packages a DMG + ZIP, signs and notarises them when it has a Developer ID certificate to do it with, publishes them to a public releases repo, and verifies the update feed it just wrote.
 
 **Status:** the desktop app boots, the type-safe IPC layer works end to end, and the catalog runs against a migrated SQLite + LanceDB store. Phases 0–2 are structurally complete and Phase 3 (deep integrations) is wired; several Phase 1–3 surfaces are still stubbed, and [`docs/PLAN.md`](./docs/PLAN.md) keeps the honest, verified phase-by-phase list rather than this paragraph. This is **alpha software that touches your entire repository collection** — read the disclosure above before pointing it at your machine.
 
-The current release is [`v0.1.2`](https://github.com/ivy00johns/alltherepos-releases/releases) — download the **`.dmg`**; the `.zip`, `.blockmap` and `latest-mac.yml` beside it are the update feed, not another installer. It is ad-hoc signed and not notarised, and its updater **checks** for new versions but cannot install them: see [Releasing](#-releasing).
+The current release is [`v0.1.6`](https://github.com/ivy00johns/alltherepos-releases/releases) — download the **`.dmg`**; the `.zip`, `.blockmap` and `latest-mac.yml` beside it are the update feed, not another installer. It is ad-hoc signed and not notarised, so macOS wants one right-click → **Open** on first launch, and its updater **checks** for new versions and hands you the release page rather than installing them — a build macOS will not update is not offered the option. Publish with a Developer ID certificate and the same updater downloads the release and restarts to install it — see [Releasing](#-releasing).
 
 ---
 
@@ -253,8 +253,14 @@ node scripts/ensure-native-abi.mjs electron   # what the app and the E2E suite n
 pnpm release:next          # derive the next version + changelog section from the commits since the last tag
 pnpm release:check         # guard tag / version / changelog agreement
 pnpm release:verify        # read a published release back: DMG, ZIP and a coherent latest-mac.yml
+pnpm electron:dist:signed  # a local signed + notarised build (needs a Developer ID certificate)
 git tag v0.1.3 && git push origin v0.1.3
 ```
+
+Signing is the one thing the pipeline cannot supply for itself. The local commands
+are `node scripts/signing-identity.mjs` — which certificate would sign a build, or
+`-` for the ad-hoc fallback — and `node scripts/notarize.mjs`, which reports what
+notarisation would do to a bundle without submitting it.
 
 Pushing a `v*` tag runs [`.github/workflows/release.yml`](./.github/workflows/release.yml), which typechecks and tests the tagged commit, packages the DMG and the ZIP, uploads them to a **draft** in the public releases-only repo, verifies the draft, attaches the changelog, publishes it, and verifies it again in the state users actually see. Then it does what no verification of the upload can: it **launches the app it just built** and makes it read the live feed anonymously, and it walks the path an install would take — the archive `latest-mac.yml` names, downloaded, hashed against the sha512 the manifest promises, unpacked, and verified with `codesign` — because a download that is intact and cannot be launched is still a broken update.
 
@@ -262,8 +268,8 @@ That same pipeline can be run **without releasing anything** — `gh workflow ru
 
 The artifacts deliberately do **not** land in this repository. They go to [`ivy00johns/alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases) — the repo the app's updater reads — so anyone who installs a build can check for updates anonymously while the source stays private. Two things about those builds:
 
-- They are **ad-hoc signed and not notarised**. Download the DMG, then right-click the app → **Open** once; after that it launches normally.
-- The updater **checks** for new versions but cannot install them — this build has no Developer ID, so Squirrel.Mac has nothing it is allowed to apply.
+- They are **ad-hoc signed and not notarised** unless the release workflow was given a Developer-ID certificate — which its log states either way: `CSC_LINK` set means a signed, notarised build, and no `CSC_LINK` means it emits a `::warning::` that this release is not installable. An ad-hoc DMG needs one right-click → **Open** after downloading; after that it launches normally.
+- **Installing follows from that certificate.** On an ad-hoc build the updater checks for new versions and opens the release page, because Squirrel.Mac refuses to apply an update to anything that is not both validly code-signed and accepted by Gatekeeper. On a Developer-ID signed, notarised build it downloads the ZIP, offers **Restart to install**, and relaunches into the new version. The app decides which of the two it is by reading its own signature at runtime, and says so in Settings rather than offering an install macOS would refuse.
 
 [`docs/RELEASING.md`](./docs/RELEASING.md) is the full procedure, including the traps that cost real debugging time: `electron-updater` caches the app version at construction, drafts are invisible to `GET /releases/tags/{tag}`, and a green workflow run is not by itself proof that anything was uploaded.
 

@@ -215,6 +215,7 @@ import type {
   CountUnderResultSchema,
   CatalogChangeEventSchema,
   UpdateStatusSchema,
+  InstallUpdateResultSchema,
   RepoLinkKindSchema,
   RepoLinkSchema,
   GraphSignalSchema,
@@ -344,6 +345,10 @@ export type UpdateStatusInput = Record<string, never>;
 export type OpenReleaseInput = Record<string, never>;
 export type OpenReleaseResult = import("zod").infer<
   typeof OpenReleaseResultSchema
+>;
+export type InstallUpdateInput = Record<string, never>;
+export type InstallUpdateResult = import("zod").infer<
+  typeof InstallUpdateResultSchema
 >;
 
 export type PickScanPathInput = Record<string, never>;

@@ -49,6 +49,8 @@ import type {
   UpdateStatusInput,
   OpenReleaseInput,
   OpenReleaseResult,
+  InstallUpdateInput,
+  InstallUpdateResult,
   SetFavoriteInput,
   SetFavoriteResult,
   SyncInput,
@@ -250,6 +252,12 @@ export interface AtrBridge {
     status(input: UpdateStatusInput): Promise<UpdateStatus>;
     /** Open the pending release's page in the browser. */
     openRelease(input: OpenReleaseInput): Promise<OpenReleaseResult>;
+    /**
+     * Download and apply the pending update, then relaunch. Only a
+     * Developer-ID signed, notarised build can do this; everywhere else it
+     * resolves `{ started: false, reason }`.
+     */
+    install(input: InstallUpdateInput): Promise<InstallUpdateResult>;
     /** Subscribe to status changes; returns an unsubscribe lambda. */
     onStatus(callback: (status: UpdateStatus) => void): () => void;
   };

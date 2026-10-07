@@ -56,7 +56,7 @@
  * failure nobody sees until the download has finished.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -399,10 +399,16 @@ async function download(url: string): Promise<Buffer> {
 /**
  * What macOS makes of the signature on the bundle inside the archive.
  *
- * Deliberately not `spctl`: this build is ad-hoc signed and **not notarised**, so
- * Gatekeeper refuses a downloaded copy by design — that is the documented
- * right-click → Open on first launch, not rot. What is verified here is the
- * signature, which is what makes the copy run once it is out of quarantine.
+ * `codesign` only. Ad-hoc signed and **not notarised** is a valid state for a
+ * release — the documented right-click → Open on first launch, not rot — and
+ * `spctl` refuses exactly that state by design, so asserting it here would
+ * fail every release this project can currently build. What `codesign` proves
+ * is what makes the copy run once it is out of quarantine.
+ *
+ * Gatekeeper is asserted only where it is meaningful: `spctlAssess` and
+ * `staplerValidate` below run when the archive *is* Developer-ID signed, or
+ * when the caller demanded one with `ATR_REQUIRE_NOTARIZED=1` (which the
+ * release workflow sets on the path that resolved a certificate).
  */
 function codesignVerify(bundle: string): { ok: boolean; output: string } {
   try {
@@ -416,6 +422,51 @@ function codesignVerify(bundle: string): { ok: boolean; output: string } {
     const thrown = error as { stderr?: string; message?: string };
     return { ok: false, output: String(thrown.stderr ?? thrown.message ?? error).trim() };
   }
+}
+
+/**
+ * Run one of Apple's signing tools and hand back **both** streams.
+ *
+ * `spawnSync` rather than `execFileSync`, and that is not a style choice:
+ * `execFileSync` returns stdout alone, while `codesign -dvvv` reports the
+ * signing authorities on **stderr** and `codesign` exits 0 while doing it. A
+ * stdout-only read finds an empty string, so a properly Developer-ID signed
+ * bundle looks exactly like an unsigned one — the failure mode this whole
+ * assertion exists to catch, inverted.
+ */
+function runTool(
+  command: string,
+  args: string[],
+): { ok: boolean; output: string } {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+  return {
+    ok: !result.error && result.status === 0,
+    output: output || String(result.error?.message ?? ""),
+  };
+}
+
+/** The signing authorities on a bundle, from `codesign -dvvv`. */
+function signatureAuthorities(bundle: string): string {
+  return runTool("codesign", ["-dvvv", bundle]).output;
+}
+
+/** Would this machine's Gatekeeper run the bundle as downloaded? */
+function spctlAssess(bundle: string): { ok: boolean; output: string } {
+  return runTool("spctl", ["--assess", "--type", "execute", "--verbose=4", bundle]);
+}
+
+/**
+ * Is a notarisation ticket stapled to the bundle?
+ *
+ * The ticket is what makes a downloaded copy pass Gatekeeper with no network
+ * round-trip, and it is the half a signature alone does not give you.
+ */
+function staplerValidate(bundle: string): { ok: boolean; output: string } {
+  return runTool("xcrun", ["stapler", "validate", bundle]);
 }
 
 /** The version macOS would report for a bundle, from its own Info.plist. */
@@ -618,6 +669,40 @@ test.describe("the archive the feed offers", () => {
         bundleVersion(bundle),
         `the bundle inside ${manifest.url} is not the version ${MANIFEST_ASSET} promises`,
       ).toBe(manifest.version);
+
+      // A release that IS Developer-ID signed has made a promise the download
+      // path can be checked against — and the workflow sets
+      // `ATR_REQUIRE_NOTARIZED=1` on the run that claims one, so this cannot
+      // pass by publishing something unnotarised.
+      const authorities = signatureAuthorities(bundle);
+      const developerId = /^Authority=Developer ID Application:/m.test(authorities);
+      const required = process.env.ATR_REQUIRE_NOTARIZED === "1";
+
+      if (required) {
+        const described =
+          authorities
+            .split("\n")
+            .find((line) => /^(Authority|Signature|TeamIdentifier)=/.test(line))
+            ?.trim() ?? "no signature described at all";
+        expect(
+          developerId,
+          `${manifest.url} was expected to be Developer-ID signed, but it is ${described} — an unnotarised build cannot install its own updates`,
+        ).toBe(true);
+      }
+
+      if (developerId || required) {
+        const assessed = spctlAssess(bundle);
+        expect(
+          assessed.ok,
+          `Gatekeeper refused the bundle in ${manifest.url}, so a downloaded copy would not launch: ${assessed.output}`,
+        ).toBe(true);
+
+        const stapled = staplerValidate(bundle);
+        expect(
+          stapled.ok,
+          `no notarisation ticket is stapled to the bundle in ${manifest.url}, so Gatekeeper would re-ask Apple on every launch — or refuse offline: ${stapled.output}`,
+        ).toBe(true);
+      }
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

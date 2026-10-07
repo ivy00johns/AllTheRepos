@@ -43,6 +43,8 @@ import type {
   UpdateStatusInput,
   OpenReleaseInput,
   OpenReleaseResult,
+  InstallUpdateInput,
+  InstallUpdateResult,
   SetFavoriteInput,
   SetFavoriteResult,
   SyncInput,
@@ -368,6 +370,16 @@ export const api = {
         IPC.UPDATE.OPEN_RELEASE,
         input,
       ) as Promise<OpenReleaseResult>,
+    /**
+     * Download and apply the pending update, then relaunch. Resolves with
+     * `started: false` on a build macOS will not let update itself, so the
+     * caller can show the reason instead of treating it as a failure.
+     */
+    install: (input: InstallUpdateInput): Promise<InstallUpdateResult> =>
+      ipcRenderer.invoke(
+        IPC.UPDATE.INSTALL,
+        input,
+      ) as Promise<InstallUpdateResult>,
     /** Subscribe to status changes; returns an unsubscribe lambda. */
     onStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, payload: UpdateStatus) => {

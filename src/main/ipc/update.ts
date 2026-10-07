@@ -3,20 +3,29 @@
  *
  * Thin façade over `updaterService`. `check` triggers a real network
  * round-trip; `status` is a cheap read of the last known state, so the
- * renderer can render immediately on mount without provoking a check.
+ * renderer can render immediately on mount without provoking a check;
+ * `install` is the only one that changes the app on disk — and the only one
+ * that can decline, which it reports as `{ started: false, reason }` rather
+ * than as an error.
  */
 
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import { IPC } from "@shared/ipc";
 import {
+  InstallUpdateInputSchema,
+  InstallUpdateResultSchema,
   OpenReleaseInputSchema,
   OpenReleaseResultSchema,
   UpdateCheckInputSchema,
   UpdateStatusInputSchema,
   UpdateStatusSchema,
 } from "@shared/schemas";
-import type { OpenReleaseResult, UpdateStatus } from "@shared/types";
+import type {
+  InstallUpdateResult,
+  OpenReleaseResult,
+  UpdateStatus,
+} from "@shared/types";
 
 import { updaterService } from "@main/services/updater";
 
@@ -39,12 +48,20 @@ export async function handleUpdateOpenRelease(
   return OpenReleaseResultSchema.parse(await updaterService.openRelease());
 }
 
+export async function handleUpdateInstall(
+  raw: unknown,
+): Promise<InstallUpdateResult> {
+  InstallUpdateInputSchema.parse(raw);
+  return InstallUpdateResultSchema.parse(await updaterService.install());
+}
+
 /** Register every `update:*` handler. Idempotent. */
 export function registerUpdateHandlers(): void {
   const channels = [
     IPC.UPDATE.CHECK,
     IPC.UPDATE.STATUS,
     IPC.UPDATE.OPEN_RELEASE,
+    IPC.UPDATE.INSTALL,
   ] as const;
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
@@ -71,6 +88,14 @@ export function registerUpdateHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<OpenReleaseResult> => {
       assertRendererFrame(event);
       return handleUpdateOpenRelease(raw);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.UPDATE.INSTALL,
+    async (event: IpcMainInvokeEvent, raw): Promise<InstallUpdateResult> => {
+      assertRendererFrame(event);
+      return handleUpdateInstall(raw);
     },
   );
 }

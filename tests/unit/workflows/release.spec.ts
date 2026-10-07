@@ -86,6 +86,21 @@ const releaseJob = jobBlock("release");
 const SETTLE_STEP = "Settle the version, the tag, and whether this publishes";
 const settle = stepBlock(SETTLE_STEP);
 
+const SIGNING_STEP = "Resolve the signing identity";
+const PACKAGE_STEP = "Package and upload as a draft";
+const VERIFY_SIGNED_STEP = "Verify what was signed";
+
+const signing = stepBlock(SIGNING_STEP);
+const packageStep = stepBlock(PACKAGE_STEP);
+const verifySigned = stepBlock(VERIFY_SIGNED_STEP);
+
+/** Where a step sits in the release job, so ordering can be asserted. */
+function stepIndex(name: string): number {
+  const index = lines.findIndex((line) => line.trim() === `- name: ${name}`);
+  expect(index, `release.yml has no step named "${name}"`).toBeGreaterThan(-1);
+  return index;
+}
+
 /** The `on:` block, which ends where the top-level `permissions:` begins. */
 const on = workflow.slice(
   workflow.indexOf("\non:"),
@@ -360,5 +375,154 @@ describe("where the update feed check lives", () => {
     expect(workflow).not.toMatch(/^  feed:/m);
     expect(workflow).not.toContain("check-updater-feed");
     expect(workflow).toContain(".github/workflows/updater-feed.yml");
+  });
+});
+
+/**
+ * Signing is a promise a release makes about itself.
+ *
+ * Without a certificate the build is ad-hoc signed and the DMG is the way to
+ * install it. With one, the release says "notarised" in its notes, offers the
+ * app an installer that updates itself, and Gatekeeper has to agree. The two
+ * are different products, so the workflow has to decide *before* it builds,
+ * and it must not be able to land in between: a `CSC_LINK` that fails to
+ * import has to stop the run, not quietly produce an ad-hoc build that every
+ * later step still describes as signed.
+ */
+describe("signing and notarising a release", () => {
+  test("decides what signs the build before it builds anything", () => {
+     expect(stepIndex(SIGNING_STEP)).toBeLessThan(stepIndex(PACKAGE_STEP));
+    expect(stepIndex(SIGNING_STEP)).toBeGreaterThan(
+      stepIndex("Rebuild natives for Electron and bundle the app"),
+    );
+  });
+
+  test("stops the run when CSC_LINK cannot be imported", () => {
+    const body = commands(signing);
+    // `set -euo pipefail` rather than the runner's implicit `-e`: every later
+    // claim depends on a failure here stopping the job.
+     expect(body).toContain("set -euo pipefail");
+    expect(body).toContain("::error::CSC_LINK could not be imported");
+    // The import is what must not be walked past.
+    expect(body).toMatch(/if ! security import[\s\S]*?exit 1/);
+  });
+
+  test("refuses to sign with anything but a Developer ID certificate", () => {
+    const body = commands(signing);
+    // `--require` makes the resolver exit non-zero instead of printing `-`,
+    // and the `if !` is what turns that into a failed step.
+    expect(body).toContain("signing-identity.mjs --keychain");
+    expect(body).toContain("--require");
+    expect(body).toContain("holds no Developer ID Application identity");
+    // Signing with a certificate that cannot be notarised is the failure this
+    // whole step exists to prevent.
+    expect(body).toMatch(/if ! IDENTITY=[\s\S]*?exit 1/);
+  });
+
+  test("keeps the certificate-less path, and says what it costs", () => {
+    const body = commands(signing);
+    expect(body).toContain("::warning::");
+    expect(body).toContain("SIGNING=ad-hoc");
+    expect(body).toContain("IDENTITY=-");
+    expect(body).toContain("ATR_NOTARIZE=skip");
+    // The warning has to name the consequence, not just the missing secret.
+    expect(signing).toMatch(/cannot install its own updates/);
+  });
+
+  test("requires notarisation exactly on the path that claims to be signed", () => {
+    const bodies = commands(signing);
+    expect(bodies).toContain("SIGNING=developer-id");
+    expect(bodies).toContain("ATR_NOTARIZE=require");
+    // Both values are written, and only ever by the branch that earned it.
+    expect(signing.indexOf("SIGNING=developer-id")).toBeLessThan(
+      signing.indexOf("ATR_NOTARIZE=require"),
+    );
+    expect(signing.indexOf("ATR_NOTARIZE=skip")).toBeLessThan(
+      signing.indexOf("SIGNING=developer-id"),
+    );
+  });
+
+  test("packages with the identity it resolved, not the ad-hoc fallback", () => {
+    expect(commands(packageStep)).toContain('-c.mac.identity="$IDENTITY"');
+    // The publish flag, so this is still the step that uploads the draft.
+    expect(commands(packageStep)).toContain("--publish always");
+  });
+
+  test("hands the notarisation hook a credential it can actually use", () => {
+    const body = commands(packageStep);
+    expect(body).toContain("ATR_NOTARIZE: ${{ env.ATR_NOTARIZE }}");
+    for (const name of [
+      "APPLE_API_KEY",
+      "APPLE_API_KEY_ID",
+      "APPLE_API_ISSUER",
+      "APPLE_ID",
+      "APPLE_APP_SPECIFIC_PASSWORD",
+      "APPLE_TEAM_ID",
+    ]) {
+      // Built by concatenation: `${{ … }}` inside a template literal is an
+      // interpolation, not the GitHub expression that has to appear here.
+      const wired = `${name}: ` + "${" + `{ secrets.${name} }}`;
+      expect(body, `the package step never passes ${name}`).toContain(wired);
+    }
+    // Presence is not enough — they have to arrive in the step's environment,
+    // which is where electron-builder's afterSign hook reads them.
+    expect(body).toContain("CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}");
+  });
+
+  test("verifies the bundle it just built, after building it", () => {
+    expect(stepIndex(VERIFY_SIGNED_STEP)).toBeGreaterThan(stepIndex(PACKAGE_STEP));
+    // ...and before the release becomes visible, so a failure leaves a draft.
+    expect(stepIndex(VERIFY_SIGNED_STEP)).toBeLessThan(stepIndex(PUBLISH_STEP));
+  });
+
+  test("checks the signature and the ticket, not just that codesign exited 0", () => {
+    const body = commands(verifySigned);
+    expect(body).toContain("codesign --verify --deep --strict");
+    expect(body).toContain("Developer ID Application:");
+    expect(body).toContain("::error::");
+    // The ticket is what Gatekeeper actually reads: a signature Apple would
+    // accept and no staple is the state that fails on a stranger's machine.
+    expect(body).toContain("xcrun stapler validate");
+    expect(body).toContain("spctl --assess");
+    // The Developer-ID assertions only apply to the run that resolved one.
+    expect(body).toMatch(/if \[ "\$SIGNING" != "developer-id" \]/);
+  });
+
+  test("cannot describe a signature the build does not have", () => {
+    const notes = stepBlock(PUBLISH_STEP);
+    expect(notes).toMatch(/if \[ "\$SIGNING" = "developer-id" \]/);
+    // "checks only" survives, but only inside the branch that is true for an
+    // ad-hoc build — never as an unconditional sentence in the notes.
+    const bodies = commands(notes).split("if [ \"$SIGNING\" = \"developer-id\" ]");
+    expect(bodies.length, "the notes do not branch on SIGNING").toBeGreaterThan(1);
+    expect(bodies[0]).not.toContain("checks only");
+  });
+});
+
+describe("the mac build configuration", () => {
+  const builder = fs.readFileSync(
+    path.join(ROOT, "electron-builder.yml"),
+    "utf8",
+  );
+
+  test("runs notarisation through the hook that can decline to", () => {
+    // Anchored to column zero on purpose: `afterSign` is a **root** property,
+    // and nesting it under `mac:` is rejected by electron-builder's own
+    // validation — the whole build fails with "unknown property 'afterSign'"
+    // rather than quietly skipping notarisation.
+    expect(builder).toMatch(/^afterSign: scripts\/notarize\.mjs$/m);
+    expect(builder).not.toMatch(/^\s+afterSign:/m);
+    // Required for notarisation, and the reason a release cannot be signed
+    // without it.
+    expect(builder).toMatch(/^  hardenedRuntime: true$/m);
+  });
+
+  test("leaves ad-hoc as the fallback a certificate-less machine builds", () => {
+    // Not a hard-coded Developer ID: the identity arrives on the command line
+    // so a laptop with no certificate can run the same build command. Comments
+    // are stripped first — the file *documents* the override precisely because
+    // it must not apply one by itself.
+    expect(builder).toMatch(/^  identity: "-"$/m);
+    expect(commands(builder)).not.toMatch(/Developer ID Application:/);
   });
 });

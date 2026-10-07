@@ -25,13 +25,15 @@ The "make the app opinionated" phase. None of this exists yet (correctly — it'
 
 - Multi-theme support (OLED, Slate, Light, High-contrast) + density modes + custom keymaps.
 - Snapshots / export-import.
-- **Code signing + notarization** — `scripts/notarize.mjs` is currently a no-op; `electron-builder.yml` is unsigned (`identity: null`, `hardenedRuntime: false`).
+- **Code signing + notarization** — wired end to end and blocked on one thing that is not code: an Apple Developer Program membership, which is the only way to be issued a Developer ID Application certificate. `electron-builder.yml` runs `hardenedRuntime: true` with the real `afterSign: scripts/notarize.mjs`, CI imports the certificate, resolves the identity, demands notarisation and verifies the stapled ticket — and with no certificate the build is ad-hoc signed **by design** (`identity: "-"`), with the release saying so. See [`RELEASING.md`](./RELEASING.md).
 - **Signing/notarization in CI** — `.github/workflows/` now checks every push/PR and
   builds + publishes on a `v*` tag; what is missing is a Developer ID certificate, so the
   published artifact is still ad-hoc signed (see [`RELEASING.md`](./RELEASING.md)).
-- **Installing an update in-app** — `electron-updater` checks the GitHub Releases feed and
-  reports, but Squirrel.Mac refuses to apply an unsigned update, so installing stays manual
-  until notarization lands.
+- **Installing an update in-app** — the install half is built and *gated at runtime* rather
+  than left out: `@main/services/signing` reads the running bundle's signature and Gatekeeper's
+  verdict, `autoDownload` is turned on only when both pass, and the UI offers **Restart to
+  install** there and the release page — with the reason — everywhere else. What is missing is
+  a certificate for the build to be signed with, not the code.
 - First-run onboarding window (scan-path selection, default editor/terminal, hotkey).
 - Branded DMG background + custom installer layout.
 

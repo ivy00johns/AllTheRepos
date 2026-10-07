@@ -1,15 +1,17 @@
 import * as React from "react";
 import {
+  ArrowDownToLine,
   CheckCircle2,
   FolderPlus,
   Play,
+  RotateCw,
   Save,
   Trash2,
   XCircle,
   RefreshCw,
 } from "lucide-react";
 
-import type { Settings } from "@shared/types";
+import type { Settings, UpdateStatus } from "@shared/types";
 
 import { LauncherDefaults } from "@renderer/components/launcher/launcher-defaults";
 import { cn } from "@renderer/lib/cn";
@@ -43,6 +45,24 @@ const EMPTY_STATS: ScanStats = {
   lastMessage: null,
   done: false,
   success: null,
+};
+
+/**
+ * One clause explaining why this build cannot install its own update.
+ *
+ * The signature is read off the bundle main-side, so this only has to
+ * phrase it: "ad-hoc" and "unsigned" are both "macOS won't run an update",
+ * but they are not the same problem and the user deserves to know which.
+ */
+const INSTALL_REFUSAL: Record<UpdateStatus["signature"], string> = {
+  "developer-id":
+    "This build is Developer-ID signed but not notarised, so Gatekeeper would refuse the update",
+  "ad-hoc":
+    "This build is ad-hoc signed, so macOS will not let it update itself",
+  unsigned:
+    "This build is not code-signed, so macOS will not let it update itself",
+  unknown:
+    "This build is not signed in a way macOS will accept for an update",
 };
 
 /**
@@ -312,9 +332,9 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         <div>
           <h2 className="font-mono text-base font-semibold">Updates</h2>
           <p className="text-xs text-muted-foreground">
-            Checks GitHub for a newer release on launch. Installing stays
-            manual: macOS only applies updates to code-signed apps, and this
-            build is unsigned.
+            {update.status.canInstall
+              ? "Checks GitHub for a newer release on launch, and installs it when you ask — the app downloads the update, then asks you to restart."
+              : `Checks GitHub for a newer release on launch. ${INSTALL_REFUSAL[update.status.signature]}, so Get opens the release page and the DMG installs it by hand.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -324,7 +344,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
           <Button
             variant="outline"
             onClick={update.check}
-            disabled={update.checking}
+            disabled={update.checking || update.installing}
           >
             <RefreshCw
               className={cn("h-4 w-4", update.checking && "animate-spin")}
@@ -332,12 +352,47 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
             />
             {update.checking ? "Checking…" : "Check for updates"}
           </Button>
-          {update.status.state === "available" ? (
-            <Button onClick={update.openRelease}>
-              Get {update.status.newVersion}
+          {update.status.state === "ready" ? (
+            <Button onClick={update.install} disabled={update.installing}>
+              <RotateCw className="h-4 w-4" aria-hidden />
+              Restart to install
             </Button>
           ) : null}
+          {update.status.state === "available" ? (
+            update.status.canInstall ? (
+              <Button onClick={update.install} disabled={update.installing}>
+                <ArrowDownToLine className="h-4 w-4" aria-hidden />
+                Install {update.status.newVersion}
+              </Button>
+            ) : (
+              <Button onClick={update.openRelease}>
+                Get {update.status.newVersion}
+              </Button>
+            )
+          ) : null}
         </div>
+        {update.status.state === "downloading" ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs text-muted-foreground">
+              Downloading version {update.status.newVersion}
+              {update.status.progress !== null
+                ? ` — ${Math.round(update.status.progress)}%`
+                : "…"}
+            </p>
+            <div className="h-1 w-48 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300"
+                style={{ width: `${update.status.progress ?? 0}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+        {update.status.state === "ready" ? (
+          <p className="text-xs text-accent">
+            Version {update.status.newVersion} is downloaded — restarting
+            installs it.
+          </p>
+        ) : null}
         {update.status.state === "current" ? (
           <p className="text-xs text-accent">You&apos;re on the latest release.</p>
         ) : null}

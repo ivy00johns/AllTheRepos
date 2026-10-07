@@ -4,6 +4,12 @@
  * Reads the last known status on mount (cheap, no network) and then
  * follows the push stream, so the indicator is correct immediately
  * rather than blank until the first check lands.
+ *
+ * The hook does not decide whether installing is possible — `status`
+ * carries `canInstall` and `signature` from main, which is the only place
+ * that can read the running bundle's signature. Callers branch on those
+ * rather than on the state alone, because `available` means "a release
+ * exists", not "this build can take it".
  */
 
 import * as React from "react";
@@ -19,6 +25,9 @@ const IDLE: UpdateStatus = {
   releaseUrl: null,
   message: null,
   checkedAt: null,
+  canInstall: false,
+  signature: "unknown",
+  progress: null,
 };
 
 export interface UpdateState {
@@ -27,7 +36,16 @@ export interface UpdateState {
   check: () => void;
   /** Open the release page for the pending update. */
   openRelease: () => void;
+  /**
+   * Download and apply the pending update, then relaunch.
+   *
+   * A no-op on a build that cannot install; the reason for that is already
+   * in `status.signature`, which is what the UI should be showing.
+   */
+  install: () => void;
   checking: boolean;
+  /** A download is in flight, or finished and waiting for a restart. */
+  installing: boolean;
 }
 
 export function useUpdate(): UpdateState {
@@ -60,5 +78,21 @@ export function useUpdate(): UpdateState {
       .catch(() => {});
   }, []);
 
-  return { status, check, openRelease, checking: status.state === "checking" };
+  const install = React.useCallback(() => {
+    void requireAtr()
+      .update.install({})
+      // A refusal is an answer, not a failure — main's `reason` is already
+      // reflected in `status.signature`, so there is nothing to surface
+      // here that the button's own copy is not already saying.
+      .catch(() => {});
+  }, []);
+
+  return {
+    status,
+    check,
+    openRelease,
+    install,
+    checking: status.state === "checking",
+    installing: status.state === "downloading" || status.state === "ready",
+  };
 }

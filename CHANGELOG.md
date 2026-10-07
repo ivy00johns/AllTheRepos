@@ -86,6 +86,41 @@ source of truth for the current version.
   reading the feed. Only a rehearsal runs the step — a tag push builds the version it is
   releasing, so the feed has nothing newer to offer it, and reading `releases/latest` seconds
   after publishing would be racing GitHub.
+- A release is **signed and notarised** when there is a certificate to do it with, and says which
+  kind of release it is when there is not. The build was ad-hoc signed, which Apple silicon needs
+  in order to execute the binary at all but which macOS refuses to *update*: Squirrel.Mac will not
+  apply an update to anything that is not validly code-signed and accepted by Gatekeeper, so the
+  updater could check for releases for ever and never install one. That made signing the whole
+  remaining distance to a self-updating app. `electron-builder.yml` now runs a hardened runtime —
+  required for notarisation, harmless for an ad-hoc build — and
+  `afterSign: scripts/notarize.mjs`, which submits the bundle to Apple and then checks the result
+  rather than trusting it: `xcrun stapler validate` has to find the ticket on it, because a
+  signature Gatekeeper will not honour is an update that downloads and then does nothing. The hook
+  reads `ATR_NOTARIZE` as `auto` (notarise a Developer-ID signed bundle whose credentials are
+  complete; skip anything else), `require` (fail unless both are true — what a tag push sets, so a
+  release cannot quietly publish something that looks installable and is not), or `skip`.
+  Credentials are an App Store Connect API key or an Apple ID with an app-specific password, and a
+  partly configured set is always an error naming what is missing rather than a silent skip.
+  `scripts/signing-identity.mjs` picks the certificate — refusing "Apple Development", which signs
+  a build that runs locally and cannot be notarised, and falling back to a bare `-` for ad-hoc when
+  the keychain holds nothing — and `pnpm electron:dist:signed` is the local equivalent of what CI
+  does. Without `CSC_LINK` the workflow still publishes and emits a `::warning::` that this release
+  is not installable: a release is not blocked on a procurement decision, it is required to say
+  which kind of release it is. `node scripts/notarize.mjs` reports the whole decision for a bundle
+  on disk without submitting anything.
+- The updater **installs** its own updates on a build macOS will let it, and explains itself on one
+  it will not. Installing is now a fact about the *running* bundle rather than an assumption made
+  at build time: `src/main/services/signing.ts` reads `codesign -dvvv` for a Developer ID
+  authority and `spctl --assess` for Gatekeeper's verdict — which is what additionally requires
+  the notarisation ticket — and the updater turns `autoDownload` on only when both agree. Off the
+  bundle rather than off the config, because the two differ exactly when it matters: a build that
+  silently fell back to ad-hoc because a certificate was missing, or a copy whose signature broke
+  in transit. On a signed, notarised build an update now downloads, reports its progress, and
+  offers **Restart to install**, which relaunches into the new version. On every other build the
+  app does what it did before — it checks, it reports what it found, and it opens the release page
+  — and Settings states the reason, so the affordance that is missing is explained rather than
+  simply absent. It is the same classification `scripts/notarize.mjs` makes about what it submits,
+  and a unit test drives both with the same fixtures so the two cannot drift apart.
 
 ## [0.1.6] - 2026-10-07
 

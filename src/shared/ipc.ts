@@ -153,22 +153,32 @@ export const IPC = {
   },
 
   /**
-   * Update namespace — checks whether a newer release exists.
-   * Installing stays manual while the app ships unsigned; see
-   * `services/updater.ts`.
+   * Update namespace — checks whether a newer release exists, and installs
+   * it where macOS will allow that. Installing is offered only on a
+   * Developer-ID signed, notarised build; everywhere else the release page
+   * is the honest answer. See `services/updater.ts`.
    */
   UPDATE: {
     /** Ask GitHub whether there's a newer release. */
     CHECK: "update:check",
     /** Read the last known status without triggering a check. */
     STATUS: "update:status",
-    /** Push-style status stream (checking / available / current / error). */
+    /**
+     * Push-style status stream (checking / available / downloading /
+     * ready / current / error).
+     */
     ON_STATUS: "update:on:status",
     /**
      * Open the release page for the available update. The URL is held
      * main-side so the renderer can't ask to open an arbitrary address.
      */
     OPEN_RELEASE: "update:openRelease",
+    /**
+     * Download and apply the pending update, then relaunch — the one
+     * channel here that changes the app on disk. Refuses, with a reason,
+     * on any build macOS would not let Squirrel.Mac update.
+     */
+    INSTALL: "update:install",
   },
 
   /** Settings namespace — persisted via electron-store, NOT SQLite. */

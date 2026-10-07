@@ -735,21 +735,55 @@ export const TaskOutputEventSchema = z.object({
  *
  * `unavailable` is distinct from `error`: it means we deliberately
  * didn't check (running from source, no token), not that checking broke.
+ *
+ * `downloading` and `ready` only ever appear on a build that can install:
+ * `autoDownload` is off everywhere else, because a build macOS will refuse to
+ * update must not spend a hundred megabytes proving it.
  */
+export const UpdateStateSchema = z.enum([
+  "idle",
+  "checking",
+  "available",
+  "downloading",
+  "ready",
+  "current",
+  "error",
+  "unavailable",
+]);
+export type UpdateStateZ = z.infer<typeof UpdateStateSchema>;
+
+/**
+ * How the *running bundle* is signed, as read back off its own signature.
+ *
+ * This is the fact `canInstall` is derived from, and the reason the UI can
+ * explain itself: "ad-hoc signed" and "running from source" are different
+ * answers to the same question, and only one of them is fixable by the user.
+ */
+export const UpdateSignatureSchema = z.enum([
+  "developer-id",
+  "ad-hoc",
+  "unsigned",
+  "unknown",
+]);
+export type UpdateSignatureZ = z.infer<typeof UpdateSignatureSchema>;
+
 export const UpdateStatusSchema = z.object({
-  state: z.enum([
-    "idle",
-    "checking",
-    "available",
-    "current",
-    "error",
-    "unavailable",
-  ]),
+  state: UpdateStateSchema,
   currentVersion: z.string(),
   newVersion: z.string().nullable(),
   releaseUrl: z.string().nullable(),
   message: z.string().nullable(),
   checkedAt: z.string().nullable(),
+  /**
+   * Whether this build may install an update itself, rather than asking
+   * the user to download a DMG. True only for a packaged, Developer-ID
+   * signed, Gatekeeper-accepted bundle — see `@main/services/signing`.
+   */
+  canInstall: z.boolean(),
+  /** Why `canInstall` is what it is. */
+  signature: UpdateSignatureSchema,
+  /** 0–100 while a download is in flight; null at every other moment. */
+  progress: z.number().nullable(),
 });
 
 export const UpdateCheckInputSchema = z.object({});
@@ -759,6 +793,16 @@ export const OpenReleaseResultSchema = z.object({
   reason: z.string().nullable(),
 });
 export const UpdateStatusInputSchema = z.object({});
+export const InstallUpdateInputSchema = z.object({});
+export const InstallUpdateResultSchema = z.object({
+  /**
+   * False when the app declined to install — with `reason` saying why.
+   * A refusal is a normal answer here, not an error: most builds cannot
+   * install, and the caller is told so in words it can show a person.
+   */
+  started: z.boolean(),
+  reason: z.string().nullable(),
+});
 
 // ---------------------------------------------------------------------------
 // graph:build

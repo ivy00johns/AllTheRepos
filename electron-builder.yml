@@ -20,6 +20,17 @@ asarUnpack:
   - "**/node_modules/fsevents/**"
 npmRebuild: true
 
+# Notarise the signed .app and staple the ticket.
+#
+# Top-level, not under `mac:` — `afterSign` is a root property in
+# electron-builder, and putting it in the `mac` block is rejected outright at
+# config validation (which is how this line was found to be in the wrong
+# place). The hook itself decides whether there is anything to do: a bundle
+# with no Developer ID signature is skipped, a half-configured credential is
+# an error, and a release can demand notarisation outright with
+# `ATR_NOTARIZE=require` — see scripts/notarize.mjs.
+afterSign: scripts/notarize.mjs
+
 # Update feed. Artifacts are published to a PUBLIC releases-only repo while
 # the source stays private, so a shipped copy can read the feed with an
 # anonymous request — no token, and no reason to embed one. The app names the
@@ -37,7 +48,7 @@ publish:
 mac:
   category: public.app-category.developer-tools
   icon: resources/icon.icns
-  # Ad-hoc signing ("-"), not `null`.
+  # Ad-hoc signing ("-"), not `null` — the no-certificate default.
   #
   # Apple Silicon refuses to execute an arm64 binary with no signature at
   # all, and `identity: null` skips signing entirely — leaving only the
@@ -45,12 +56,31 @@ mac:
   # resources unsealed. Ad-hoc costs nothing, needs no Apple account, and
   # produces a bundle that launches and verifies locally.
   #
-  # It is NOT notarised: a copy downloaded from the internet still carries
-  # a quarantine flag and needs one right-click → Open. Real signing +
-  # notarisation (and with them, true auto-update) require an Apple
-  # Developer certificate — see docs/RELEASING.md.
+  # It is NOT notarised, and macOS will not let an ad-hoc build update
+  # itself. So this value is the *fallback*, not the target: a machine (or
+  # a CI job) holding a Developer ID Application certificate overrides it
+  # on the command line with the real identity —
+  #
+  #   electron-builder --mac -c.mac.identity="Developer ID Application: … (TEAMID)"
+  #
+  # which is the same override pattern `extraMetadata.version` already uses
+  # for a rehearsal. `pnpm electron:dist:signed` is that command, with the
+  # identity read out of the keychain; `release.yml` resolves it the same
+  # way after importing `CSC_LINK`. With no certificate the override is
+  # omitted and this value stands, which is how a rehearsal still builds on
+  # a machine that cannot sign.
   identity: "-"
-  hardenedRuntime: false
+  # Required for notarisation — Apple rejects a build that does not opt in
+  # — and harmless for an ad-hoc one, which is why it is on unconditionally
+  # rather than only on the signed path. An ad-hoc bundle under a hardened
+  # runtime still launches; the entitlements below are what let it load
+  # LanceDB's prebuilt dylibs and run Electron's JIT.
+  hardenedRuntime: true
+  # `spctl` on an ad-hoc bundle fails by design, so asking electron-builder
+  # to assess the build here would fail every certificate-less build.
+  # Gatekeeper is assessed where it matters instead — against the *shipped*
+  # archive, in tests/e2e/packaged-update-check.spec.ts, and against
+  # whatever `mac.identity` actually resolved to in release.yml.
   gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist

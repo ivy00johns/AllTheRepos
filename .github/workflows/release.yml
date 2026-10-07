@@ -184,6 +184,83 @@ jobs:
           pnpm electron:rebuild
           pnpm electron:build
 
+      # Decide what signs this build *before* building it, because the two
+      # answers are different products.
+      #
+      # With a certificate (`CSC_LINK`, a base64 `.p12`) the build is signed
+      # with its Developer ID, and notarisation is then *required* rather
+      # than attempted: `ATR_NOTARIZE=require` makes a missing or half-set
+      # notarisation credential fail the run instead of publishing an update
+      # macOS would refuse. A Developer-ID signature without a notarisation
+      # ticket is the worst of both — it looks signed and Gatekeeper still
+      # will not run it from a download.
+      #
+      # With no certificate the build stays ad-hoc signed, which still
+      # launches locally and still publishes. That is deliberate: a release
+      # should not be blocked by a procurement decision, and the DMG path
+      # below is a real one. What it must not do is *pretend*, so this branch
+      # says so in a warning, the release notes say so, and the app's own
+      # capability gate keeps an install button off a build that could never
+      # complete one. See docs/RELEASING.md.
+      - name: Resolve the signing identity
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          # Explicit rather than inherited from the runner: every promise below
+          # ("this release is signed", "this release is notarised") depends on a
+          # failure stopping the job here rather than being printed and walked
+          # past. A `CSC_LINK` that does not import has to fail, not quietly
+          # produce an ad-hoc build that the next step still calls signed.
+          set -euo pipefail
+
+          if [ -z "$CSC_LINK" ]; then
+            echo "SIGNING=ad-hoc" >> "$GITHUB_ENV"
+            echo "IDENTITY=-" >> "$GITHUB_ENV"
+            echo "ATR_NOTARIZE=skip" >> "$GITHUB_ENV"
+            echo "::warning::CSC_LINK is not set, so this build is ad-hoc signed: a downloaded copy needs one right-click → Open, and the app cannot install its own updates. Add the CSC_LINK and CSC_KEY_PASSWORD secrets plus a notarisation credential to publish an installable release — see docs/RELEASING.md."
+            exit 0
+          fi
+
+          # A throwaway keychain: the certificate exists on this machine for
+          # the length of this job and nowhere else, and `security` must be
+          # pointed at it explicitly because the runner's default search list
+          # does not include it.
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          CERTIFICATE="$RUNNER_TEMP/certificate.p12"
+          echo -n "$CSC_LINK" | base64 --decode > "$CERTIFICATE"
+          if ! security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign; then
+            rm -f "$CERTIFICATE"
+            echo "::error::CSC_LINK could not be imported — it must be a base64-encoded Developer ID Application .p12, and CSC_KEY_PASSWORD must decrypt it. See docs/RELEASING.md."
+            exit 1
+          fi
+          # Without this, `codesign` may ask for permission to use the key —
+          # and there is nobody on a runner to answer. `-s` selects the keys
+          # that can sign; `-S` grants the toolchain permission to use them.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$CERTIFICATE"
+
+          # `--require`: a `CSC_LINK` that yields no Developer ID Application
+          # identity is a broken secret, not an ad-hoc build. `Apple
+          # Development` certificates are refused here on purpose — they sign
+          # a build that runs on this machine and cannot be notarised.
+          if ! IDENTITY="$(node scripts/signing-identity.mjs --keychain "$KEYCHAIN" --require)"; then
+            echo "::error::the certificate imported from CSC_LINK holds no Developer ID Application identity. An Apple Development certificate cannot be notarised — check the secret holds the right certificate. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          echo "SIGNING=developer-id" >> "$GITHUB_ENV"
+          echo "IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "ATR_NOTARIZE=require" >> "$GITHUB_ENV"
+          echo "Signing with: $IDENTITY"
+
       # DMG for humans, ZIP for the updater (Squirrel.Mac cannot apply a DMG),
       # plus latest-mac.yml, which is generated from the ZIP target and is what
       # an update check reads. `publish always` is what lets this run outside a
@@ -194,11 +271,60 @@ jobs:
       # scratch version aims it at a scratch channel instead of at the tag a real
       # release would be using. On a tag push the value is the version
       # `package.json` already carries, so this is the same command as before.
+      #
+      # `-c.mac.identity` overrides the ad-hoc fallback in electron-builder.yml
+      # with whatever the step above resolved — the same CLI-override pattern
+      # the version uses, and the reason a machine with no certificate can
+      # still run this exact command.
       - name: Package and upload as a draft
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           EP_DRAFT: "true"
-        run: pnpm exec electron-builder --mac --publish always -c.extraMetadata.version="$BUILD_VERSION"
+          # Read by `scripts/notarize.mjs` (the `afterSign` hook) — `require`
+          # on the signed path, `skip` on the ad-hoc one.
+          ATR_NOTARIZE: ${{ env.ATR_NOTARIZE }}
+          CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
+          # Empty when the secret is unset, which the hook reads as "that
+          # strategy is not configured" — a *partial* set is what it refuses.
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm exec electron-builder --mac --publish always -c.extraMetadata.version="$BUILD_VERSION" -c.mac.identity="$IDENTITY"
+
+      # Assert what this run claims about the bundle it just built. The DMG
+      # and ZIP on the runner are byte-for-byte what gets downloaded, so this
+      # is the last moment the claim can be checked cheaply — and a release
+      # that says "notarised" while carrying an unnotarised app is worse than
+      # one that admits it is ad-hoc.
+      - name: Verify what was signed
+        run: |
+          APP="release/mac-arm64/AllTheRepos.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          AUTHORITY="$(codesign -dvvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
+          echo "Signed by: ${AUTHORITY:-<nothing>}"
+
+          if [ "$SIGNING" != "developer-id" ]; then
+            echo "Ad-hoc build — nothing further to assert about the signature."
+            exit 0
+          fi
+
+          case "$AUTHORITY" in
+            "Developer ID Application:"*)
+              ;;
+            *)
+              echo "::error::this run resolved a Developer ID identity, but the bundle is signed by '${AUTHORITY:-nothing}'"
+              exit 1
+              ;;
+          esac
+
+          # A signature Apple would accept, stapled to the bundle, so a
+          # downloaded copy passes Gatekeeper with no network round-trip.
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
 
       # Read the draft back before it can be seen. An upload that dropped the
       # ZIP, or wrote a manifest naming a version nobody built, fails the job
@@ -232,14 +358,30 @@ jobs:
             echo
             echo "**[${DMG}](https://github.com/${RELEASES_REPO}/releases/download/${TAG}/${DMG})** — the macOS installer (Apple silicon, $(du -h "release/${DMG}" | cut -f1))."
             echo
-            echo "Open the DMG, drag **AllTheRepos** into Applications, then right-click the app →"
-            echo "**Open** once. It is ad-hoc signed and **not notarised**, so the first launch has to"
-            echo "go through that menu; after that it opens normally."
+            # Which of the two install stories is true is decided by the step
+            # above, not guessed here — the notes are the first thing a person
+            # reads about a release, so a stale sentence about signing is the
+            # one piece of documentation guaranteed to be wrong.
+            if [ "$SIGNING" = "developer-id" ]; then
+              echo "Open the DMG, drag **AllTheRepos** into Applications, and launch it. It is"
+              echo "signed with a Developer ID and notarised by Apple, so there is no Gatekeeper"
+              echo "warning to work around."
+            else
+              echo "Open the DMG, drag **AllTheRepos** into Applications, then right-click the app →"
+              echo "**Open** once. This build is ad-hoc signed and **not notarised**, so the first"
+              echo "launch has to go through that menu; after that it opens normally."
+            fi
             echo
             echo "The other three assets are the update feed, not alternative installers: the app"
             echo "downloads the \`.zip\` because Squirrel.Mac cannot apply an update from a DMG, and"
-            echo "it reads \`latest-mac.yml\` to decide whether an update exists at all. Updates in this"
-            echo "build are **checks only** — with no Developer ID, the app cannot install them itself."
+            echo "it reads \`latest-mac.yml\` to decide whether an update exists at all."
+            if [ "$SIGNING" = "developer-id" ]; then
+              echo "This build updates itself: when a newer release exists the app downloads it and"
+              echo "offers to restart and install it."
+            else
+              echo "Updates in this build are **checks only** — with no Developer ID certificate the"
+              echo "app cannot install them itself, so it tells you a release exists and opens this page."
+            fi
             echo
             echo "SHA-256: \`$(shasum -a 256 "release/${DMG}" | cut -d' ' -f1)\`"
             echo
@@ -299,6 +441,17 @@ jobs:
             # spec waits for it to, rather than racing a cache that is seconds old.
             export ATR_PACKAGED_UPDATE_EXPECT="current"
           fi
+
+          # The install path is asserted against the archive the feed actually
+          # offers — and on the run that claimed a certificate, it must hold
+          # Apple's end of the bargain too: a Developer ID signature, a
+          # Gatekeeper-accepted bundle, and a stapled notarisation ticket. That
+          # is the difference between "the download works" and "an update would
+          # install", which is the whole point of signing this release.
+          if [ "$SIGNING" = "developer-id" ]; then
+            export ATR_REQUIRE_NOTARIZED=1
+          fi
+
           pnpm test:packaged-update
 
       # A run that dies between the upload and the publish leaves its assets on

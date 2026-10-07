@@ -20,6 +20,7 @@ import {
   Settings as SettingsIcon,
   Terminal,
   ArrowDownToLine,
+  RotateCw,
   Network,
 } from "lucide-react";
 
@@ -135,19 +136,67 @@ export function TopBar() {
       {/*
         Only shown when there is genuinely something to act on. An
         always-present "you're up to date" chip is pure noise.
+
+        Which action the chip runs depends on whether this build can
+        install an update at all — `canInstall` is read off the running
+        bundle's own signature main-side, so an ad-hoc build gets the
+        release page rather than a download that macOS would refuse.
       */}
+      {update.status.state === "downloading" ? (
+        <span
+          title={`Downloading version ${update.status.newVersion} — ${Math.round(
+            update.status.progress ?? 0,
+          )}%`}
+          className="flex shrink-0 items-center gap-1.5 rounded-md bg-accent/15 px-2 py-1 text-xs text-accent"
+        >
+          <ArrowDownToLine className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden lg:inline">
+            Downloading {update.status.newVersion}
+          </span>
+          <span className="lg:hidden">Update</span>
+          <span className="font-mono">
+            {Math.round(update.status.progress ?? 0)}%
+          </span>
+        </span>
+      ) : null}
+
+      {update.status.state === "ready" ? (
+        <button
+          type="button"
+          onClick={update.install}
+          title={`Version ${update.status.newVersion} is downloaded — restarts the app to install it`}
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-accent/15 px-2 py-1 text-xs text-accent transition-colors duration-150 hover:bg-accent/25"
+        >
+          <RotateCw className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden lg:inline">
+            Restart to update {update.status.newVersion}
+          </span>
+          <span className="lg:hidden">Restart</span>
+        </button>
+      ) : null}
+
       {update.status.state === "available" ? (
         <button
           type="button"
-          onClick={update.openRelease}
-          title={`Version ${update.status.newVersion} is available — opens the release page`}
+          onClick={
+            update.status.canInstall ? update.install : update.openRelease
+          }
+          title={
+            update.status.canInstall
+              ? `Version ${update.status.newVersion} is available — downloads and installs it, then asks you to restart`
+              : `Version ${update.status.newVersion} is available — opens the release page`
+          }
           className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-accent/15 px-2 py-1 text-xs text-accent transition-colors duration-150 hover:bg-accent/25"
         >
           <ArrowDownToLine className="h-3.5 w-3.5" aria-hidden />
           <span className="hidden lg:inline">
-            Update to {update.status.newVersion}
+            {update.status.canInstall
+              ? `Install ${update.status.newVersion}`
+              : `Update to ${update.status.newVersion}`}
           </span>
-          <span className="lg:hidden">Update</span>
+          <span className="lg:hidden">
+            {update.status.canInstall ? "Install" : "Update"}
+          </span>
         </button>
       ) : null}
 

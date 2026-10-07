@@ -1,23 +1,28 @@
 /**
- * Update checking.
+ * Update checking, and — where macOS permits it — updating.
  *
- * ## Why this checks but does not install
+ * ## Why the install half is conditional
  *
  * macOS applies updates through Squirrel.Mac, which refuses to install
- * anything that isn't validly code-signed. This app currently ships
- * unsigned (there's no Apple Developer certificate on the build machine),
- * so a silent auto-update would fail at the last step — after downloading
- * a hundred megabytes — with an error the user can do nothing about.
+ * anything that isn't validly code-signed by a Developer ID certificate and
+ * accepted by Gatekeeper. An ad-hoc signed build — every build this project
+ * can produce without a paid Apple Developer membership — can therefore
+ * download an update but cannot apply one.
  *
- * Pretending otherwise would be worse than not offering it. So the
- * updater does the half that genuinely works: it asks GitHub whether a
- * newer release exists and tells you, with a link. Downloading and
- * installing stay manual.
+ * Pretending otherwise would be worse than not offering it: the failure
+ * arrives after a hundred megabytes, with an error the user can do nothing
+ * about. So the build asks what it is allowed to do, and offers only that:
  *
- * Everything needed for real auto-update is already in place —
- * `electron-updater`, the feed, the version comparison. When a signing
- * certificate exists, flipping `autoDownload` on and calling
- * `quitAndInstall` is the whole change; see `docs/RELEASING.md`.
+ *   - A Developer-ID signed, notarised, Gatekeeper-accepted build turns
+ *     `autoDownload` on, reports progress, and offers **Restart to
+ *     install**. That is a real update.
+ *   - Anything else keeps `autoDownload` off and behaves exactly as it did
+ *     before: check, report, and open the release page. `canInstall` and
+ *     `signature` in the status say why, in words the UI can show.
+ *
+ * The question is answered by `@main/services/signing`, which reads the
+ * signature off the *running bundle* rather than off the build config —
+ * those differ exactly when it matters.
  *
  * ## Where the feed lives
  *
@@ -36,8 +41,12 @@
 import { app } from "electron";
 import electronUpdater from "electron-updater";
 
-import type { UpdateStatus } from "@shared/types";
+import type { InstallUpdateResult, UpdateStatus } from "@shared/types";
 
+import {
+  probeSigning,
+  type SigningAssessment,
+} from "@main/services/signing";
 import { openExternalAllowlisted } from "@main/security/allowlist";
 
 /** `electron-updater` is CJS; this is the documented interop dance. */
@@ -101,8 +110,15 @@ class UpdaterService {
     releaseUrl: null,
     message: null,
     checkedAt: null,
+    // The capability is filled in by `assess()`, which is deliberately not
+    // called here: this object is built while the module graph loads, and
+    // probing shells out to `codesign`.
+    canInstall: false,
+    signature: "unknown",
+    progress: null,
   };
   private wired = false;
+  private capability: SigningAssessment | null = null;
 
   onStatus(listener: UpdateStatusListener): () => void {
     this.listeners.add(listener);
@@ -113,7 +129,23 @@ class UpdaterService {
   }
 
   current(): UpdateStatus {
+    // `current()` is the renderer's first read on mount, so it is also where
+    // the capability gets resolved — the answer has to be in the status
+    // before the UI can decide whether to offer an install.
+    this.assess();
     return this.status;
+  }
+
+  /** Probe once, publish the answer, and return it. */
+  private assess(): SigningAssessment {
+    if (!this.capability) {
+      this.capability = probeSigning();
+      this.set({
+        canInstall: this.capability.canInstall,
+        signature: this.capability.signature,
+      });
+    }
+    return this.capability;
   }
 
   private set(patch: Partial<UpdateStatus>): void {
@@ -131,9 +163,12 @@ class UpdaterService {
     if (this.wired) return;
     this.wired = true;
 
-    // Checking only — see the file header for why installing is off.
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
+    // Downloading is what separates a real update from a check, so it rides
+    // on the capability: a build macOS will refuse to update must not spend
+    // the user's bandwidth proving it.
+    const installable = this.assess().canInstall;
+    autoUpdater.autoDownload = installable;
+    autoUpdater.autoInstallOnAppQuit = installable;
     autoUpdater.logger = null;
 
     autoUpdater.on("checking-for-update", () => {
@@ -150,11 +185,34 @@ class UpdaterService {
       });
     });
 
+    // Only reachable on an installable build — `autoDownload` is off
+    // everywhere else, so these never fire there.
+    autoUpdater.on("download-progress", (progress) => {
+      this.set({
+        state: "downloading",
+        progress:
+          typeof progress?.percent === "number"
+            ? Math.max(0, Math.min(100, Math.round(progress.percent)))
+            : null,
+      });
+    });
+
+    autoUpdater.on("update-downloaded", (info) => {
+      this.set({
+        state: "ready",
+        newVersion: info.version,
+        progress: 100,
+        message: null,
+        checkedAt: new Date().toISOString(),
+      });
+    });
+
     autoUpdater.on("update-not-available", () => {
       this.set({
         state: "current",
         newVersion: null,
         message: null,
+        progress: null,
         checkedAt: new Date().toISOString(),
       });
     });
@@ -162,6 +220,7 @@ class UpdaterService {
     autoUpdater.on("error", (error) => {
       this.set({
         ...describeError(error),
+        progress: null,
         checkedAt: new Date().toISOString(),
       });
     });
@@ -204,6 +263,78 @@ class UpdaterService {
       this.set({ ...describeError(error), checkedAt: new Date().toISOString() });
     }
     return this.status;
+  }
+
+  /**
+   * Download and apply the pending update, then relaunch.
+   *
+   * Refuses — with a reason, not an error — whenever this build cannot
+   * install, which is most builds. The caller is expected to show that
+   * reason, so a refusal is a normal answer rather than a failure.
+   *
+   * Idempotent by state: called while the download is already in flight it
+   * just asks again (electron-updater de-duplicates), and called once the
+   * download has finished it quits and installs.
+   */
+  async install(): Promise<InstallUpdateResult> {
+    const capability = this.assess();
+    if (!capability.canInstall) {
+      return { started: false, reason: capability.reason };
+    }
+    if (!app.isPackaged) {
+      return {
+        started: false,
+        reason: "Only a packaged build can install an update.",
+      };
+    }
+
+    this.wire();
+
+    if (this.status.state === "ready") {
+      // Deferred so this reply reaches the renderer before the process
+      // starts going away — `quitAndInstall` tears the app down.
+      setImmediate(() => {
+        try {
+          autoUpdater.quitAndInstall();
+        } catch (error) {
+          this.set({
+            ...describeError(error),
+            progress: null,
+            checkedAt: new Date().toISOString(),
+          });
+        }
+      });
+      return { started: true, reason: null };
+    }
+
+    if (
+      this.status.state === "available" ||
+      this.status.state === "downloading"
+    ) {
+      try {
+        await autoUpdater.downloadUpdate();
+      } catch (error) {
+        this.set({
+          ...describeError(error),
+          progress: null,
+          checkedAt: new Date().toISOString(),
+        });
+        return {
+          started: false,
+          reason:
+            "The download failed — try again, or open the release page and download the DMG.",
+        };
+      }
+      // `update-downloaded` completing the download will flip the state to
+      // `ready` on its own; this returns immediately so the UI can show
+      // progress rather than block on ~115 MB.
+      return { started: true, reason: null };
+    }
+
+    return {
+      started: false,
+      reason: "There is no update to install — check for one first.",
+    };
   }
 
   /**
