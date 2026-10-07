@@ -177,11 +177,29 @@ not by running a documented command on one machine:
   mock embedding provider on the runner, so the vector path is entered and `lance.ts`'s own
   `catch` is what gets exercised. It is the innermost of three, so nothing else in this
   repository would notice its removal; built with the catch deleted and the app reporting
-  `x86_64`, that spec goes red on `[backend] vector path error`. **Green on both legs**
+  `x86_64`, that spec goes red on `[backend] vector path error`. **The decision it was built
+  upstream of is made**: Intel stays unbuilt, with the reasoning and the four options priced in
+  [`docs/FUTURE.md`](./FUTURE.md) — `@lancedb/lancedb` dropped darwin-x64 for good (last stable
+  2025-11-07), so an Intel build means no semantic search or an engine eleven months behind.
+  **Green on both legs**
   (CI run `37683034472`): 15 tests, 10 passed / 5 skipped, 27.3s of suite on `macos-14` and
   1.3m on `macos-15-intel` — the binding probe 425ms there against 2.3s on Intel, where it is
   answering no. Neither leg skips it: the expectations are architecture-dependent, which is
   the difference between a leg that checks Intel and a leg that runs on it.
+- **Semantic search has an end-to-end test** (2026-10-07):
+  [`tests/e2e/semantic-search.spec.ts`](../tests/e2e/semantic-search.spec.ts) runs a real scan with
+  a mock embedding provider on the runner and asserts that search comes back *ranked with the
+  vectors that scan stored* — every seeded repo `hybrid`, and a query naming one repo ranking it
+  first. It exists because the two halves had never met in a test: the unit specs either mock the
+  vector store or stub `indexRepoEmbedding`, so nothing had ever written a real vector and read it
+  back through a real search. **The write path was already wired** — ATR-018, in `scan.ts`'s
+  `discovered` handler and in `catalog:rescan`, with `FUTURE.md` already saying so; the audit of
+  2026-05-31 that reads "embeddings are never written" describes a commit that no longer exists.
+  What was missing was proof, and it is now three mutations deep: remove the scan's
+  `indexRepoEmbedding` call, aim the app at a provider that is not there, or drop the vector side
+  in `hybridSearch`'s merge — each turns the spec red, and the last of those is a failure no unit
+  test can reach. The profile is what makes it mean something: a launch copies the seeded SQLite
+  file and settings but *not* the LanceDB directory, so a vector hit cannot be inherited.
 
 **Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
 first-class part of the app, and then the app was handed the pen as well:
