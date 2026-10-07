@@ -133,17 +133,20 @@ jobs:
   #
   # Two legs, one per architecture a Mac comes in. Only one of them is a build
   # anybody can download — `electron-builder.yml` ships arm64 and nothing else —
-  # so the Intel leg tests no product. It answers a different question, and one
-  # this repository has never had an answer to: **does this app run on x86_64 at
-  # all?** `pnpm platforms:check` reads dependency metadata and can say that
-  # `@lancedb/lancedb` publishes no darwin-x64 binary; only a machine can say
-  # what the app does about that, because `services/lance.ts` fails soft on
-  # purpose — no vector store means semantic search degrades to FTS and a scan
-  # still completes, so nothing goes red on its own. Whether the rest of the app
-  # is that forgiving is an empirical claim, and this is where it is measured.
-  # It is also the precondition for the decision still open upstream of it:
-  # adding `x64` to the dmg/zip targets is a one-line change that packages and
-  # uploads an Intel build, and what that build does is what this leg reports.
+  # so the Intel leg tests no product. It answers a different question: **does
+  # this app run on x86_64 at all?** Measured on its first run: yes, and it was
+  # the same 13 tests answered the same way on both machines. It is also the
+  # precondition for the decision still open upstream of it — adding `x64` to the
+  # dmg/zip targets is a one-line change that packages and uploads an Intel build,
+  # and whether that build is worth shipping is what this leg is for.
+  #
+  # What it does not cover, because it cannot: **nothing in the suite calls into
+  # the vector path**, so a green run here means the app builds, boots, renders,
+  # navigates, spawns and kills processes on x86_64 — not that semantic search
+  # works there. It does not: `@lancedb/lancedb` publishes no darwin-x64 binary,
+  # and `services/lance.ts` fails soft on purpose, so the loss is silent by
+  # design. `pnpm platforms:check` is where that loss is asserted; this leg is
+  # where the rest of the app is proved to survive it.
   #
   # `macos-13` was the Intel label this leg was first asked for, and it no longer
   # exists: GitHub retired the macOS 13 images on 2025-12-04 (the last x86_64

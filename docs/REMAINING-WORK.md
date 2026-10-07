@@ -154,6 +154,24 @@ not by running a documented command on one machine:
   workflow at the tagged commit, so `.github/workflows/` has to be on the default branch before
   a `v*` tag can start it. Until then, releases are cut from one machine with `pnpm release`,
   which verifies itself.
+- **The Electron suite now runs on Intel too** (2026-10-07, CI run `37678967992`): the `e2e` job is
+  a two-leg matrix — `macos-14` (arm64) and `macos-15-intel` (x86_64) — and the first Intel run
+  was **green**. The label is the part that took looking up: `macos-13` was the machine asked
+  for by name and it no longer exists (GitHub retired the macOS 13 images on 2025-12-04, so a
+  job asking for one waits for a runner that never arrives); `macos-15-intel` is the x86_64
+  image that replaced it. The leg's first step asserts its own premise rather than trusting the
+  label, and the runner said `uname -m` = `x86_64`, `node` = `x64`, and the binary it was about
+  to launch was `Mach-O 64-bit executable x86_64`. **What it found is nothing**, which is the
+  real result: the same 13 tests, the same **8 passed / 5 skipped** (the five are
+  `packaged-update-check`, which skips without a packaged bundle — by design, on both legs),
+  with `find-git-repositories` compiling from source and `better-sqlite3` loading on Intel. The
+  leg is not free: 188s of runner against the arm64 leg's 61s, because the Intel image is three
+  cores and `pnpm install` builds both natives from source there (71s against 6s).
+  **Nothing in the suite calls into the vector path**, so that green says the app builds,
+  boots, renders, navigates, spawns and kills processes on x86_64 — it does not say semantic
+  search works there, and it cannot: `@lancedb/lancedb` publishes no darwin-x64 binary, so the
+  app runs FTS-only on Intel and `services/lance.ts` fails soft rather than saying so. That
+  half is still an inference from the code, not a measurement.
 
 **Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
 first-class part of the app, and then the app was handed the pen as well:
