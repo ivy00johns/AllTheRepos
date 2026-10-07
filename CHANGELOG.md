@@ -11,8 +11,11 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-07
+
 ### Changed
 
+- seed the e2e profiles from a catalog instead of your own library
 - The Electron e2e suite runs against a seeded catalog instead of your own library. Global
   setup migrates a throwaway profile, seeds three synthetic repos into it (each with a
   `CLAUDE.md` and a skill) and every spec launch copies it, so specs that want a repo card
@@ -35,6 +38,10 @@ source of truth for the current version.
 
 ### Fixed
 
+- match repos the catalog holds through a symlink, and sweep the port panel on demand
+- read the host's listeners in three subprocess rounds, not one per hop
+- stop the Electron e2e suite colliding with the app you already have open
+- stop the catalog grid collapsing and unshadow the menu shortcuts
 - The Electron e2e suite no longer collides with a copy of the app you already have open.
   Every spec launched against the default userData directory, so
   `requestSingleInstanceLock` found the running app holding the lock, took the `app.quit()`
@@ -170,7 +177,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.1
