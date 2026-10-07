@@ -19,7 +19,7 @@
  * Owner: qe-agent (Phase 3a).
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -732,7 +732,25 @@ function spawnListener(cwd: string): Promise<{ child: ChildProcess; port: number
   });
 }
 
-describe("listener binding through the service", () => {
+/**
+ * The two tests below are the only ones that need `lsof` on the machine:
+ * `refresh()` shells out to it, so without it the sweep finds no listeners at
+ * all and they fail on their own subject rather than on the missing tool.
+ * macOS ships `lsof` and the Ubuntu runner image is given it; a slim container
+ * has neither, and there they stop with a reason instead of going red — the
+ * same shape `tests/unit/main/ipc/system.spec.ts` uses for a missing handler.
+ */
+// `spawnSync` reports through `error` whenever the command could not be run at
+// all, and a binary that is not on PATH is the case that matters here.
+const lsofMissing =
+  spawnSync("lsof", ["-v"], { stdio: "ignore" }).error !== undefined;
+if (lsofMissing) {
+  console.warn(
+    "[process.spec] lsof is not on PATH — skipping the two end-to-end listener-binding tests",
+  );
+}
+
+describe.skipIf(lsofMissing)("listener binding through the service", () => {
   it("binds a listener to the repo it runs in", async () => {
     const root = mkdtempSync(join(tmpdir(), "atr-bind-"));
     let child: ChildProcess | null = null;

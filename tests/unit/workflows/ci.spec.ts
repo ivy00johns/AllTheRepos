@@ -169,6 +169,25 @@ describe("the drill that proves the refusal check can fail", () => {
 });
 
 describe("the jobs that were already here", () => {
+  test("runs the fast job on Linux, and keeps the app-launching jobs on macOS", () => {
+    // The cheap runner is the point. Nothing in the fast job launches the app or
+    // packages it, and the three native modules its suite loads all have a Linux
+    // answer (`better-sqlite3` and `find-git-repositories` compile from source,
+    // `@lancedb/lancedb` publishes a Linux binary) — while macOS minutes bill at
+    // ten times the Linux rate on a private repository. The jobs that *do* launch
+    // a window cannot follow it there: the bundle is arm64 and the specs drive a
+    // real app. Asserted here because the tempting tidy-up — every job back on
+    // one runner — is exactly what this split exists to prevent.
+    const check = commands(jobBlock("check"));
+
+    expect(check).toContain("runs-on: ubuntu-latest");
+    expect(check).not.toContain("macos");
+
+    expect(refusalCommands).toContain("runs-on: macos-14");
+    expect(jobBlock("drill")).toContain("runs-on: macos-14");
+    expect(jobBlock("e2e")).toContain("runs-on: ${{ matrix.runner }}");
+  });
+
   test("the fast job still runs the gates on every push and pull request", () => {
     const check = commands(jobBlock("check"));
 
@@ -179,6 +198,15 @@ describe("the jobs that were already here", () => {
     expect(check).toContain("pnpm badges");
     expect(workflow).toMatch(/^on:\n\s+push:/m);
     expect(workflow).toContain("pull_request:");
+  });
+
+  test("installs lsof, which the socket tests in the suite drive", () => {
+    // The Ubuntu image does not carry `lsof`, and two tests in the unit suite
+    // bind a real listening socket and expect the sweep to find it. Without the
+    // install they stop with a reason rather than running (`process.spec.ts`
+    // guards them), which would quietly take the binding path out of the only
+    // runner that still covers it.
+    expect(commands(jobBlock("check"))).toMatch(/apt-get install[^\n]*lsof/);
   });
 
   test("the comment that said there was no linter is gone", () => {

@@ -55,7 +55,11 @@ concurrency:
 jobs:
   links:
     name: external + relative
-    runs-on: macos-14
+    # Linux, not a Mac: this job is a Node script resolving URLs and reading its
+    # own repository, it launches nothing, and macOS minutes bill at ten times
+    # the Linux rate on a private repository. `git` and `gh` are the only things
+    # it shells out to, and a runner has both.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       # The README links to this repo's own workflows, and the source repo is

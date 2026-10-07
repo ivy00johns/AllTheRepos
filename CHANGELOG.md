@@ -33,6 +33,18 @@ source of truth for the current version.
 
 ### Changed
 
+- run the fast CI job on Linux, and leave the Macs to the jobs that launch the app. `typecheck`, `lint`,
+  the prose gate, the document and architecture checks and the unit suite open no window and package
+  nothing, and all three native modules the suite loads build or ship for Linux — while macOS runner
+  minutes bill at **ten times** the Linux rate on a private repository, which is the budget this
+  pipeline actually spends. `e2e` on both Mac architectures, `refusal` and `drill` stay where they
+  were, and the split is pinned by `tests/unit/workflows/ci.spec.ts`, so the tidy-up that puts every
+  job back on one runner fails rather than passes. Three specs had to stop assuming a Mac before the
+  suite could follow: the menu spec pins `process.platform` instead of inheriting the host's, the
+  release-script fixture gives its throwaway repository a git identity instead of borrowing the
+  developer's, and the two tests that bind a real listening socket stop with a reason where `lsof`
+  is missing. The Ubuntu image does not carry `lsof`, so the fast job installs it — the one step
+  there a developer does not run.
 - put the graph page's controls back on the design system. The six signal filters are one segmented
   control, each showing how many links it holds; zoom and fit are icon buttons with accessible
   names in a single bar instead of hand-styled divs with no name at all; the map carries a counted

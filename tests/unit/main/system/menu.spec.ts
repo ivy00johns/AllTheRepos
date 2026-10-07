@@ -124,10 +124,40 @@ function normalize(value: string): string {
     .replace(/cmdorctrl|commandorcontrol/g, "cmd");
 }
 
+/**
+ * Build the menu with `process.platform` pinned, then put it back.
+ *
+ * The App menu, and with it App ▸ Settings…, is macOS-only: the template gets
+ * one when `process.platform === "darwin"` and not otherwise. So the contract
+ * these tests pin is a macOS contract, and building the menu under a patched
+ * platform is what keeps it meaning the same thing on a Linux runner, where
+ * `Settings…` is simply absent and the assertion would read as a bug. Same
+ * patch `tests/unit/main/system/dock-badge.spec.ts` uses for its darwin /
+ * non-darwin split; the restore keeps it from leaking into the next file.
+ */
+function buildMenuOn(
+  platform: NodeJS.Platform,
+  options: { dev: boolean },
+): { template: unknown[] } {
+  const original = process.platform;
+  Object.defineProperty(process, "platform", {
+    value: platform,
+    configurable: true,
+  });
+  try {
+    return buildMenuFromActions(ACTIONS, options) as unknown as {
+      template: unknown[];
+    };
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: original,
+      configurable: true,
+    });
+  }
+}
+
 describe("buildMenuFromActions — accelerator ownership (production build)", () => {
-  const menu = buildMenuFromActions(ACTIONS, { dev: false }) as unknown as {
-    template: unknown[];
-  };
+  const menu = buildMenuOn("darwin", { dev: false });
 
   it("never binds the same explicit accelerator twice", () => {
     const accelerators = itemsWithAccelerator(menu).map((i) =>
@@ -162,12 +192,20 @@ describe("buildMenuFromActions — accelerator ownership (production build)", ()
       "CmdOrCtrl+Alt+I",
     );
   });
+
+  it("leaves the App menu, and Settings…, off everything that is not macOS", () => {
+    const offMacos = buildMenuOn("linux", { dev: false });
+    expect(findItem(offMacos, "Settings…")).toBeNull();
+    // And the rest of the template is platform-free: Cmd+R still reaches the
+    // action, which is the half of this file that matters on any host.
+    expect(findItem(offMacos, "Refresh Catalog")?.accelerator).toBe(
+      "CmdOrCtrl+R",
+    );
+  });
 });
 
 describe("buildMenuFromActions — accelerator ownership (dev build)", () => {
-  const menu = buildMenuFromActions(ACTIONS, { dev: true }) as unknown as {
-    template: unknown[];
-  };
+  const menu = buildMenuOn("darwin", { dev: true });
 
   it("still never binds the same explicit accelerator twice", () => {
     const accelerators = itemsWithAccelerator(menu).map((i) =>

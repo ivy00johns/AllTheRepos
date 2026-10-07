@@ -1,18 +1,31 @@
 # CI — the gates, on every push and pull request (ATR-047).
 #
-# macOS only, and on both architectures a Mac comes in. The app ships as an
-# arm64 bundle (`electron-builder --mac`, `identity: "-"`) and its native
-# modules (better-sqlite3, find-git-repositories) are rebuilt per architecture,
-# so a Linux runner would be testing a build nobody ships — and the Electron
-# suite launches a real window, which the specs assume is possible. So: one
-# Apple silicon machine and one Intel one. See the `e2e` job for why the second
-# exists when nothing is published for it.
+# Two runners, because two different things are being asked. The jobs that
+# **launch the app** need a Mac: it ships as an arm64 bundle (`electron-builder
+# --mac`, `identity: "-"`), so a Linux runner would be testing a build nobody
+# ships, and the Electron suite drives a real window, which the specs assume is
+# possible. So `e2e` covers both architectures a Mac comes in (see that job for
+# why the Intel leg exists when nothing is published for it) and `refusal`
+# packages the app on an Apple silicon machine. The **fast job needs none of
+# that**: `typecheck`, `lint`, the prose gate, the document and architecture
+# checks and the unit suite are host-Node work, and all three native modules the
+# suite loads have a Linux answer — `better-sqlite3` and
+# `find-git-repositories` compile from source, and `@lancedb/lancedb` publishes
+# a Linux binary. It runs on `ubuntu-latest` for that reason, and because macOS
+# minutes bill at ten times the Linux rate on a private repository, which is the
+# budget this pipeline actually spends. Moving the whole job back to one runner
+# is the tidy-up that costs the most, so `tests/unit/workflows/ci.spec.ts` holds
+# the split in place.
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
 #   pnpm typecheck · pnpm lint · pnpm lint:prose · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
 # and, for a job that has to package the app before it can run at all:
 #   pnpm electron:pack · pnpm test:packaged-update-refused
+#
+# One step is not a command a developer runs: the fast job installs `lsof`,
+# which the two socket tests in the unit suite drive and the Ubuntu image does
+# not carry. Everything else is shared with a laptop on purpose.
 #
 # `pnpm badges` is `pnpm test` plus a JSON report, and the badge the README
 # shows is drawn from that same run — which is what stops the test count being
@@ -45,10 +58,16 @@ concurrency:
 
 jobs:
   # Typecheck and the unit suite are host-ABI work: one install, no native
-  # rebuild, and the fast signal — so they share a job and gate the slow one.
+  # rebuild, and the fast signal — so they share a job and gate the slow ones.
+  #
+  # On Linux rather than on a Mac, which is a decision about cost and not about
+  # the code: nothing here launches the app or packages it, and the three native
+  # modules the suite loads all build or ship for Linux. The steps below are
+  # unchanged, so a red run here still reproduces on a developer's machine —
+  # a Mac or otherwise — with the same commands.
   check:
     name: typecheck + unit
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     # `contents: write` is for one step: the badge refresh below commits the SVG
     # when the counts moved. The rest of the job only reads. Worth knowing: a
     # push made with the default `GITHUB_TOKEN` does not start a new workflow
@@ -123,6 +142,15 @@ jobs:
       # build, which is the answer to "can we expand?". Pure Node, no network.
       - name: The architectures, and the binaries each one needs
         run: pnpm platforms:check
+      # The unit suite drives the real `lsof` and `ps`: two end-to-end tests bind
+      # a listening socket and expect the sweep to find it, so on a machine
+      # without `lsof` they stop with a reason rather than running, and the
+      # binding path would go untested on the only runner that still exercises it.
+      # `ps` comes with the image and `lsof` does not, which is why this job
+      # installs it instead of assuming it: these steps used to run on a Mac,
+      # where it is already there.
+      - name: lsof, for the two tests that drive a real listening socket
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lsof
       # The unit suite writes its own totals to a JSON report and the badge is
       # drawn from them, so the number in the README is always the number this
       # run just produced. It went stale by hand three times before this.

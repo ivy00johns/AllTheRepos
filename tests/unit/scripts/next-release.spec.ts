@@ -375,6 +375,13 @@ function fixture(options: {
   fs.writeFileSync(path.join(dir, "electron-builder.yml"), BUILDER_FIXTURE);
 
   git(dir, ["init", "-q"]);
+  // The fixture carries its own identity, because `--write --tag` makes the
+  // script commit and git refuses to invent an author without one. That is a
+  // fact about the machine, not about the script: the throwaway repo used to
+  // borrow whatever `~/.gitconfig` the developer had, and every runner that
+  // has none failed the one test that covers the commit.
+  git(dir, ["config", "user.email", "e2e@example.com"]);
+  git(dir, ["config", "user.name", "E2E"]);
   if (options.remote !== false) {
     git(dir, [
       "remote",
