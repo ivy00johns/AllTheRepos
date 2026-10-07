@@ -47,9 +47,11 @@ import cytoscape from "cytoscape";
 // The default export is a cytoscape extension registrar.
 // @ts-expect-error -- untyped extension, see above
 import fcose from "cytoscape-fcose";
+import { Maximize, Workflow, ZoomIn, ZoomOut } from "lucide-react";
 
 import type { GraphEdge, GraphNode } from "@shared/types";
 
+import { Button } from "@renderer/components/ui/button";
 import { tildify } from "@renderer/lib/repo-tree";
 
 interface GraphCanvasProps {
@@ -145,6 +147,9 @@ const MAX_MEANINGFUL_WEIGHT = 5;
 
 /** Zoom past this and every node gets a label. */
 const LABEL_ZOOM = 1.15;
+
+/** One press of the zoom controls scales the view by this factor. */
+const ZOOM_STEP = 1.3;
 
 /** Two taps inside this window count as a double-tap ("open"). */
 const DOUBLE_TAP_MS = 350;
@@ -501,10 +506,6 @@ function buildElements(
 // Component
 // ---------------------------------------------------------------------------
 
-/** Shared by the two viewport controls — one place to change them both. */
-const CONTROL_CLASS =
-  "cursor-pointer rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:border-border-strong hover:text-foreground";
-
 export function GraphCanvas({
   nodes,
   edges,
@@ -710,11 +711,40 @@ export function GraphCanvas({
     window.setTimeout(() => layout.run(), 0);
   }, []);
 
+  /** Zoom around the middle of the viewport, not the top-left corner. */
+  const zoomBy = React.useCallback((factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.zoom({
+      level: cy.zoom() * factor,
+      renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
+    });
+  }, []);
+
+  const fitToView = React.useCallback(() => {
+    cyRef.current?.fit(undefined, 60);
+  }, []);
+
   const hoveredNode = hovered ? nodeBySlug.get(hovered) : undefined;
+
+  /**
+   * The map is a picture to assistive tech: cytoscape paints into untitled
+   * <canvas> elements, so there is no text to read. Name it for the counts
+   * it shows, and leave the inspector beside it as the readable path to the
+   * same links.
+   */
+  const mapSummary = `Relationship map of ${nodes.length} ${
+    nodes.length === 1 ? "repository" : "repositories"
+  } linked by ${edges.length} ${edges.length === 1 ? "link" : "links"}.`;
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-background">
-      <div ref={containerRef} className="h-full w-full" />
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        role="img"
+        aria-label={mapSummary}
+      />
 
       {layingOut ? (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
@@ -724,30 +754,81 @@ export function GraphCanvas({
         </div>
       ) : null}
 
-      <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
-        <button
-          type="button"
+      <div
+        role="group"
+        aria-label="Graph view"
+        className="absolute bottom-3 right-3 flex items-center divide-x divide-border overflow-hidden rounded-md border border-border bg-surface shadow-overlay"
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => zoomBy(1 / ZOOM_STEP)}
+          aria-label="Zoom out"
+          title="Zoom out"
+          className="rounded-none hover:bg-surface-raised"
+        >
+          <ZoomOut aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => zoomBy(ZOOM_STEP)}
+          aria-label="Zoom in"
+          title="Zoom in"
+          className="rounded-none hover:bg-surface-raised"
+        >
+          <ZoomIn aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={fitToView}
+          aria-label="Fit the map to the window"
+          title="Fit to view"
+          className="rounded-none hover:bg-surface-raised"
+        >
+          <Maximize aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => runLayout(true)}
-          className={CONTROL_CLASS}
-          title="Re-run the layout, keeping pinned repos where you put them"
+          aria-label="Re-arrange the layout, keeping pinned repositories where you put them"
+          title="Re-arrange, keeping pinned repositories"
+          className="rounded-none hover:bg-surface-raised"
         >
-          Re-arrange
-        </button>
-        <button
-          type="button"
-          onClick={() => cyRef.current?.fit(undefined, 60)}
-          className={CONTROL_CLASS}
-        >
-          Fit to view
-        </button>
+          <Workflow aria-hidden />
+        </Button>
       </div>
 
-      <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-0.5">
-        <p className="atr-meta text-accent">→ curated link (asserted)</p>
-        <p className="atr-meta text-warning">
-          ◯ outside its cluster&apos;s home
+      {/*
+        Each glyph is drawn as the swatch it stands for - the warning ring
+        is an actual ring, not the letter O - and the wording stays muted, so
+        a mark is never explained by colour alone.
+      */}
+      <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1">
+        <p className="atr-meta flex items-center gap-1.5">
+          <span aria-hidden className="text-[13px] leading-none text-accent">
+            →
+          </span>
+          curated link (asserted)
         </p>
-        <p className="atr-meta">★ favourite · size = connections</p>
+        <p className="atr-meta flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-warning"
+          />
+          outside its cluster&apos;s home
+        </p>
+        <p className="atr-meta flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="text-[13px] leading-none text-foreground"
+          >
+            ★
+          </span>
+          favourite · size = connections
+        </p>
       </div>
 
       {hoveredNode && hovered !== selectedSlug ? (

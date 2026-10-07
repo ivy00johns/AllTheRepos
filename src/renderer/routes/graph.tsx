@@ -13,17 +13,26 @@
 
 import * as React from "react";
 import { createRoute } from "@tanstack/react-router";
-import { FolderInput, Loader2, Network, RefreshCw } from "lucide-react";
+import {
+  Eye,
+  FolderInput,
+  Loader2,
+  Network,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 
 import type { GraphCluster, GraphSignal } from "@shared/types";
 
 import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
 import { MoveDialog } from "@renderer/components/catalog/move-dialog";
 import { RelatedRepos } from "@renderer/components/catalog/related-repos";
+import { Button } from "@renderer/components/ui/button";
 import { useGraph } from "@renderer/hooks/use-graph";
 import { useRepos } from "@renderer/hooks/use-repos";
 import { useSettings } from "@renderer/hooks/use-settings";
 import { cn } from "@renderer/lib/cn";
+import { countEdgesBySignal } from "@renderer/lib/graph-signals";
 import { tildify } from "@renderer/lib/repo-tree";
 
 import { Route as RootRoute } from "./__root";
@@ -41,6 +50,21 @@ const SIGNAL_LABELS: Record<GraphSignal, string> = {
   submodule: "Submodule",
   owner: "Same owner",
   naming: "Name family",
+};
+
+/**
+ * Full wording for the toggle tooltips.
+ *
+ * The labels stay short so six of them fit one row inside the map's
+ * inspector-width frame; the tooltip is where the signal gets a sentence.
+ */
+const SIGNAL_HINTS: Record<GraphSignal, string> = {
+  curated: "Links a person asserted",
+  dependency: "Repositories sharing a library",
+  reference: "Repositories that link to each other",
+  submodule: "Git submodule relationship",
+  owner: "Same git remote owner",
+  naming: "Similar repository names",
 };
 
 const ALL_SIGNALS = Object.keys(SIGNAL_LABELS) as GraphSignal[];
@@ -73,6 +97,17 @@ function GraphPage() {
       edge.signals.some((signal) => enabled.has(signal)),
     );
   }, [data, enabled]);
+
+  /**
+   * Links each signal would draw on its own, shown on the toggle so the
+   * filter says what it is offering before you press it. Read from the
+   * unfiltered edge set, so switching a signal off never zeroes its own
+   * number.
+   */
+  const signalCounts = React.useMemo(
+    () => countEdgesBySignal(data?.edges ?? [], ALL_SIGNALS),
+    [data],
+  );
 
   /**
    * Clusters worth acting on: more than one member, living in more than
@@ -119,6 +154,14 @@ function GraphPage() {
     return edges.slice(0, OVERVIEW_EDGE_CAP);
   }, [edges, selectedCluster, visibleNodes]);
 
+  /**
+   * The catalog has links, but the switched-on signals draw none. Kept
+   * apart from "this catalog has no links at all", because only the
+   * first case has a way back that means anything.
+   */
+  const filteredToNothing =
+    (data?.edges.length ?? 0) > 0 && edges.length === 0;
+
   const selectedNode = data?.nodes.find((n) => n.slug === selectedSlug) ?? null;
   const selectedEdges = React.useMemo(() => {
     if (!selectedSlug) return [];
@@ -134,64 +177,91 @@ function GraphPage() {
   return (
     <div className="flex h-[calc(100dvh-3rem)] w-full overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
-          <Network className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-          <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-            Relationships
-          </span>
+        {/*
+          Two rows, not one. The map lives in the max-w-5xl shell beside a
+          320px inspector, so this header has roughly 640px to work with:
+          six labelled filters plus the count and the actions do not fit on
+          a single line, and the old one-row header clipped its own right
+          edge. Row one is the map's identity and actions; row two is the
+          filter strip, which gets the full width.
+        */}
+        <div className="shrink-0 border-b border-border">
+          <div className="flex h-11 items-center gap-3 px-4">
+            <Network className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+            <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+              Relationships
+            </span>
 
-          <div className="flex items-center gap-1">
-            {ALL_SIGNALS.map((signal) => (
-              <button
-                key={signal}
-                type="button"
-                className="atr-segment"
-                data-active={enabled.has(signal) ? "true" : "false"}
-                aria-pressed={enabled.has(signal)}
-                onClick={() =>
-                  setEnabled((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(signal)) next.delete(signal);
-                    else next.add(signal);
-                    return next;
-                  })
-                }
+            <div className="ml-auto flex items-center gap-2">
+              {selectedCluster !== null ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedCluster(null)}
+                >
+                  <Eye aria-hidden />
+                  Show everything
+                </Button>
+              ) : null}
+              <span className="atr-meta tabular-nums">
+                {visibleNodes.length} repos ·{" "}
+                {selectedCluster === null && edges.length > OVERVIEW_EDGE_CAP
+                  ? `strongest ${visibleEdges.length} of ${edges.length} links`
+                  : `${visibleEdges.length} links`}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void graph.refetch()}
+                disabled={graph.isFetching}
+                aria-label="Recompute the graph"
+                title="Recompute the graph"
+                className="disabled:cursor-wait"
               >
-                {SIGNAL_LABELS[signal]}
-              </button>
-            ))}
+                <RefreshCw
+                  className={cn(graph.isFetching && "animate-spin")}
+                  aria-hidden
+                />
+              </Button>
+            </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
-            {selectedCluster !== null ? (
-              <button
-                type="button"
-                onClick={() => setSelectedCluster(null)}
-                className="atr-segment"
-              >
-                Show everything
-              </button>
-            ) : null}
-            <span className="atr-meta tabular-nums">
-              {visibleNodes.length} repos ·{" "}
-              {selectedCluster === null && edges.length > OVERVIEW_EDGE_CAP
-                ? `strongest ${visibleEdges.length} of ${edges.length} links`
-                : `${visibleEdges.length} links`}
-            </span>
-            <button
-              type="button"
-              onClick={() => void graph.refetch()}
-              disabled={graph.isFetching}
-              className="atr-segment disabled:cursor-wait"
+          <div className="flex min-w-0 items-center px-4 pb-2">
+            <div
+              role="group"
+              aria-label="Relationship signals"
+              className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-md bg-muted p-0.5"
             >
-              <RefreshCw
-                className={cn(
-                  "h-3.5 w-3.5",
-                  graph.isFetching && "animate-spin",
-                )}
-                aria-hidden
-              />
-            </button>
+              {ALL_SIGNALS.map((signal) => {
+                const active = enabled.has(signal);
+                const count = signalCounts[signal];
+                return (
+                  <button
+                    key={signal}
+                    type="button"
+                    className="atr-segment"
+                    data-active={active ? "true" : "false"}
+                    aria-pressed={active}
+                    title={`${SIGNAL_HINTS[signal]} · ${count} ${
+                      count === 1 ? "link" : "links"
+                    }`}
+                    onClick={() =>
+                      setEnabled((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(signal)) next.delete(signal);
+                        else next.add(signal);
+                        return next;
+                      })
+                    }
+                  >
+                    <span>{SIGNAL_LABELS[signal]}</span>
+                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -202,8 +272,33 @@ function GraphPage() {
               Reading every project&apos;s dependencies…
             </div>
           ) : graph.isError ? (
-            <div className="flex h-full items-center justify-center text-sm text-destructive">
-              {(graph.error as Error).message}
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="max-w-md text-sm text-destructive">
+                {(graph.error as Error).message}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void graph.refetch()}
+                disabled={graph.isFetching}
+              >
+                <RotateCcw aria-hidden />
+                Try again
+              </Button>
+            </div>
+          ) : filteredToNothing ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="max-w-sm text-sm text-muted-foreground">
+                No links carry the signals you have switched on.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEnabled(new Set(ALL_SIGNALS))}
+              >
+                <RotateCcw aria-hidden />
+                Switch every signal back on
+              </Button>
             </div>
           ) : (
             <GraphCanvas
@@ -338,18 +433,18 @@ function GraphPage() {
                           </li>
                         ))}
                       </ul>
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
+                        className="mt-1 w-full"
                         onClick={() => {
                           setMoveSlugs(cluster.strays);
                           setMoveTarget(cluster.dominantFolder);
                           setMoveOpen(true);
                         }}
-                        className="mt-1 flex cursor-pointer items-center justify-center gap-1.5 rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
                       >
-                        <FolderInput className="h-3 w-3" aria-hidden />
+                        <FolderInput aria-hidden />
                         Gather the {cluster.strays.length} strays
-                      </button>
+                      </Button>
                     </div>
                   ) : null}
                 </li>
