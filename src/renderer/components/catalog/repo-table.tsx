@@ -239,7 +239,7 @@ export function RepoTable({
                           event.stopPropagation();
                           activate(event);
                         }}
-                        className="atr-truncate cursor-pointer text-left font-mono text-[13px] font-medium text-foreground"
+                        className="atr-truncate cursor-pointer text-left font-mono text-body font-medium text-foreground"
                       >
                         {repo.name}
                       </button>

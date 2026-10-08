@@ -146,6 +146,28 @@
   --color-own-external: #7c8899;
   --color-own-local: #a78bfa;
 
+  /*
+   * Type scale — the dense-content step: 13px.
+   *
+   * One above `.atr-label` (12px) and one below Tailwind's `text-sm` (14px),
+   * for content that is dense but still read as itself rather than as a label
+   * or a piece of data: a rail row, the repo name in the table, a legend glyph
+   * standing beside its `.atr-meta` caption.
+   *
+   * It is a theme token instead of a `@layer components` class for a reason
+   * that is structural, not stylistic. `.atr-rail-row` is itself a component
+   * class and the rail row's own text is one of the four places this size was
+   * written as `text-[13px]`; Tailwind 4 cannot `@apply` a component class, so
+   * the step has to be a real utility before the row and the components can
+   * name the same one. Declared here it is stated once, and
+   * `tests/unit/renderer/type-scale.spec.ts` fails on a raw pixel size anywhere
+   * else — this step's included.
+   *
+   * No `--text-body--line-height` on purpose: this lands where `text-[13px]`
+   * stood, and that set a size and nothing more, so no surface moves.
+   */
+  --text-body: 0.8125rem;
+
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
@@ -237,9 +259,9 @@
    * The 2026-10-07 review measured 127 sub-12px usages across 20+ files and
    * found one role written three ways: 9px, 10px and 11px were each used for
    * uppercase section labels and control captions as well as for metadata.
-   * Two tiers now carry every one of them, and a raw `text-[10px]`-style size
-   * is no longer allowed in a component — `tests/unit/renderer/type-scale.spec.ts`
-   * fails on it, so the question does not get re-litigated per screen:
+   * Every one of them now names a tier, and no component states a raw pixel
+   * size at any value — `tests/unit/renderer/type-scale.spec.ts` fails on one,
+   * so the question does not get re-litigated per screen:
    *
    *   .atr-label  — every label, caption and section heading: 12px, the floor
    *                 the review asked for. Size and leading only, so a site
@@ -247,6 +269,10 @@
    *   .atr-micro  — the one sanctioned sub-12px tier: a number or a unit read
    *                 as data rather than as prose (a badge count, a PID, a
    *                 percentage). Never a label, a heading or a sentence.
+   *   text-body   — the 13px dense-content step (the `--text-body` token in
+   *                 `@theme`, since this class would have to `@apply` it): the
+   *                 text a row is *about* — a rail row's own label, the repo
+   *                 name in the table, a legend glyph beside its caption.
    *
    * `.atr-meta` below stays the metadata tier for timestamps, paths and counts
    * that sit inside running text — 11px is that tier's decision, not drift.
@@ -265,7 +291,7 @@
 
   /* Left rail row: folder entries and the saved-view entries. */
   .atr-rail-row {
-    @apply flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-[13px] transition-colors duration-150;
+    @apply flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-body transition-colors duration-150;
   }
   .atr-rail-row:hover {
     @apply bg-surface-raised text-foreground;
