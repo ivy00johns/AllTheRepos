@@ -37,7 +37,7 @@ source of truth for the current version.
   the prose gate, the document and architecture checks and the unit suite open no window and package
   nothing, and all three native modules the suite loads build or ship for Linux — while macOS runner
   minutes bill at **ten times** the Linux rate on a private repository, which is the budget this
-  pipeline actually spends. `e2e` on both Mac architectures, `refusal` and `drill` stay where they
+  pipeline actually spends. `e2e` on the one Mac architecture the app ships, `refusal` and `drill` stay where they
   were, and the split is pinned by `tests/unit/workflows/ci.spec.ts`, so the tidy-up that puts every
   job back on one runner fails rather than passes. Three specs had to stop assuming a Mac before the
   suite could follow: the menu spec pins `process.platform` instead of inheriting the host's, the
@@ -49,7 +49,12 @@ source of truth for the current version.
   names the library file this platform ships, for the same reason: what it asserts has to be true
   on the machine the job runs on, not on the one it was written on. The `next-release` fixture
   stopped borrowing the developer's signing config as well, which had been failing it on any
-  machine with `commit.gpgsign` set.
+  machine with `commit.gpgsign` set. **The Intel E2E leg is gone** (2026-10-08): it built and
+  launched a product nobody can download, because releases are arm64-only, and it was the most
+  expensive job in the file — a second macOS runner on every push, on an image that compiles both
+  natives from source (188s against the arm64 leg's 61s). The question it answered is on record in
+  [`docs/FUTURE.md`](./docs/FUTURE.md), with its four options priced. `e2e` is one leg on
+  `macos-14`, and the step that proves the runner is arm64 rather than trusting a label stays.
 - put the graph page's controls back on the design system. The six signal filters are one segmented
   control, each showing how many links it holds; zoom and fit are icon buttons with accessible
   names in a single bar instead of hand-styled divs with no name at all; the map carries a counted

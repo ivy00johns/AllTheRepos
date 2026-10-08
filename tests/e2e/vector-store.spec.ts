@@ -9,8 +9,9 @@
  * softening in `lance.ts` that kept the app working anyway. That premise is gone:
  * the store is now `services/vector-store.ts`, a `vec0` table inside the app's
  * own SQLite file through the `sqlite-vec` extension, which publishes a binary
- * for every platform this app could ever ship. Both legs of the CI job now run
- * the same expectations because the answer is the same on both.
+ * for every platform this app could ever ship, and the Intel leg that this file
+ * used to pin is retired: there is one leg of the CI job now, on the machine the
+ * app ships for, and it runs these expectations against the real extension.
  *
  * What still needs a gate, and why these two steps are the gate:
  *

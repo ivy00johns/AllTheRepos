@@ -31,9 +31,9 @@ export default defineConfig({
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
   // curated links: curate-link-flow.spec.ts — builds its own profile and
   // seeds its own git repos, because it needs to drive git-backed reads.
-  // vector-store.spec.ts — the LanceDB binding and what the app does without
-  // one, which is the whole subject of the Intel leg of the CI job: it asserts
-  // an arch-dependent expectation in both directions, so it runs on both legs.
+  // vector-store.spec.ts — the sqlite-vec extension and what the app does
+  // without one: it loads the real library the app ships and drives a search
+  // through it, so it measures the machine rather than the metadata.
   // semantic-search.spec.ts — a scan storing an embedding and a search coming
   // back ranked with it, which is the only place the two halves meet.
   // Everything else shares the seeded template profile built in global setup

@@ -212,6 +212,12 @@ not by running a documented command on one machine:
   vector store moved to `sqlite-vec`, which publishes a `darwin-x64` binary; see the vector-store
   entry above, and the Intel leg now asserts stored vectors and ranking on x86_64 rather than the
   absence of a binding.
+  **Retired 2026-10-08**: `e2e` is one leg on `macos-14` again. The leg was a second macOS runner
+  on every push, for a build nobody can download, on an image that compiles both natives from
+  source — 188s against the arm64 leg's 61s — and the question it was built to answer is answered
+  in the paragraph above. Reopening Intel starts at `pnpm platforms:check`, which still asserts the
+  binary matrix from package metadata, and at the four options priced in
+  [`docs/FUTURE.md`](./FUTURE.md).
 - **Semantic search has an end-to-end test** (2026-10-07):
   [`tests/e2e/semantic-search.spec.ts`](../tests/e2e/semantic-search.spec.ts) runs a real scan with
   a mock embedding provider on the runner and asserts that search comes back *ranked with the
