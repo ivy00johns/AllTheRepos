@@ -44,7 +44,12 @@ source of truth for the current version.
   release-script fixture gives its throwaway repository a git identity instead of borrowing the
   developer's, and the two tests that bind a real listening socket stop with a reason where `lsof`
   is missing. The Ubuntu image does not carry `lsof`, so the fast job installs it — the one step
-  there a developer does not run.
+  there a developer does not run. A fourth spec assumed a Mac a quieter way —
+  `vector-store-unavailable.spec.ts` expected the loader's message to name `vec0.dylib` — and now
+  names the library file this platform ships, for the same reason: what it asserts has to be true
+  on the machine the job runs on, not on the one it was written on. The `next-release` fixture
+  stopped borrowing the developer's signing config as well, which had been failing it on any
+  machine with `commit.gpgsign` set.
 - put the graph page's controls back on the design system. The six signal filters are one segmented
   control, each showing how many links it holds; zoom and fit are icon buttons with accessible
   names in a single bar instead of hand-styled divs with no name at all; the map carries a counted

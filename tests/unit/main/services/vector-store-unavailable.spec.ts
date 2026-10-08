@@ -2,7 +2,7 @@
  * What the app does when the vector store will not load.
  *
  * The extension is the one piece of this feature that depends on the machine
- * rather than on the code: a `vec0.dylib` that is not published for the
+ * rather than on the code: a library that is not published for the
  * architecture, is not unpacked out of the asar, or is refused by the loader.
  * Every branch of `vector-store.ts` has to survive that, because the caller is a
  * scan (which must still leave an FTS index behind) and a search (which must
@@ -46,6 +46,21 @@ import { isolateDataDir } from "../../../helpers/test-db.js";
 
 let isolate: { dir: string; cleanup(): void };
 
+/**
+ * The library file this platform ships, as `vector-store.ts` names it. The
+ * reason string is built from that name, so asserting a literal `vec0.dylib`
+ * would make this spec pass only on a Mac — which is not the machine the fast
+ * job runs on any more. `vector-store-packaged.spec.ts` carries the same
+ * helper for the same reason.
+ */
+function extensionFileName(): string {
+  return process.platform === "win32"
+    ? "vec0.dll"
+    : process.platform === "darwin"
+      ? "vec0.dylib"
+      : "vec0.so";
+}
+
 beforeEach(() => {
   // A real data directory, so the failure under test is the extension rather
   // than a missing database — the status is asserted against the message below.
@@ -71,7 +86,7 @@ describe("when the extension cannot be loaded", () => {
     // a missing per-platform package and a missing resources copy is the whole
     // diagnosis.
     expect(status.reason).toContain("cannot find module 'sqlite-vec-darwin-x64'");
-    expect(status.reason).toContain("vec0.dylib");
+    expect(status.reason).toContain(extensionFileName());
   });
 
   it("still answers a search — by reporting no hits rather than throwing", () => {
