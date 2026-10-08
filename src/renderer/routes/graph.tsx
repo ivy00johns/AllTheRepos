@@ -175,7 +175,15 @@ function GraphPage() {
     data?.nodes.find((n) => n.slug === slug)?.name ?? slug;
 
   return (
-    <div className="flex h-[calc(100dvh-3rem)] w-full overflow-hidden bg-background">
+    /*
+     * `h-full`, not a viewport sum: this route is in the shell's full-height
+     * set (`__root.tsx`), so the parent already decided the height. It used to
+     * size itself `calc(100dvh - 3rem)` — the top bar's 48px — which is exactly
+     * the arithmetic that made it 64px taller than the window, because the
+     * route was in fact rendering inside `SimpleShell`'s 32px of vertical
+     * padding on top (ATR-062).
+     */
+    <div className="flex h-full w-full overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
           Two rows, not one. The map lives in the max-w-5xl shell beside a

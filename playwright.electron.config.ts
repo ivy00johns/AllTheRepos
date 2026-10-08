@@ -31,6 +31,9 @@ export default defineConfig({
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
   // curated links: curate-link-flow.spec.ts — builds its own profile and
   // seeds its own git repos, because it needs to drive git-backed reads.
+  // layout-overflow.spec.ts — measures the window/document height contract on
+  // `/` and `/graph`; builds its own profile because the template's three
+  // repos cannot overflow a 1280x800 catalog.
   // vector-store.spec.ts — the sqlite-vec extension and what the app does
   // without one: it loads the real library the app ships and drives a search
   // through it, so it measures the machine rather than the metadata.
@@ -45,7 +48,7 @@ export default defineConfig({
   // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
   // version is below the feed by construction.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.

@@ -586,7 +586,14 @@ export function CatalogShell({
   const scopeLabel = selectedDir ? tildify(selectedDir) : null;
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+    /*
+     * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root
+     * layout has already sized to the window minus the top bar. Asking for a
+     * second full viewport stacked 48px of catalog past the bottom of the
+     * window, and `overflow-hidden` here turned that overflow into an
+     * unreachable tail of the grid rather than a scroll (ATR-061).
+     */
+    <div className="flex h-full w-full overflow-hidden bg-background">
       <DirRail
         repos={initialRepos}
         groups={groups}

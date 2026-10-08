@@ -45,14 +45,31 @@ function RootLayout() {
   useTrayOpenRepoBus();
 
   const location = useLocation();
-  // Routes that don't want the three-column shell (settings, debug,
-  // repo detail page) get a single-column layout. The index route keeps
-  // the full shell so the catalog grid + detail panel render side by
-  // side.
-  const isFullShell = location.pathname === "/";
+  // Routes that own their own scrolling get the full-height shell: the catalog
+  // (rail + grid + detail panel side by side) and the map, which wants the
+  // viewport rather than the shell's prose measure. Everything else — settings,
+  // claude, processes, a standalone repo page — renders inside `SimpleShell`,
+  // the padded column that scrolls.
+  //
+  // `SimpleShell` scrolls rather than grows, so a route that is not listed here
+  // still has to fit the window (see the height contract below).
+  const isFullShell =
+    location.pathname === "/" || location.pathname === "/graph";
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    /*
+     * The height contract, learned the hard way in the 2026-10-07 UI/UX review
+     * (ATR-061/ATR-062): this column is exactly the window and `main` is the
+     * only thing that flexes. Rooting it at `min-h-screen` instead let the
+     * document grow to content height, so the window itself scrolled — which
+     * clipped the catalog's own scroll region behind `main`'s
+     * `overflow-hidden` (its `h-[100dvh]` then ran 48px past the bottom) and
+     * pushed the map's bottom-anchored legend and control bar below the fold.
+     * Both are asserted as numbers in `tests/e2e/layout-overflow.spec.ts`, so a
+     * regression fails as "848 against 800" rather than as a screenshot nobody
+     * looks at.
+     */
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <TopBar />
       <ScanStatusBar />
       {/*
@@ -62,7 +79,7 @@ function RootLayout() {
       */}
       <AdHocBuildNotice />
       <ActionNotice />
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (
             <Outlet />
@@ -79,7 +96,20 @@ function RootLayout() {
 }
 
 function SimpleShell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-5xl px-6 py-8">{children}</div>;
+  /*
+   * A scrolling column *inside* the window, not a page that grows: the outer
+   * div is the scroll container, so the scrollbar sits at the window edge and
+   * the inner one keeps the prose measure. `min-h-0` is what lets a child of
+   * the flex column be shorter than its content instead of stretching the
+   * document.
+   */
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto min-h-0 w-full max-w-5xl px-6 py-8">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function RouteFallback() {
