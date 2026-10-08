@@ -706,6 +706,29 @@ describe("refresh", () => {
 // the test that notices if `rebuildTrie` stops keying on resolved paths.
 // ---------------------------------------------------------------------------
 
+/**
+ * Sweep until the listener is in the snapshot, rather than sampling once.
+ *
+ * A port bound a moment ago can be missing from the first sample — one sweep is
+ * three batched lsof rounds, and the kernel's live-listener set is read a beat
+ * after the child printed its port. That is a race in the test rather than in
+ * the service: what these cases are about is that binding is *detected*, not
+ * that the first sweep detected it. Bounded, so a listener the service genuinely
+ * cannot see still fails on the assertion instead of hanging here.
+ */
+async function refreshUntilPort(
+  port: number,
+  timeoutMs = 10_000,
+): Promise<Awaited<ReturnType<typeof processService.refresh>>> {
+  const deadline = Date.now() + timeoutMs;
+  let snapshot = await processService.refresh();
+  while (!snapshot.processes.some((row) => row.port === port) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    snapshot = await processService.refresh();
+  }
+  return snapshot;
+}
+
 /** A child that listens on an ephemeral port and prints it. */
 function spawnListener(cwd: string): Promise<{ child: ChildProcess; port: number }> {
   const child = spawn(
@@ -762,7 +785,7 @@ describe.skipIf(lsofMissing)("listener binding through the service", () => {
       const spawned = await spawnListener(repo);
       child = spawned.child;
 
-      const result = await processService.refresh();
+      const result = await refreshUntilPort(spawned.port);
       const row = result.processes.find((p) => p.port === spawned.port);
       expect(row, `no row for port ${spawned.port}`).toBeDefined();
       expect(row!.repoSlug).toBe("plain-slug");
@@ -787,7 +810,7 @@ describe.skipIf(lsofMissing)("listener binding through the service", () => {
       const spawned = await spawnListener(linkedRepo);
       child = spawned.child;
 
-      const result = await processService.refresh();
+      const result = await refreshUntilPort(spawned.port);
       const row = result.processes.find((p) => p.port === spawned.port);
       expect(row, `no row for port ${spawned.port}`).toBeDefined();
       // lsof reports the kernel's path, which is not the catalog's string.

@@ -40,6 +40,18 @@ source of truth for the current version.
   degree, a transcript that pages to an end) and that each route has the state worth looking at. The demo
   graph carries an owner link between every pair of repos whose remote belongs to the same person, because
   that is the honest shape of that signal: 36 faint links the strong ones have to be read against.
+- make the browser bridge's edits stick, so the flows that change the catalog can be reviewed in a bare
+  browser tab. The bridge served every read from a frozen module, which meant every write had to answer that
+  the main process is not running — you could see a favourite and never set one. `src/renderer/lib/demo-store.ts`
+  now owns a mutable copy of the same library and applies the writes the app makes: favourite, tags, curated
+  links, moves, folder renames, scan roots. The rules are the ones `src/main/services/move.ts` enforces, so a
+  dirty tree still blocks a move and a folder with a dev server in it still refuses to be renamed, a slug still
+  survives a move (main keeps the row key and rewrites `full_path`), and an edit is still undoable through the
+  same `moveLast`/`moveUndo` pair the catalog's undo bar calls. A browser tab genuinely cannot run a process,
+  open an editor or create a folder, and those stay refused with a reason rather than pretended.
+  `tests/unit/renderer/demo-store.spec.ts` drives each flow and parses every answer against the same Zod schema
+  the IPC boundary validates with, because a write that answers with the right idea and the wrong fields renders
+  as a broken panel rather than as a refusal.
 - keep the macOS bill from creeping back, in `scripts/check-ci-cost.mjs`. macOS runner minutes bill at
   ten times the Linux rate on a private repository, which makes where a job runs a spending decision
   rather than a style one — and nothing was keeping count, which is how a two-leg Electron matrix came
@@ -114,6 +126,20 @@ source of truth for the current version.
   the catalog scrolls inside its own grid area rather than the page, and the map gets the 703px it asks for
   instead of 156. `/graph` went from a diagram nobody could read to one where the clusters, the curated link
   between them and the two favourites are all legible.
+- draw the relationship map from the rows it is handed, not the constants it was built with. `buildGraph`
+  walked the demo seeds, so a repo dropped from the catalog stayed on the map and a repo moved in the store kept
+  reporting its old folder, which is also what the cluster spread is computed from. It takes `(curated, repos)`
+  now: one node per row, its folder read off the row, and the owner mesh read off each row's remote.
+- let a failed read keep its error when the same data also arrives by push. The process snapshot is written to
+  the query cache twice — by the 5s poll that reads `process:list`, and by the push from the main-side poller's
+  own tick — and `setQueryData` dispatches a success, which clears `state.error` and puts the query back to
+  `success`. With `process:list` failing, the panel's error state and its "Try again" appeared and were wiped by
+  the next push a tick later, so a screen whose read was broken said nothing about it and offered no way out,
+  which is the class of bug ATR-063 was about. `hooks/use-processes.ts` now refuses to write a snapshot over a
+  query that holds an error; the poll that owns the read keeps running, so lifting the outage still fills the
+  panel on its own. `tests/e2e/retry-and-loading.spec.ts` is what caught it — it fails `process:list` through
+  `src/main/ipc/_faults.ts` in the real window and asks for the retry, and it now passes in 4.4s instead of
+  timing out at 23s.
 - render a README as markdown, with the app's own styling. The detail panel and the Claude tab both wrapped
   `react-markdown` in `prose prose-invert prose-sm` and the `prose-*:` modifiers, and neither
   `@tailwindcss/typography` nor a `@plugin` line was ever in the tree — so every one of those classes compiled
