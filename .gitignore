@@ -16,6 +16,9 @@ data/
 *.db-shm
 lance-data/
 
+# The dev-time catalog export — names real repos and paths, never committed.
+.atr-catalog.json
+
 # Test output
 coverage/
 test-results/

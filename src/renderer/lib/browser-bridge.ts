@@ -49,6 +49,8 @@ import {
   assertLink,
   countUnder,
   detail,
+  loadExportedCatalog,
+  type CatalogSource,
   folderCheck,
   folderMove,
   folderRename,
@@ -78,6 +80,25 @@ import {
  */
 const NO_WRITES = "Browser bridge — the Electron main process is not running.";
 
+/**
+ * Where the dev server serves an exported catalog, when one exists.
+ *
+ * `scripts/export-catalog.mjs` writes the file and a dev-only middleware in
+ * `electron.vite.config.ts` serves it, so a browser tab can render the library
+ * this machine actually holds instead of the demo one. Absent — the normal case
+ * for a fresh checkout — reads fall back to the demo library.
+ */
+const EXPORT_URL = "/__atr/catalog.json";
+
+/**
+ * A slug no demo repo can have, whose state the demo library reports as empty.
+ *
+ * The Claude reads are keyed by slug, so this is how the bridge asks for a
+ * genuinely empty state without inventing one: `demoClaudeRepoState` already
+ * returns the shape it uses for the repos it has nothing to say about.
+ */
+const UNMATCHED_SLUG = "__browser_bridge__";
+
 const refused = (): never => {
   throw new Error(NO_WRITES);
 };
@@ -87,7 +108,40 @@ const noSubscription = () => () => {};
 
 const now = () => Date.now();
 
-function buildBridge(): AtrBridge {
+/**
+ * The honest answers for machine state a browser tab cannot read.
+ *
+ * A process snapshot, Claude usage and a session transcript all come from this
+ * machine's own kernel, `~/.claude` and its transcript files. Only the process
+ * snapshot reaches the renderer by IPC; the rest is read straight from disk by
+ * the main process. An exported catalog says nothing about any of them, so the
+ * empty shapes are what it is served, and an empty state is a state the UI
+ * already renders.
+ */
+const emptyProcessSnapshot = () => ({ processes: [], snapshotAt: now() });
+
+const EMPTY_USAGE = {
+  totalTokens: 0,
+  byProject: [],
+  byDay: [],
+  byWeek: [],
+  byMonth: [],
+};
+
+/**
+ * Build the bridge around a hydration promise.
+ *
+ * Every read waits for it: the export is a fetch, and the first catalog read
+ * happens on mount, so without awaiting it a tab would paint the demo library
+ * and swap it a frame later. The promise is settled exactly once and never
+ * rejects — `loadExportedCatalog` answers with the source it fell back to — so
+ * waiting on it costs nothing after the first read.
+ */
+function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
+  /** Answer machine-state reads from the empty state once a catalog is loaded. */
+  const hasExportedCatalog = async (): Promise<boolean> =>
+    (await ready) === "export";
+
   return {
     system: {
       // The `/debug` route renders `pong`, `mainProcessPid` and `receivedAt`,
@@ -101,6 +155,7 @@ function buildBridge(): AtrBridge {
     },
     catalog: {
       list: async (input) => {
+        await ready;
         // Deliberately unfiltered: the shell derives the rail, the folder
         // selection and the chips from the full list rather than asking main
         // for each one, so pre-filtering here would empty those surfaces.
@@ -113,8 +168,12 @@ function buildBridge(): AtrBridge {
           snapshotAt: now(),
         } as never;
       },
-      get: async ({ slug }) => detail(slug) as never,
+      get: async ({ slug }) => {
+        await ready;
+        return detail(slug) as never;
+      },
       search: async (input) => {
+        await ready;
         const query = input?.q?.trim().toLowerCase() ?? "";
         const hits = query
           ? listRepos()
@@ -140,24 +199,55 @@ function buildBridge(): AtrBridge {
           },
         } as never;
       },
-      rescan: async ({ slug }) => rescan(slug) as never,
-      setTags: async ({ slug, tags }) => setTags(slug, tags) as never,
-      delete: async ({ slug }) => forgetRepo(slug) as never,
+      rescan: async ({ slug }) => {
+        await ready;
+        return rescan(slug) as never;
+      },
+      setTags: async ({ slug, tags }) => {
+        await ready;
+        return setTags(slug, tags) as never;
+      },
+      delete: async ({ slug }) => {
+        await ready;
+        return forgetRepo(slug) as never;
+      },
       // The real handler is a Phase-4 stub that returns `[]`; answering from the
       // demo library instead would show a feature the app does not have yet.
       smartFilter: async () => [] as never,
       cover: async () => ({ src: null, source: null, relativePath: null }) as never,
-      moveCheck: async ({ slugs, targetDir }) => moveCheck(slugs, targetDir) as never,
-      move: async ({ slugs, targetDir }) => move(slugs, targetDir) as never,
-      moveUndo: async ({ batchId }) => moveUndo(batchId) as never,
-      moveLast: async () => moveLast() as never,
+      moveCheck: async ({ slugs, targetDir }) => {
+        await ready;
+        return moveCheck(slugs, targetDir) as never;
+      },
+      move: async ({ slugs, targetDir }) => {
+        await ready;
+        return move(slugs, targetDir) as never;
+      },
+      moveUndo: async ({ batchId }) => {
+        await ready;
+        return moveUndo(batchId) as never;
+      },
+      moveLast: async () => {
+        await ready;
+        return moveLast() as never;
+      },
       onChanged: noSubscription as never,
-      setFavorite: async ({ slug, favorite }) => setFavorite(slug, favorite) as never,
-      folderCheck: async ({ fromPath, toPath }) => folderCheck(fromPath, toPath) as never,
-      folderRename: async ({ fromPath, newName }) =>
-        folderRename(fromPath, newName) as never,
-      folderMove: async ({ fromPath, parentPath }) =>
-        folderMove(fromPath, parentPath) as never,
+      setFavorite: async ({ slug, favorite }) => {
+        await ready;
+        return setFavorite(slug, favorite) as never;
+      },
+      folderCheck: async ({ fromPath, toPath }) => {
+        await ready;
+        return folderCheck(fromPath, toPath) as never;
+      },
+      folderRename: async ({ fromPath, newName }) => {
+        await ready;
+        return folderRename(fromPath, newName) as never;
+      },
+      folderMove: async ({ fromPath, parentPath }) => {
+        await ready;
+        return folderMove(fromPath, parentPath) as never;
+      },
       // The demo tree is derived from the repos' paths, so there is no empty
       // folder to put anywhere — saying it worked would be a lie.
       folderCreate: async () => ({
@@ -167,11 +257,14 @@ function buildBridge(): AtrBridge {
     },
     scan: {
       start: async () => ({ started: false, reason: NO_WRITES }) as never,
-      status: async () => ({
-        running: false,
-        scanned: listRepos().length,
-        total: listRepos().length,
-      }) as never,
+      status: async () => {
+        await ready;
+        return {
+          running: false,
+          scanned: listRepos().length,
+          total: listRepos().length,
+        } as never;
+      },
       cancel: async () => ({ cancelled: false }) as never,
       onProgress: noSubscription as never,
     },
@@ -183,15 +276,27 @@ function buildBridge(): AtrBridge {
       openInEditor: async () => ({ ok: false, reason: NO_WRITES }) as never,
     },
     tasks: {
-      list: async ({ slug }) => ({ tasks: demoTasks(slug) }) as never,
+      // Scripts are read from each repo's `package.json` on disk, so an export
+      // has none — the panel's empty state is the honest answer, and the demo
+      // rows belong to repos that are not in an exported catalog.
+      list: async ({ slug }) => {
+        await ready;
+        return { tasks: (await hasExportedCatalog()) ? [] : demoTasks(slug) } as never;
+      },
       start: async () => ({ runId: null, started: false, reason: NO_WRITES }) as never,
       stop: async () => ({ stopped: false }) as never,
       active: async () => ({ runs: [] }) as never,
       onOutput: noSubscription as never,
     },
     graph: {
-      build: async () => graph() as never,
-      links: async ({ slug }) => relations(slug) as never,
+      build: async () => {
+        await ready;
+        return graph() as never;
+      },
+      links: async ({ slug }) => {
+        await ready;
+        return relations(slug) as never;
+      },
       link: async (input) => assertLink(input) as never,
       unlink: async (input) => removeLink(input) as never,
     },
@@ -203,16 +308,33 @@ function buildBridge(): AtrBridge {
       onStatus: noSubscription as never,
     },
     settings: {
-      get: async () => settings() as never,
-      update: async (patch) => updateSettings(patch) as never,
+      get: async () => {
+        await ready;
+        return settings() as never;
+      },
+      update: async (patch) => {
+        await ready;
+        return updateSettings(patch) as never;
+      },
       pickScanPath: async () => ({ path: null }) as never,
-      addScanPath: async ({ path }) => addScanPath(path) as never,
-      removeScanPath: async ({ path, forgetRepos }) =>
-        removeScanPath(path, forgetRepos) as never,
-      countUnder: async ({ path }) => ({ count: countUnder(path) }) as never,
+      addScanPath: async ({ path }) => {
+        await ready;
+        return addScanPath(path) as never;
+      },
+      removeScanPath: async ({ path, forgetRepos }) => {
+        await ready;
+        return removeScanPath(path, forgetRepos) as never;
+      },
+      countUnder: async ({ path }) => {
+        await ready;
+        return { count: countUnder(path) } as never;
+      },
     },
     groups: {
-      list: async () => groups() as never,
+      list: async () => {
+        await ready;
+        return groups() as never;
+      },
       // Membership in the demo is derived from where a repo lives, so a group
       // edit could not change anything a reviewer would then see. Refused
       // rather than answered with an unrelated group.
@@ -239,12 +361,32 @@ function buildBridge(): AtrBridge {
       // The same snapshot for all three reads: the list is a poll and the
       // refresh is a sweep, so answering them differently would make the cards'
       // port chips change the moment somebody opened the processes page.
-      list: async () => DEMO_PROCESSES as never,
-      listForRepo: async ({ slug }) => ({
-        processes: DEMO_PROCESSES.processes.filter((row) => row.repoSlug === slug),
-        snapshotAt: now(),
-      }) as never,
-      refresh: async () => DEMO_PROCESSES as never,
+      //
+      // With an exported catalog the answer is empty rather than the demo rows:
+      // listing a TCP listener means running `lsof` on this machine, which a
+      // browser tab cannot do, and the demo rows describe repos that are not in
+      // the export — chips pointing at them would be fiction.
+      list: async () => {
+        await ready;
+        return (await hasExportedCatalog()
+          ? emptyProcessSnapshot()
+          : DEMO_PROCESSES) as never;
+      },
+      listForRepo: async ({ slug }) => {
+        await ready;
+        return {
+          processes: (await hasExportedCatalog())
+            ? []
+            : DEMO_PROCESSES.processes.filter((row) => row.repoSlug === slug),
+          snapshotAt: now(),
+        } as never;
+      },
+      refresh: async () => {
+        await ready;
+        return (await hasExportedCatalog()
+          ? emptyProcessSnapshot()
+          : DEMO_PROCESSES) as never;
+      },
       kill: async ({ pid }) => ({
         pid,
         finalSignal: "noop",
@@ -262,17 +404,49 @@ function buildBridge(): AtrBridge {
       copyPath: async () => ({ ok: false, reason: NO_WRITES }) as never,
     },
     claude: {
-      index: async () => ({
-        projectCount: DEMO_CLAUDE_PROJECTS.length,
-        sessionCount: DEMO_CLAUDE_PROJECTS.reduce((sum, p) => sum + p.sessionCount, 0),
-        totalTokens: DEMO_CLAUDE_PROJECTS.reduce((sum, p) => sum + p.totalTokens, 0),
-        durationMs: 0,
-      }) as never,
-      projects: async () => ({ projects: DEMO_CLAUDE_PROJECTS }) as never,
-      repoState: async ({ slug }) => demoClaudeRepoState(slug) as never,
-      sessionTranscript: async ({ sessionId, cursor }) =>
-        demoTranscript(sessionId, cursor ?? 0) as never,
-      globalUsage: async (input) => demoGlobalUsage(input ?? {}) as never,
+      // Same reasoning as `process`: Claude state is read from `~/.claude` and
+      // `~/.claude.json` on this machine, so an export has none and the demo's
+      // projects are about repos that are not in it.
+      index: async () => {
+        await ready;
+        return {
+          projectCount: (await hasExportedCatalog()) ? 0 : DEMO_CLAUDE_PROJECTS.length,
+          sessionCount: (await hasExportedCatalog())
+            ? 0
+            : DEMO_CLAUDE_PROJECTS.reduce((sum, p) => sum + p.sessionCount, 0),
+          totalTokens: (await hasExportedCatalog())
+            ? 0
+            : DEMO_CLAUDE_PROJECTS.reduce((sum, p) => sum + p.totalTokens, 0),
+          durationMs: 0,
+        } as never;
+      },
+      projects: async () => {
+        await ready;
+        return { projects: (await hasExportedCatalog()) ? [] : DEMO_CLAUDE_PROJECTS } as never;
+      },
+      repoState: async ({ slug }) => {
+        await ready;
+        return demoClaudeRepoState(
+          (await hasExportedCatalog()) ? UNMATCHED_SLUG : slug,
+        ) as never;
+      },
+      sessionTranscript: async ({ sessionId, cursor }) => {
+        await ready;
+        if (await hasExportedCatalog()) {
+          // The envelope, with its contents removed: the demo transcript is
+          // generated for whatever id it is handed, so it would happily page a
+          // fake session into a tab reading a real catalog.
+          const empty = demoTranscript(UNMATCHED_SLUG, 0);
+          return { ...empty, events: [], hasMore: false, nextCursor: null } as never;
+        }
+        return demoTranscript(sessionId, cursor ?? 0) as never;
+      },
+      globalUsage: async (input) => {
+        await ready;
+        return (await hasExportedCatalog()
+          ? EMPTY_USAGE
+          : demoGlobalUsage(input ?? {})) as never;
+      },
       launch: async () => ({ ok: false, reason: NO_WRITES }) as never,
       openClaudeMd: async () => ({ ok: false, reason: NO_WRITES }) as never,
       onUpdate: noSubscription as never,
@@ -288,15 +462,22 @@ export function installBrowserBridge(): boolean {
   if (typeof window === "undefined") return false;
   if (window.atr) return false;
 
-  window.atr = buildBridge();
+  // Kicked before the first read and awaited by every read that needs it: the
+  // export is a fetch, and the first catalog read happens on mount, so a tab
+  // that did not wait would paint the demo library and swap it a frame later.
+  const ready = loadExportedCatalog(EXPORT_URL);
+  window.atr = buildBridge(ready);
   console.info(
-    "[browser-bridge] No Electron preload bridge found — serving the demo " +
-      `library (${listRepos().length} repos under ${DEMO_ROOT}) for every route: ` +
-      "catalog, repo detail, /graph, /claude, /processes and /settings. " +
-      "Writes that change the catalog — favourites, tags, curated links, moves, " +
-      "folder renames, scan roots — apply to a session-local copy and are lost " +
-      "on reload; the rest are refused with a reason. " +
-      "Run `pnpm electron:dev` for the app against your own library.",
+    "[browser-bridge] No Electron preload bridge found — installing the dev " +
+      "bridge so every route renders in a browser tab: catalog, repo detail, " +
+      "/graph, /claude, /processes and /settings. Writes that change the " +
+      "catalog — favourites, tags, curated links, moves, folder renames, scan " +
+      "roots — apply to a session-local copy and are lost on reload; the rest " +
+      "are refused with a reason. \n" +
+      "[browser-bridge] The library being served is named on the next line. With " +
+      `no export at ${EXPORT_URL} it is the demo library (${listRepos().length} ` +
+      `repos under ${DEMO_ROOT}); run \`node scripts/export-catalog.mjs\` to ` +
+      "review your own catalog instead. Run `pnpm electron:dev` for the app itself.",
   );
   return true;
 }

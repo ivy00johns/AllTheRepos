@@ -482,3 +482,161 @@ function settingsParse(store: Store) {
 
 const folderOf = (repo: Repo): string =>
   repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
+
+/**
+ * An export is a file this bundle did not produce, so the interesting cases are
+ * the ones where it is missing, stale or malformed — a tab that quietly served
+ * the demo library over a file somebody expected to work would be worse than one
+ * that said nothing at all.
+ */
+describe("an exported catalog", () => {
+  /** Answer the next `fetch` with a body, or with a status and no body. */
+  function stubFetch(body: unknown, status = 200): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+      })),
+    );
+  }
+
+  /** Two of the demo repos, stood up as if they were a real export. */
+  function payload(store: Store) {
+    const [first, second] = store.listRepos();
+    if (!first || !second) throw new Error("the demo library should hold repos");
+    return {
+      format: 1,
+      exportedAt: "2026-10-08T12:00:00.000Z",
+      dbPath: "/Users/somebody/Library/Application Support/alltherepos/alltherepos.db",
+      repos: [
+        { ...first, fullPath: "/Users/somebody/Repos/mine/first", isFavorite: false },
+        { ...second, fullPath: "/Users/somebody/Repos/elsewhere/second" },
+      ],
+      groups: [],
+      detail: {
+        [first.slug]: { readmeContent: "# Exported README\n", groups: [] },
+      },
+      links: [
+        {
+          id: 1,
+          fromSlug: first.slug,
+          toSlug: second.slug,
+          kind: "related" as const,
+          why: "asserted on the real machine",
+          source: "ui" as const,
+          createdAt: "2026-10-01T09:00:00.000Z",
+        },
+      ],
+      settings: { ...store.settings(), scanPaths: ["/Users/somebody/Repos"] },
+    };
+  }
+
+  test("replaces the demo library, and the map draws only what it holds", async () => {
+    const store = await freshStore();
+    const body = payload(store);
+    const [first, second] = body.repos as [Repo, Repo];
+    stubFetch(body);
+
+    expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("export");
+    expect(store.source()).toBe("export");
+    expect(store.listRepos().map((repo) => repo.slug)).toEqual([first.slug, second.slug]);
+    expect(store.settings().scanPaths).toEqual(["/Users/somebody/Repos"]);
+
+    // The README comes from the export, not from the demo seed's repo of the
+    // same slug — which is the difference between "my library" and "a library".
+    expect(store.detail(first.slug)?.readmeContent).toBe("# Exported README\n");
+
+    // Every demo name in the derived link list now belongs to a repo that is
+    // not in the catalog, so the only drawable edge is the exported one.
+    const graph = GraphResultSchema.parse(store.graph());
+    expect(graph.nodes.map((node) => node.slug).sort()).toEqual(
+      [first.slug, second.slug].sort(),
+    );
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0]?.source).toBe(first.slug);
+    expect(graph.edges[0]?.target).toBe(second.slug);
+    expect(graph.edges[0]?.curated?.[0]?.why).toBe("asserted on the real machine");
+
+    // Clusters are the folders the repos live in, since an export carries no
+    // derived signals for the real builder's clusters to be inferred from.
+    expect(graph.clusters.map((cluster) => cluster.label).sort()).toEqual([
+      "elsewhere",
+      "mine",
+    ]);
+    expect(graph.clusters.every((cluster) => cluster.strays.length === 0)).toBe(true);
+  });
+
+  test("the flows still write over an exported catalog", async () => {
+    const store = await freshStore();
+    const body = payload(store);
+    const [first, second] = body.repos as [Repo, Repo];
+    stubFetch(body);
+    await store.loadExportedCatalog("/__atr/catalog.json");
+
+    expect(store.setFavorite(first.slug, true)?.isFavorite).toBe(true);
+    expect(store.setTags(second.slug, ["mine"]).tags).toEqual([
+      { value: "mine", source: "user" },
+    ]);
+    expect(
+      store.removeLink({
+        fromSlug: first.slug,
+        toSlug: second.slug,
+        kind: "related",
+      }).removed,
+    ).toBe(true);
+    // The pair can still carry a derived signal — the assertion is about the
+    // curated one, which is what the panel's write removed.
+    const edges = GraphResultSchema.parse(store.graph()).edges;
+    expect(edges.some((edge) => edge.signals.includes("curated"))).toBe(false);
+    expect(edges.every((edge) => (edge.curated ?? []).length === 0)).toBe(true);
+  });
+
+  test("no export at all leaves the demo library serving", async () => {
+    const store = await freshStore();
+    stubFetch(null, 404);
+
+    expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
+    expect(store.source()).toBe("demo");
+    expect(store.listRepos()).toHaveLength(12);
+    expect(store.settings().scanPaths).toEqual(["/Users/demo/Code"]);
+  });
+
+  test("a format this build does not know is refused, not half-loaded", async () => {
+    const store = await freshStore();
+    stubFetch({ ...payload(store), format: 99 });
+
+    expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
+    expect(store.source()).toBe("demo");
+    expect(store.listRepos()).toHaveLength(12);
+  });
+
+  test("a malformed export is refused by the schema it would be rendered from", async () => {
+    const store = await freshStore();
+    const body = payload(store);
+    // A tag without its `source`, which is the field whose absence once made the
+    // whole catalog render blank.
+    const broken = {
+      ...body,
+      repos: [{ ...body.repos[0], tags: [{ value: "ui" }] }, body.repos[1]],
+    };
+    stubFetch(broken);
+
+    expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
+    expect(store.listRepos()).toHaveLength(12);
+  });
+
+  test("an unreadable response is reported and the demo library keeps serving", async () => {
+    const store = await freshStore();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
+    expect(store.listRepos()).toHaveLength(12);
+  });
+});

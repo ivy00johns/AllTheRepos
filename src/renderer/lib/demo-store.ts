@@ -33,6 +33,8 @@ import type {
   FolderBlocker,
   FolderCheckResult,
   FolderOpResult,
+  GraphCluster,
+  GraphNode,
   GraphResult,
   Group,
   MoveBlocker,
@@ -51,9 +53,19 @@ import type {
   Settings,
 } from "@shared/types";
 
-// Only a type: the store keeps settings in the schema's shape (every field
-// present) rather than the contract's, which leaves two fields optional.
-import type { SettingsZ } from "@shared/schemas";
+// The schemas, at runtime, on purpose: an export is a file on disk that this
+// bundle did not produce, and the bridge stands in for the IPC boundary — which
+// validates every answer on the way out. A shape mismatch here would render a
+// broken panel rather than a refusal, so it is parsed before it is trusted.
+// Zod is the cost of that, and it is the same dependency the handlers use.
+import {
+  GroupSchema,
+  RepoLinkSchema,
+  RepoSchema,
+  SettingsSchema,
+  type SettingsZ,
+} from "@shared/schemas";
+import { z } from "zod";
 
 import {
   DEMO_CURATED_LINKS,
@@ -99,10 +111,21 @@ interface MoveBatch {
   records: Array<{ slug: string; fromPath: string; toPath: string }>;
 }
 
+/** A repo's panel data that the export carries: the README and its groups. */
+interface ExportedDetail {
+  readmeContent: string | null;
+  groups: Array<{ id: number; name: string }>;
+}
+
 interface DemoState {
+  /** Which library is being served — the demo one, or an exported catalog. */
+  source: CatalogSource;
   repos: Repo[];
+  groups: Group[];
   links: RepoLink[];
   settings: SettingsZ;
+  /** Only populated in export mode; the demo reads its detail from the seed. */
+  detail: Map<string, ExportedDetail>;
   batches: MoveBatch[];
 }
 
@@ -131,9 +154,40 @@ function seeded(): RepoLink[] {
   }));
 }
 
+/**
+ * The catalog, as `scripts/export-catalog.mjs` writes it.
+ *
+ * `format` is versioned so a stale file is refused with a reason instead of
+ * half-loaded, and every field is the shape the IPC layer would have returned:
+ * the export is a snapshot of what the app holds, not a second dialect.
+ */
+const ExportedCatalogSchema = z.object({
+  format: z.number().int(),
+  exportedAt: z.string(),
+  dbPath: z.string(),
+  repos: z.array(RepoSchema),
+  groups: z.array(GroupSchema),
+  detail: z.record(
+    z.object({
+      readmeContent: z.string().nullable(),
+      groups: z.array(z.object({ id: z.number(), name: z.string() })),
+    }),
+  ),
+  links: z.array(RepoLinkSchema),
+  settings: SettingsSchema,
+});
+
+/** What this build knows how to load. */
+const EXPORT_FORMAT = 1;
+
+export type CatalogSource = "demo" | "export";
+
 const state: DemoState = {
+  source: "demo",
   repos: DEMO_REPOS.map(cloneRepo),
+  groups: DEMO_GROUPS,
   links: seeded(),
+  detail: new Map(),
   // The two optional contract fields are named explicitly: `Settings` lets a
   // pre-3a blob omit them, and everything downstream of here wants them set.
   settings: {
@@ -182,14 +236,16 @@ export function findRepo(slug: string): Repo | null {
 /**
  * One repo's detail panel.
  *
- * The README and the group come from the frozen library (neither can change in
- * a tab), but every mutable field — path, tags, favourite — is read off the
- * store's copy, which is what makes an edit visible here at once.
+ * The README and the groups come from wherever the catalog came from — the
+ * export carries both, and in demo mode the seed does — while every mutable
+ * field (path, tags, favourite) is read off the store's copy, which is what
+ * makes an edit visible here at once. Neither can change in a tab: a README is
+ * read from disk by the scanner, and group membership is a table write.
  */
 export function detail(slug: string): RepoDetail | null {
   const repo = findRepo(slug);
   if (!repo) return null;
-  const base = demoDetail(slug);
+  const base = state.source === "export" ? state.detail.get(slug) : demoDetail(slug);
   return {
     ...repo,
     readmeContent: base?.readmeContent ?? null,
@@ -208,7 +264,7 @@ export function detail(slug: string): RepoDetail | null {
 export function graph(): GraphResult {
   if (graphCache && graphVersion === version) return graphCache;
   const nameOfSlug = new Map(state.repos.map((repo) => [repo.slug, repo.name]));
-  graphCache = buildGraph(
+  const built = buildGraph(
     state.links.map((link) => ({
       from: nameOfSlug.get(link.fromSlug) ?? link.fromSlug,
       to: nameOfSlug.get(link.toSlug) ?? link.toSlug,
@@ -217,8 +273,41 @@ export function graph(): GraphResult {
     })),
     state.repos,
   );
+  // An exported catalog has no derived signals — those come from reading
+  // `package.json` and `.gitmodules` on disk, which this process cannot do — so
+  // the clusters it can honestly draw are the folders its repos live in.
+  graphCache =
+    state.source === "export"
+      ? { ...built, clusters: clusterByFolder(built) }
+      : built;
   graphVersion = version;
   return graphCache;
+}
+
+/** One cluster per folder, which is the strongest grouping an export supports. */
+function clusterByFolder(built: GraphResult): GraphCluster[] {
+  const byFolder = new Map<string, GraphNode[]>();
+  for (const node of built.nodes) {
+    const list = byFolder.get(node.folder) ?? [];
+    list.push(node);
+    byFolder.set(node.folder, list);
+  }
+  return [...byFolder.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([folder, nodes], index) => {
+      const slugs = nodes.map((node) => node.slug);
+      return {
+        id: index,
+        label: folder.slice(folder.lastIndexOf("/") + 1) || folder,
+        size: slugs.length,
+        slugs,
+        folders: [{ folder, count: slugs.length }],
+        // Members are together by definition, so nothing here is scattered.
+        folderSpread: 1,
+        dominantFolder: folder,
+        strays: [],
+      };
+    });
 }
 
 export function relations(slug: string): RepoRelationsResult {
@@ -230,7 +319,91 @@ export function settings(): Settings {
 }
 
 export function groups(): Group[] {
-  return DEMO_GROUPS;
+  return state.groups;
+}
+
+/** Which library reads are answered from — the demo one, or an export. */
+export function source(): CatalogSource {
+  return state.source;
+}
+
+/** Replace the store's contents with an exported catalog. */
+function applyExport(parsed: z.infer<typeof ExportedCatalogSchema>): void {
+  state.repos = parsed.repos.map(cloneRepo);
+  state.groups = parsed.groups;
+  state.links = parsed.links;
+  state.settings = parsed.settings;
+  state.detail = new Map(
+    Object.entries(parsed.detail).map(([slug, entry]) => [
+      slug,
+      { readmeContent: entry.readmeContent, groups: entry.groups },
+    ]),
+  );
+  // Batches describe moves made in this session, and this one replaced them.
+  state.batches = [];
+  state.source = "export";
+  touch();
+}
+
+/**
+ * Serve an exported catalog when one is there, and the demo library when not.
+ *
+ * Called once, at bridge install. Everything that can go wrong is a fallback
+ * rather than a failure, because a browser tab with no export is the normal
+ * case: a 404 is the dev server saying nobody has run the export, and it is
+ * reported at info level with the command that produces one. A file that exists
+ * but does not match the schema is different — that is a stale or hand-edited
+ * export, and it is reported as a warning with the first issue found, because
+ * silently serving the demo library over a file somebody expected to work is
+ * the failure mode worth shouting about.
+ */
+export async function loadExportedCatalog(url: string): Promise<CatalogSource> {
+  try {
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) {
+      console.info(
+        `[demo-store] no catalog export at ${url} (HTTP ${response.status}) — serving the demo ` +
+          "library. Run `node scripts/export-catalog.mjs` to review your own.",
+      );
+      return state.source;
+    }
+
+    const parsed = ExportedCatalogSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      console.warn(
+        `[demo-store] the catalog export at ${url} does not match the format this build expects ` +
+          `(${issue?.path.join(".") || "root"}: ${issue?.message ?? "unknown issue"}) — serving the ` +
+          "demo library. Re-run `node scripts/export-catalog.mjs`.",
+      );
+      return state.source;
+    }
+    if (parsed.data.format !== EXPORT_FORMAT) {
+      console.warn(
+        `[demo-store] the catalog export at ${url} is format ${parsed.data.format}, and this ` +
+          `build reads format ${EXPORT_FORMAT} — serving the demo library. Re-run ` +
+          "`node scripts/export-catalog.mjs`.",
+      );
+      return state.source;
+    }
+
+    applyExport(parsed.data);
+    console.info(
+      `[demo-store] serving your exported catalog: ${parsed.data.repos.length} repos, ` +
+        `${parsed.data.groups.length} groups and ${parsed.data.links.length} curated links from ` +
+        `${parsed.data.dbPath} (exported ${parsed.data.exportedAt}). Writes still apply to this ` +
+        "session only.",
+    );
+    return state.source;
+  } catch (error) {
+    console.warn(
+      `[demo-store] the catalog export at ${url} could not be read — serving the demo library.`,
+      error,
+    );
+    return state.source;
+  }
 }
 
 export function countUnder(path: string): number {

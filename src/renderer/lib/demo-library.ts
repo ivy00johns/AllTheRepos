@@ -824,8 +824,14 @@ export function buildGraph(
     }
   }
 
+  // Only the edges whose ends are both rows in this catalog can be drawn. The
+  // derived list and the curated seed are written in the demo library's names,
+  // so against any other catalog every one of them would point at a node that
+  // is not on the map.
+  const drawnSlugs = new Set(repos.map((repo) => repo.slug));
   const degree = new Map<string, number>();
   const edges: GraphEdge[] = [...drafts.values()]
+    .filter((draft) => drawnSlugs.has(draft.source) && drawnSlugs.has(draft.target))
     .map((draft) => {
       const signals = [...draft.signals];
       const weight = signals.reduce(

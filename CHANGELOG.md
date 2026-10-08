@@ -52,6 +52,23 @@ source of truth for the current version.
   `tests/unit/renderer/demo-store.spec.ts` drives each flow and parses every answer against the same Zod schema
   the IPC boundary validates with, because a write that answers with the right idea and the wrong fields renders
   as a broken panel rather than as a refusal.
+- review your own catalog in a browser tab, with `scripts/export-catalog.mjs`. The bridge above renders a
+  12-repo demo library, which is the wrong library when the question is whether a screen works with the repos
+  you actually have. The script writes the real thing — catalog rows, groups, curated links, settings and
+  READMEs — to a gitignored file (4.7 MiB for 271 repos, 29 links and 245 READMEs on this machine), and a
+  dev-only middleware in `electron.vite.config.ts` serves it at `/__atr/catalog.json`. The bridge fetches it
+  at install and every read waits for that fetch, so a tab never paints the demo library and swap it a frame
+  later. It is parsed with the same Zod schemas the IPC boundary validates with, because a file this bundle
+  did not produce is exactly where a shape mismatch would render a broken panel instead of a refusal: a
+  missing file is a 404 reported at info level with the command that writes one, a stale `format` or a
+  malformed row is a warning naming the first issue, and both fall back to the demo library. The script picks
+  whichever of Node or Electron can actually load `better-sqlite3` on this checkout, since the test suite and
+  `pnpm electron:dev` build that native module for different ABIs. **What an export cannot carry:** the
+  derived signals (shared libraries, submodules, README references) come from reading `package.json` and
+  `.gitmodules` on disk, so the map shows your curated links and the same-owner mesh and nothing finer — on
+  this machine that is 1,891 owner links against 29 curated ones. Script lists, CLAUDE.md state and listening
+  processes need the disk too, and those panels show their empty states rather than rows about repos that are
+  not in your catalog.
 - keep the macOS bill from creeping back, in `scripts/check-ci-cost.mjs`. macOS runner minutes bill at
   ten times the Linux rate on a private repository, which makes where a job runs a spending decision
   rather than a style one — and nothing was keeping count, which is how a two-leg Electron matrix came
