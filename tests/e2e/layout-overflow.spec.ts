@@ -352,7 +352,6 @@ test.describe("window fits the route", () => {
     const heights: Array<[string, RegExp, RegExp]> = [
       ["/claude", /^claude$/i, /^Claude Usage$/i],
       ["/processes", /^running/i, /^Processes$/i],
-      ["/debug", /^debug$/i, /^\/debug — system\.ping$/i],
     ];
     for (const [route, label, heading] of heights) {
       await topBar.getByRole("link", { name: label }).click();
@@ -362,6 +361,29 @@ test.describe("window fits the route", () => {
       });
       measured[route] = await metrics(win);
     }
+
+    // ----- `/debug`, which is a route but no longer a destination (ATR-074). -----
+    // It is held to the same height contract, so it still has to be *reached*,
+    // and the way a person reaches it now is the command palette's dev-tools
+    // action — not a top-bar link, which is the finding. The palette is opened
+    // from the catalog, because the renderer's Cmd+K fallback mounts with the
+    // catalog shell; the native menu accelerator cannot be driven from here.
+    await topBar.getByRole("link", { name: /^AllTheRepos$/i }).click();
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    await win.keyboard.press("Meta+K");
+    const palette = win.getByRole("dialog", { name: /command palette/i });
+    await expect(palette).toBeVisible({ timeout: 15_000 });
+    await palette.getByPlaceholder(/run a command/i).fill("debug page");
+    await expect(
+      palette.getByText(/^open debug page$/i).first(),
+      "the palette no longer carries the door to /debug",
+    ).toBeVisible({ timeout: 5_000 });
+    await win.keyboard.press("Enter");
+    await expect(palette).toBeHidden({ timeout: 5_000 });
+    await expect(
+      win.getByRole("heading", { name: /^\/debug — system\.ping$/i }),
+    ).toBeVisible({ timeout: 15_000 });
+    measured["/debug"] = await metrics(win);
 
     // The standalone repo page, through the affordance that opens it: select a
     // card, then take the detail panel's "open in a page" link.

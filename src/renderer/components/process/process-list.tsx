@@ -128,7 +128,7 @@ export function ProcessList({ className }: ProcessListProps) {
         )}
       >
         <table role="table" className="w-full border-collapse text-left text-xs">
-          <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2 font-medium">
                 Repo
@@ -228,7 +228,9 @@ function ProcessRow({ process, onCopy, onKill, killing }: ProcessRowProps) {
       </td>
       <td className="px-3 py-2 font-mono">
         <span className="inline-flex items-center gap-1">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          {/* The same live-status token the port chip on a repo card uses —
+              status is one hue (ATR-073), wherever it is drawn. */}
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-status-live" />
           <span>{process.port}</span>
         </span>
       </td>

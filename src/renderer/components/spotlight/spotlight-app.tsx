@@ -431,14 +431,14 @@ export function SpotlightApp() {
                   </span>
                 ) : null}
               </div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span className="atr-label uppercase tracking-wider text-muted-foreground">
                 {row.type}
               </span>
             </div>
           ))
         )}
       </div>
-      <div className="border-t border-border px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="border-t border-border px-4 py-1.5 atr-label uppercase tracking-wider text-muted-foreground">
         <span>↵ open</span>
         <span className="ml-3">⌘↵ copy path</span>
         <span className="ml-3">{isActionMode ? "esc back" : "› actions"}</span>

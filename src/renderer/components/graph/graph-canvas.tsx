@@ -748,7 +748,7 @@ export function GraphCanvas({
 
       {layingOut ? (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-          <span className="rounded-md border border-border bg-popover px-2 py-1 font-mono text-[11px] text-muted-foreground shadow-overlay">
+          <span className="rounded-md border border-border bg-popover px-2 py-1 font-mono atr-label text-muted-foreground shadow-overlay">
             Arranging {nodes.length} repos…
           </span>
         </div>

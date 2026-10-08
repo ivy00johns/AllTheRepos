@@ -94,7 +94,7 @@ function ToolbarSelect<T extends string>({
     <div className="flex items-center gap-1.5">
       <label
         htmlFor={id}
-        className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+        className="flex items-center gap-1 font-mono atr-label uppercase tracking-wider text-muted-foreground"
       >
         {icon}
         {label}
@@ -259,7 +259,7 @@ export function CatalogToolbar({
           <button
             type="button"
             onClick={onClearScope}
-            className="flex cursor-pointer items-center gap-1 rounded bg-secondary px-2 py-1 font-mono text-[11px] text-foreground transition-colors duration-150 hover:bg-surface-raised"
+            className="flex cursor-pointer items-center gap-1 rounded bg-secondary px-2 py-1 font-mono atr-label text-foreground transition-colors duration-150 hover:bg-surface-raised"
             aria-label={`Clear scope ${scopeLabel}`}
           >
             <span className="max-w-[220px] truncate">{scopeLabel}</span>

@@ -3,8 +3,8 @@
  * bound listening process. Click opens a tiny dropdown menu with
  * "Copy URL", "Open in browser", "Kill".
  *
- * Visual: small green pulsing dot + `:<port>` label. Multiple ports
- * for the same repo render multiple chips side-by-side.
+ * Visual: small pulsing dot in the live-status hue + `:<port>` label.
+ * Multiple ports for the same repo render multiple chips side-by-side.
  *
  * Kill asks through the shared `ConfirmDialog` (ATR-067), the same one the
  * process table uses. It used to call `window.confirm()`, which blocks the
@@ -73,7 +73,7 @@ export function PortChip({ process, className }: PortChipProps) {
             type="button"
             aria-label={`Port ${process.port} actions (PID ${process.pid})`}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent transition-colors hover:bg-accent/20 focus:outline-none focus:ring-2 focus:ring-ring",
+              "inline-flex items-center gap-1 rounded-md border border-status-live/40 bg-status-live/10 px-2 py-0.5 font-mono atr-micro text-status-live transition-colors hover:bg-status-live/20 focus:outline-none focus:ring-2 focus:ring-ring",
               kill.isPending && "opacity-50",
               className,
             )}
@@ -86,8 +86,8 @@ export function PortChip({ process, className }: PortChipProps) {
             onKeyDown={(e) => e.stopPropagation()}
           >
             <span aria-hidden className="relative inline-flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-live/60 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-status-live" />
             </span>
             <span>:{process.port}</span>
           </button>
@@ -159,9 +159,12 @@ export function PortChipsForRepo({
 }
 
 /**
- * Visual: the existing theme's `--color-accent` token is already a
- * vivid green (#22c55e), which doubles as our "running process"
- * indicator. The pulsing dot uses `bg-accent` + `animate-ping` for
- * the halo so the chip lights up the card without needing a new
- * design token.
+ * Visual: the dot's hue is `--color-status-live`, a token of its own (ATR-073),
+ * not `--accent`.
+ *
+ * It used to be painted with the accent — the brand and primary-action colour —
+ * so a status read as an affordance, and a re-brand would have repainted every
+ * "is this up right now" mark along with the buttons. The pulsing halo is the
+ * same token at 60% via `animate-ping`, so the chip lights up the card without
+ * needing a second token.
  */

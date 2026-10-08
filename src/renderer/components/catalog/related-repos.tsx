@@ -72,7 +72,7 @@ export function RelatedRepos({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className="atr-label font-semibold uppercase tracking-widest text-muted-foreground">
           {title}
         </p>
         {canWrite ? (
@@ -80,7 +80,7 @@ export function RelatedRepos({
             size="sm"
             variant="ghost"
             onClick={() => setCurating(true)}
-            className="h-6 px-1.5 text-[10px] uppercase tracking-widest"
+            className="h-6 px-1.5 atr-label uppercase tracking-widest"
             aria-label={`Assert a relationship for ${repoName}`}
           >
             <Link2 className="h-3 w-3" aria-hidden />
@@ -90,7 +90,7 @@ export function RelatedRepos({
       </div>
 
       {items.length === 0 ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
+        <p className="atr-label leading-snug text-muted-foreground">
           {relations.isPending
             ? "Loading…"
             : "No curated links yet. Add one here, or from a Claude Code session with the alltherepos MCP."}
@@ -119,15 +119,15 @@ export function RelatedRepos({
                 >
                   <span
                     aria-hidden
-                    className="font-mono text-[11px] text-accent"
+                    className="font-mono atr-micro text-accent"
                   >
                     {rel.direction === "outgoing" ? "→" : "←"}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-[11px] text-foreground group-hover:text-accent">
+                    <span className="block truncate font-mono atr-label text-foreground group-hover:text-accent">
                       {rel.name}
                     </span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
+                    <span className="block truncate atr-label text-muted-foreground">
                       {LINK_KIND_LABELS[rel.kind]}
                       {rel.why ? ` — ${rel.why}` : ""}
                     </span>
@@ -155,7 +155,7 @@ export function RelatedRepos({
       {remove.error ? (
         <p
           role="alert"
-          className="mt-1.5 flex items-start gap-1 text-[10px] text-destructive"
+          className="mt-1.5 flex items-start gap-1 atr-label text-destructive"
         >
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
           {ipcErrorText(remove.error)}

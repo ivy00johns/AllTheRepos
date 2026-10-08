@@ -263,9 +263,9 @@ function GraphPage() {
         <div className="shrink-0 border-b border-border">
           <div className="flex h-11 items-center gap-3 px-4">
             <Network className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            <h1 className="atr-label font-mono uppercase tracking-wider text-muted-foreground">
               Relationships
-            </span>
+            </h1>
 
             <div className="ml-auto flex items-center gap-2">
               {selectedCluster !== null ? (
@@ -330,7 +330,7 @@ function GraphPage() {
                     }
                   >
                     <span>{SIGNAL_LABELS[signal]}</span>
-                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                    <span className="atr-micro font-mono tabular-nums text-muted-foreground">
                       {count}
                     </span>
                   </button>
@@ -395,10 +395,10 @@ function GraphPage() {
           and there is otherwise no way to select anything.
         */}
         <section className="border-b border-border p-4">
-          <h2 className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
             Repositories
           </h2>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <p className="atr-label mt-1 leading-snug text-muted-foreground">
             The map is painted on a canvas, so no dot on it can take focus. Pick
             one here instead — arrow keys move through the list, and Enter or
             Space selects the same node.
@@ -426,7 +426,7 @@ function GraphPage() {
                 }}
                 className="atr-rail-row px-2 py-1"
               >
-                <span className="atr-truncate font-mono text-[11px] text-foreground">
+                <span className="atr-truncate font-mono atr-label text-foreground">
                   {node.name}
                 </span>
                 <span className="atr-meta ml-auto shrink-0 tabular-nums">
@@ -437,7 +437,7 @@ function GraphPage() {
           </div>
 
           {visibleNodes.length === 0 ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <p className="atr-label mt-2 text-muted-foreground">
               {graph.isPending
                 ? "Reading the catalog…"
                 : "No repositories to show."}
@@ -451,12 +451,12 @@ function GraphPage() {
               {selectedNode.name}
             </h2>
             <p className="atr-meta mt-0.5">{tildify(selectedNode.folder)}</p>
-            <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="atr-label mt-2 font-mono uppercase tracking-wider text-muted-foreground">
               Strongest links
             </p>
             <ul className="mt-1 flex flex-col gap-1">
               {selectedEdges.length === 0 ? (
-                <li className="text-[11px] text-muted-foreground">
+                <li className="atr-label text-muted-foreground">
                   Nothing connects to this one.
                 </li>
               ) : (
@@ -470,11 +470,11 @@ function GraphPage() {
                         onClick={() => setSelectedSlug(other)}
                         className="w-full cursor-pointer rounded px-1 py-0.5 text-left transition-colors duration-150 hover:bg-surface-raised"
                       >
-                        <span className="atr-truncate block font-mono text-[11px] text-foreground">
+                        <span className="atr-truncate block font-mono atr-label text-foreground">
                           {nameOf(other)}
                         </span>
                         {edge.curated?.length ? (
-                          <span className="atr-truncate block text-[10px] text-accent">
+                          <span className="atr-truncate block atr-label text-accent">
                             {edge.curated
                               .map((c) =>
                                 c.from === selectedSlug
@@ -484,7 +484,7 @@ function GraphPage() {
                               .join(", ")}
                           </span>
                         ) : null}
-                        <span className="atr-truncate block text-[10px] text-muted-foreground">
+                        <span className="atr-truncate block atr-label text-muted-foreground">
                           {edge.why.join(", ") || edge.signals.join(", ")}
                         </span>
                       </button>
@@ -508,17 +508,17 @@ function GraphPage() {
         ) : null}
 
         <section className="p-4">
-          <h2 className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
             Scattered clusters
           </h2>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <p className="atr-label mt-1 leading-snug text-muted-foreground">
             Groups whose members are related but live in different folders. The
             number is how many sit outside the group&apos;s main home.
           </p>
 
           <ul className="mt-3 flex flex-col gap-1">
             {scattered.length === 0 ? (
-              <li className="text-[11px] text-muted-foreground">
+              <li className="atr-label text-muted-foreground">
                 {graph.isPending ? "…" : "Nothing scattered — tidy machine."}
               </li>
             ) : (
@@ -537,10 +537,10 @@ function GraphPage() {
                     className="atr-rail-row flex-col items-start gap-0.5 px-2 py-1.5"
                   >
                     <span className="flex w-full items-center gap-1.5">
-                      <span className="atr-truncate font-mono text-[11px] text-foreground">
+                      <span className="atr-truncate font-mono atr-label text-foreground">
                         {cluster.label}
                       </span>
-                      <span className="ml-auto shrink-0 rounded bg-warning/15 px-1 font-mono text-[10px] text-warning">
+                      <span className="atr-micro ml-auto shrink-0 rounded bg-warning/15 px-1 font-mono text-warning">
                         {cluster.strays.length}
                       </span>
                     </span>
@@ -558,7 +558,7 @@ function GraphPage() {
                         {cluster.strays.slice(0, 8).map((slug) => (
                           <li
                             key={slug}
-                            className="atr-truncate font-mono text-[10px] text-muted-foreground"
+                            className="atr-truncate font-mono atr-label text-muted-foreground"
                           >
                             {nameOf(slug)}
                           </li>

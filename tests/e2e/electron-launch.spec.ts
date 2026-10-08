@@ -5,15 +5,23 @@
  * Per NEW-PLAN.md §9 Phase 0 deliverable: "one passing E2E test that opens
  * the window". Phase 1 moved the ping/pong card out of `/` (now the
  * catalog) into `/debug`. TanStack Router is configured with
- * `createMemoryHistory` so we cannot navigate via URL — instead we click
- * the Debug nav button rendered in the top bar.
+ * `createMemoryHistory` so we cannot navigate via URL — the route is reached
+ * through the app, as a person reaches it.
+ *
+ * That door changed with ATR-074: `/debug` left the primary navigation, so
+ * there is no longer a top-bar link to click. The command palette's
+ * `app.open-debug` action is the affordance, and it is the one that works in
+ * *this* build — the suite launches `pnpm electron:build`, a production render
+ * of the renderer, where the top-bar dev affordance (`import.meta.env.DEV`) is
+ * deliberately absent. The palette is opened from the catalog because the
+ * renderer's own Cmd+K fallback lives in the catalog shell.
  *
  * This test:
  *   1. Launches Electron (via `_launch-app.ts`, against a private profile)
  *      pointing at the built
  *      main-process bundle (`out/main/index.js`).
  *   2. Waits for the first window to load.
- *   3. Navigates to `/debug` by clicking the top-bar "Debug" link.
+ *   3. Runs "Open Debug Page" from the Cmd+K palette to reach `/debug`.
  *   4. Asserts the renderer surfaces a successful ping response:
  *      "pong" text and a numeric mainProcessPid.
  *   5. Optionally clicks "Ping again" to re-verify the round-trip.
@@ -49,13 +57,24 @@ test.describe("Electron main window — /debug ping", () => {
       const win = await app.firstWindow();
       await win.waitForLoadState("domcontentloaded");
 
-      // The renderer mounts at `/` (catalog). Click the top-bar "Debug"
-      // link to navigate to `/debug` where the ping card lives. Memory
-      // history means the route only changes via in-app links — we
-      // cannot just `goto('/debug')`.
-      const debugLink = win.getByRole("link", { name: /^debug$/i });
-      await expect(debugLink).toBeVisible({ timeout: 15_000 });
-      await debugLink.click();
+      // The renderer mounts at `/` (catalog). Run the palette action that
+      // opens `/debug`, where the ping card lives. Memory history means the
+      // route only changes through the app — we cannot just `goto('/debug')`.
+      //
+      // The catalog chrome first: the renderer's own Cmd+K fallback mounts with
+      // the catalog shell, so pressing the key before it is up would open
+      // nothing and read as a broken action rather than a race.
+      await expect(
+        win.getByRole("link", { name: /^AllTheRepos$/i }),
+      ).toBeVisible({ timeout: 15_000 });
+      await win.keyboard.press("Meta+K");
+      const palette = win.getByRole("dialog", { name: /command palette/i });
+      await expect(palette).toBeVisible({ timeout: 15_000 });
+      await palette.getByPlaceholder(/run a command/i).fill("debug page");
+      const openDebug = palette.getByText(/^open debug page$/i).first();
+      await expect(openDebug).toBeVisible({ timeout: 5_000 });
+      await win.keyboard.press("Enter");
+      await expect(palette).toBeHidden({ timeout: 5_000 });
 
       // The DebugPage component pings on mount; wait for the rendered
       // response to settle.

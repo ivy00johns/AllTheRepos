@@ -91,7 +91,7 @@ function CountBadge({ count, tone }: { count: number; tone?: "warning" }) {
   return (
     <span
       className={cn(
-        "ml-auto shrink-0 rounded px-1 font-mono text-[10px] leading-[18px]",
+        "ml-auto shrink-0 rounded px-1 font-mono atr-micro leading-[18px]",
         tone === "warning"
           ? "bg-warning/15 text-warning"
           : "text-muted-foreground",
@@ -422,7 +422,7 @@ function DirRow({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-2 pb-1 pt-3 font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+    <p className="atr-label px-2 pb-1 pt-3 font-mono font-medium uppercase tracking-wider text-muted-foreground/70">
       {children}
     </p>
   );
@@ -578,7 +578,7 @@ function ScanRootRow({
       {isOpen ? (
         isEmpty ? (
           <div className="py-1 pl-8 pr-2">
-            <p className="text-[11px] leading-snug text-muted-foreground/80">
+            <p className="text-xs leading-snug text-muted-foreground/80">
               {node.isOutsideScanRoots
                 ? "These repos won't be picked up by future scans."
                 : "No repos found here yet."}
@@ -587,7 +587,7 @@ function ScanRootRow({
               <button
                 type="button"
                 onClick={() => onRescan(node.path)}
-                className="mt-1 flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 font-mono text-[11px] text-accent transition-colors duration-150 hover:bg-surface-raised"
+                className="atr-label mt-1 flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 font-mono text-accent transition-colors duration-150 hover:bg-surface-raised"
               >
                 <RefreshCw className="h-3 w-3" aria-hidden />
                 Scan it now
@@ -826,7 +826,7 @@ export function DirRail({
         {scanPaths.length > 1 ? "Scanned folders" : "Folders"}
       </SectionLabel>
       {forest.roots.length === 0 ? (
-        <p className="px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
           No scan folders configured yet. Add one in Settings and run a scan.
         </p>
       ) : null}

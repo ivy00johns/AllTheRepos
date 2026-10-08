@@ -127,12 +127,12 @@ export function LauncherDefaults({
           ))}
         </select>
         {editors.length === 0 ? (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="atr-label text-muted-foreground">
             No supported editors found in /Applications, ~/Applications,
             /System/Applications or on PATH.
           </p>
         ) : (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="atr-label text-muted-foreground">
             {editors.length} editor{editors.length === 1 ? "" : "s"} found.
             Detection runs once per launch — restart to re-scan.
           </p>
@@ -161,7 +161,7 @@ export function LauncherDefaults({
           ))}
         </select>
         {terminals.length === 0 ? (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="atr-label text-muted-foreground">
             No supported terminals found in /Applications or on PATH.
           </p>
         ) : null}

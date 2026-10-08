@@ -218,7 +218,7 @@ export function CommandPalette() {
                         ) : null}
                       </div>
                       {a.shortcut ? (
-                        <kbd className="ml-3 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        <kbd className="ml-3 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono atr-micro text-muted-foreground">
                           {prettyShortcut(a.shortcut)}
                         </kbd>
                       ) : null}

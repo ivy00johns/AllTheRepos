@@ -622,6 +622,15 @@ export function CatalogShell({
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/*
+         * The route's `h1` (ATR-070). The visible captions on this screen are
+         * mono labels, not headings, so the name a screen reader hears first
+         * is carried here rather than invented as a banner above the grid.
+         */}
+        <h1 className="sr-only">
+          {scopeLabel ? `Catalog — ${scopeLabel}` : "Catalog"}
+        </h1>
+
         <CatalogToolbar
           shownCount={displayedRepos.length}
           totalCount={totalCount || initialRepos.length}
@@ -644,7 +653,7 @@ export function CatalogShell({
             <button
               type="button"
               onClick={() => setSyncNotice(null)}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -658,13 +667,13 @@ export function CatalogShell({
             className="flex shrink-0 items-center gap-2 border-b border-border bg-accent/10 px-4 py-1.5"
           >
             <RefreshCw className="h-3 w-3 shrink-0 text-accent" aria-hidden />
-            <span className="text-[11px] text-accent">
+            <span className="atr-label text-accent">
               {catalogLive.notice}
             </span>
             <button
               type="button"
               onClick={catalogLive.dismiss}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -678,7 +687,7 @@ export function CatalogShell({
             className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-warning/10 px-4 py-1.5"
           >
             <span
-              className="text-[11px] text-warning"
+              className="atr-label text-warning"
               title={
                 searchQuery.data?.semantic.state === "off"
                   ? (searchQuery.data.semantic.detail ?? undefined)
@@ -689,7 +698,7 @@ export function CatalogShell({
             </span>
             <Link
               to="/settings"
-              className="cursor-pointer font-mono text-[11px] text-accent underline-offset-2 hover:underline"
+              className="cursor-pointer font-mono atr-label text-accent underline-offset-2 hover:underline"
             >
               Set up
             </Link>
@@ -701,11 +710,11 @@ export function CatalogShell({
             role="status"
             className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-1.5"
           >
-            <span className="text-[11px] text-warning">{rootNotice}</span>
+            <span className="atr-label text-warning">{rootNotice}</span>
             <button
               type="button"
               onClick={() => setRootNotice(null)}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -719,7 +728,7 @@ export function CatalogShell({
               type="button"
               onClick={() => undoMove.mutate(undefined)}
               disabled={undoMove.isPending}
-              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
+              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
             >
               <Undo2 className="h-3 w-3" aria-hidden />
               Undo

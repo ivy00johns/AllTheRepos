@@ -37,16 +37,19 @@ state, not history.
 group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
 (**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). Before any of that, unblock the
 build: **ATR-057** breaks native ABI flips on this machine. New since Wave 5: ATR-056/057/058,
-and the 2026-10-07 UI/UX intake, which is now largely applied: **ATR-059…069** closed
-2026-10-08, **ATR-075** found and closed with them, leaving **ATR-070…074** (P3).
+and the 2026-10-07 UI/UX intake — **fully applied 2026-10-08**: **ATR-059…069** (four P1s, seven
+P2s) closed first, **ATR-075** found and closed with them, then the last five P3s
+(**ATR-070…074**) proved on the running app by `tests/e2e/workstream-c.spec.ts`.
 
 **Build health (verified 2026-10-08, on the UI/UX pass):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
-`vitest` **1690 passed / 0 failed** (84 files) · **Electron E2E 20 passed / 5 skipped / 0 failed**
-(13 specs; the skips are the packaged-update ones, which need a packaged bundle).
-Fonts (IBM Plex Sans) load at runtime. Added later the same day:
-`tests/unit/renderer/jsx-text.spec.ts` (2 tests) and, re-run green on its own,
-`layout-overflow.spec.ts` (1 test) and `workstream-b.spec.ts` (8 tests).
+`pnpm lint` ✅ 0 · `vitest` **1695 passed / 0 failed** (86 files) · **Electron E2E 26 passed /
+5 skipped / 0 failed** (14 specs; the skips are the packaged-update ones, which need a
+packaged bundle). Fonts (IBM Plex Sans) load at runtime. Added later the same day:
+`tests/unit/renderer/jsx-text.spec.ts` (2 tests), `tests/unit/renderer/type-scale.spec.ts`
+(3, the guard that fails the build on a raw sub-12px size), and on the running app
+`workstream-b.spec.ts` (8 tests) and `workstream-c.spec.ts` (5), the last two reading the
+built renderer rather than the source.
 
 **Also verified 2026-10-08, by looking at the app rather than at the tests:** the catalog,
 `/graph`, `/claude`, `/processes`, `/settings` and `/debug` were each screenshotted and

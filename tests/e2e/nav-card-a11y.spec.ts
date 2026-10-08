@@ -22,6 +22,12 @@
  *     that nothing focusable on the catalog contains another control, and then
  *     walks the keyboard through the card one stop at a time.
  *
+ * It also carries the **ATR-074** assertion, which is about what is *absent*:
+ * `/debug` used to be the fifth destination in this nav. The suite launches a
+ * production render (`pnpm electron:build`), and the dev-only top-bar
+ * affordance is gated on `import.meta.env.DEV` — so in exactly the build that
+ * ships, the destination is gone and this spec is where that is checked.
+ *
  * The port chip only exists while a process is listening, so the spec spawns one
  * inside a seeded repo and forces a sweep through the `/processes` Refresh
  * action — the same route `process-flow.spec.ts` uses, and for the same reason:
@@ -62,7 +68,7 @@ const MIN_HEIGHT = 600;
  * accessible name: the Running link also carries the process count as an
  * `sr-only` suffix, which is deliberate and not this finding.
  */
-const NAV_LABELS = ["Running", "Map", "Claude", "Settings", "Debug"] as const;
+const NAV_LABELS = ["Running", "Map", "Claude", "Settings"] as const;
 
 /** The five launcher buttons, in the order `launcher-buttons.tsx` renders them. */
 const LAUNCHER_LABELS = [
@@ -174,6 +180,20 @@ test.describe("nav names and repo-card focus order", () => {
         expect(display, `no label span for ${label}`).not.toBe(null);
         expect(display, `${label}'s label span is display:none`).not.toBe("none");
       }
+
+      // ----- ATR-074: the primary navigation is exactly its destinations. -----
+      // Two assertions, because the finding has two halves: the count (there is
+      // no room in this nav for a page that is not a destination) and the name
+      // (nothing in the chrome is called Debug, dev affordance included — this
+      // is a production render, so it must not be there either).
+      expect(
+        await win.locator("header nav a").count(),
+        "the primary navigation gained a destination — ATR-074 put /debug back in it",
+      ).toBe(NAV_LABELS.length);
+      await expect(
+        topBar.getByRole("link", { name: /^debug/i }),
+        "a Debug affordance is in the app chrome of a production build",
+      ).toHaveCount(0);
 
       // ----- Spawn a listener so the card carries a port chip. -----
       child = spawn(

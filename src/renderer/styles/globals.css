@@ -100,6 +100,20 @@
   --color-destructive-foreground: #2a0508;
   --color-warning: #f0a83c;
   --color-warning-foreground: #2a1a03;
+
+  /*
+   * Live/running status, on a token of its own.
+   *
+   * The "is this up right now" dot — the port chip on a repo card, the port
+   * column in the process table — used to be painted with `--accent`, the
+   * brand and primary-action colour. That made a status read as an
+   * affordance, and it meant a future re-brand would repaint status along
+   * with it, against this palette's own rule that a status hue stays out of
+   * the other ramps (ATR-073). Deliberately brighter and cooler than the
+   * accent, so a live dot and a primary button are never the same colour on
+   * the same screen.
+   */
+  --color-status-live: #4ade80;
   --color-card: #141b24;
   --color-card-foreground: #e8edf2;
   --color-popover: #1c2634;
@@ -215,6 +229,33 @@
   }
   .atr-surface[data-selected="true"] {
     @apply border-accent bg-surface-raised;
+  }
+
+  /*
+   * Type tiers — the label decision, recorded once (ATR-072).
+   *
+   * The 2026-10-07 review measured 127 sub-12px usages across 20+ files and
+   * found one role written three ways: 9px, 10px and 11px were each used for
+   * uppercase section labels and control captions as well as for metadata.
+   * Two tiers now carry every one of them, and a raw `text-[10px]`-style size
+   * is no longer allowed in a component — `tests/unit/renderer/type-scale.spec.ts`
+   * fails on it, so the question does not get re-litigated per screen:
+   *
+   *   .atr-label  — every label, caption and section heading: 12px, the floor
+   *                 the review asked for. Size and leading only, so a site
+   *                 keeps its own weight, tracking, case and colour.
+   *   .atr-micro  — the one sanctioned sub-12px tier: a number or a unit read
+   *                 as data rather than as prose (a badge count, a PID, a
+   *                 percentage). Never a label, a heading or a sentence.
+   *
+   * `.atr-meta` below stays the metadata tier for timestamps, paths and counts
+   * that sit inside running text — 11px is that tier's decision, not drift.
+   */
+  .atr-label {
+    @apply text-xs leading-tight;
+  }
+  .atr-micro {
+    @apply text-[10px] leading-none;
   }
 
   /* Small monospace metadata — timestamps, counts, paths. */

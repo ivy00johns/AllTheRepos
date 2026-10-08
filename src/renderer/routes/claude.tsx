@@ -165,7 +165,7 @@ function ClaudePage() {
                   onKeyDown={(event) => handleRangeKeyDown(event, index)}
                   onClick={() => setRange(opt.key)}
                   className={cn(
-                    "rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",
+                    "rounded-sm px-3 py-1 font-mono atr-label uppercase tracking-widest transition-colors",
                     active
                       ? "bg-accent/15 text-accent"
                       : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -204,7 +204,7 @@ function ClaudePage() {
           <section aria-labelledby="claude-projects-heading">
             <h2
               id="claude-projects-heading"
-              className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="mb-2 flex items-center gap-1.5 atr-label font-semibold uppercase tracking-widest text-muted-foreground"
             >
               <FolderGit2 className="h-3.5 w-3.5" aria-hidden />
               Projects
@@ -273,7 +273,7 @@ interface StatCardProps {
 function StatCard({ label, value, loading }: StatCardProps) {
   return (
     <Card className="p-4">
-      <CardDescription className="text-[10px] uppercase tracking-widest">
+      <CardDescription className="atr-label uppercase tracking-widest">
         {label}
       </CardDescription>
       <CardContent className="p-0 pt-1">
@@ -332,7 +332,7 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <table className="w-full border-collapse text-left text-xs">
-        <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
           <tr>
             <th scope="col" className="w-6 px-2 py-2" aria-label="Expand" />
             <th scope="col" className="px-3 py-2 font-medium">
@@ -459,14 +459,14 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
 
   if (repoStateQuery.isLoading) {
     return (
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="font-mono atr-label text-muted-foreground">
         Loading sessions…
       </p>
     );
   }
   if (repoStateQuery.isError) {
     return (
-      <p className="font-mono text-[11px] text-destructive">
+      <p className="font-mono atr-label text-destructive">
         Couldn’t load sessions for {slug}.
       </p>
     );
@@ -475,7 +475,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
   const sessions: ClaudeSession[] = repoStateQuery.data?.sessions ?? [];
   if (sessions.length === 0) {
     return (
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="font-mono atr-label text-muted-foreground">
         No sessions recorded for this project.
       </p>
     );
@@ -483,7 +483,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="mb-1 atr-label font-semibold uppercase tracking-widest text-muted-foreground">
         Sessions
       </p>
       {sessions.map((session) => {
@@ -495,7 +495,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
               aria-expanded={open}
               onClick={() => setOpenSessionId(open ? null : session.id)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
+                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono atr-label transition-colors",
                 open ? "bg-muted/40" : "hover:bg-muted/30",
               )}
             >
@@ -553,21 +553,21 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
 
   if (transcript.isLoading) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
         Loading transcript…
       </div>
     );
   }
   if (transcript.isError) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-destructive">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-destructive">
         Couldn’t load this transcript.
       </div>
     );
   }
   if (events.length === 0) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
         This session has no transcript events.
       </div>
     );
@@ -584,7 +584,7 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
         ))}
       </ol>
       <div className="mt-2 flex items-center justify-between">
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono atr-micro text-muted-foreground">
           {events.length.toLocaleString()} event
           {events.length === 1 ? "" : "s"} loaded
         </span>
@@ -599,7 +599,7 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
             {transcript.isFetchingNextPage ? "Loading…" : "Load more"}
           </Button>
         ) : (
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono atr-label text-muted-foreground">
             End of transcript
           </span>
         )}
@@ -623,14 +623,14 @@ function TranscriptEventRow({ event }: TranscriptEventRowProps) {
     typeof event.timestamp === "string" ? event.timestamp : null;
   return (
     <li className="rounded border border-border/40 bg-card/60 px-2 py-1.5">
-      <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 font-mono atr-label uppercase tracking-widest text-muted-foreground">
         <span className="text-accent">{event.type || "event"}</span>
         {timestamp ? (
           <span>{new Date(timestamp).toLocaleTimeString()}</span>
         ) : null}
       </div>
       {preview ? (
-        <p className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+        <p className="mt-1 whitespace-pre-wrap break-words font-mono atr-label text-foreground">
           {preview}
         </p>
       ) : null}

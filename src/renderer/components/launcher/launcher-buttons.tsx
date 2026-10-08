@@ -172,7 +172,7 @@ export function LauncherButtons({
         <p
           role="status"
           aria-live="polite"
-          className="font-mono text-[10px] text-destructive"
+          className="font-mono atr-label text-destructive"
         >
           {error.message}
         </p>

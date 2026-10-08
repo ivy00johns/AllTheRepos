@@ -156,7 +156,7 @@ const SIZE_CLASSES = {
 } as const;
 
 const LABEL_CLASSES = {
-  sm: "text-[10px]",
+  sm: "atr-micro",
   md: "text-xs",
   lg: "text-2xl",
 } as const;

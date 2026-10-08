@@ -148,7 +148,7 @@ function CurateLinkForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="curate-link-search"
-            className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+            className="atr-label font-mono uppercase tracking-wider text-muted-foreground"
           >
             Which repository
           </label>
@@ -163,16 +163,16 @@ function CurateLinkForm({
           />
           <div className="max-h-44 overflow-y-auto rounded-md border border-border/60">
             {!typed ? (
-              <p className="p-3 text-[11px] text-muted-foreground">
+              <p className="atr-label p-3 text-muted-foreground">
                 Type to search the catalog.
               </p>
             ) : search.isFetching && hits.length === 0 ? (
-              <p className="flex items-center gap-2 p-3 text-[11px] text-muted-foreground">
+              <p className="atr-label flex items-center gap-2 p-3 text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
                 Searching…
               </p>
             ) : hits.length === 0 ? (
-              <p className="p-3 text-[11px] text-muted-foreground">
+              <p className="atr-label p-3 text-muted-foreground">
                 Nothing in the catalog matches that.
               </p>
             ) : (
@@ -203,15 +203,15 @@ function CurateLinkForm({
                           aria-hidden
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-mono text-[11px] text-foreground">
+                          <span className="atr-label block truncate font-mono text-foreground">
                             {hit.repo.name}
                           </span>
-                          <span className="block truncate text-[10px] text-muted-foreground">
+                          <span className="atr-micro block truncate text-muted-foreground">
                             {hit.repo.fullPath}
                           </span>
                         </span>
                         {linked.has(hit.repo.slug) ? (
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                          <span className="atr-micro shrink-0 text-muted-foreground">
                             already linked
                           </span>
                         ) : null}
@@ -225,7 +225,7 @@ function CurateLinkForm({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="atr-label font-mono uppercase tracking-wider text-muted-foreground">
             How they relate
           </span>
           <div className="flex flex-wrap gap-1.5">
@@ -236,7 +236,7 @@ function CurateLinkForm({
                 onClick={() => setKind(option)}
                 aria-pressed={kind === option}
                 className={cn(
-                  "rounded-md border px-2 py-1 text-[11px] transition-colors duration-150",
+                  "atr-label rounded-md border px-2 py-1 transition-colors duration-150",
                   kind === option
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
@@ -251,7 +251,7 @@ function CurateLinkForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="curate-link-why"
-            className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+            className="atr-label font-mono uppercase tracking-wider text-muted-foreground"
           >
             Why
           </label>
@@ -267,7 +267,7 @@ function CurateLinkForm({
             spellCheck={false}
             className="h-8"
           />
-          <p className="min-h-4 font-mono text-[10px] text-muted-foreground">
+          <p className="atr-label min-h-4 font-mono text-muted-foreground">
             {sentence
               ? `${sentence}${why.trim() ? ` — ${why.trim()}` : ""}`
               : "Pick a repository to see the assertion."}
@@ -275,7 +275,7 @@ function CurateLinkForm({
         </div>
 
         {assert.error ? (
-          <p role="alert" className="text-[11px] text-destructive">
+          <p role="alert" className="atr-label text-destructive">
             {ipcErrorText(assert.error)}
           </p>
         ) : null}

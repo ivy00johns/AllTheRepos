@@ -183,7 +183,7 @@ export function FolderDialog({
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="folder-parent"
-                  className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+                  className="font-mono atr-label uppercase tracking-wider text-muted-foreground"
                 >
                   Move into
                 </label>
@@ -206,7 +206,7 @@ export function FolderDialog({
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="folder-name"
-                  className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+                  className="font-mono atr-label uppercase tracking-wider text-muted-foreground"
                 >
                   Folder name
                 </label>
@@ -231,7 +231,7 @@ export function FolderDialog({
                 <p
                   id="folder-name-error"
                   role={nameCheck.ok ? undefined : "alert"}
-                  className="min-h-4 text-[11px] text-destructive"
+                  className="min-h-4 atr-label text-destructive"
                 >
                   {name.length > 0 && !nameCheck.ok ? nameCheck.message : ""}
                 </p>
@@ -239,7 +239,7 @@ export function FolderDialog({
             )}
 
             {mode !== "create" && projectedPath ? (
-              <p className="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 font-mono text-[11px] text-muted-foreground">
+              <p className="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 font-mono atr-micro text-muted-foreground">
                 <span className="truncate">{tildify(request!.path)}</span>
                 <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
                 <span className="truncate text-foreground">
@@ -287,7 +287,7 @@ export function FolderDialog({
                         {blockers.map((blocker) => (
                           <li
                             key={blocker}
-                            className="text-[11px] text-warning"
+                            className="atr-label text-warning"
                           >
                             {BLOCKER_COPY[blocker] ?? blocker}
                           </li>
@@ -302,10 +302,10 @@ export function FolderDialog({
                             key={repo.slug}
                             className="flex items-center justify-between gap-2 px-2 py-1"
                           >
-                            <span className="atr-truncate font-mono text-[11px] text-foreground">
+                            <span className="atr-truncate font-mono atr-label text-foreground">
                               {repo.name}
                             </span>
-                            <span className="shrink-0 text-[10px] text-warning">
+                            <span className="shrink-0 atr-micro text-warning">
                               {repo.isDirty ? "uncommitted" : ""}
                               {repo.isDirty && repo.hasProcess ? " · " : ""}
                               {repo.hasProcess ? "running" : ""}

@@ -111,7 +111,7 @@ export function ScanRootDialog({
                   <span className="block text-xs text-foreground">
                     {option.label}
                   </span>
-                  <span className="block text-[11px] text-muted-foreground">
+                  <span className="block atr-label text-muted-foreground">
                     {option.hint}
                   </span>
                 </span>

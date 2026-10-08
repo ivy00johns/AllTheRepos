@@ -253,7 +253,7 @@ export function RepoCard({
             {tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground"
+                className="rounded bg-muted px-1.5 py-0.5 font-mono atr-micro text-muted-foreground"
               >
                 {tag}
               </span>

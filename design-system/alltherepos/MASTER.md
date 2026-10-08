@@ -31,6 +31,13 @@
 
 **Color Notes:** Code dark + run green
 
+**Live-status hue (2026-10-08, ATR-073):** `--color-status-live` `#4ADE80`.
+The "is this up right now" mark — the port chip on a repo card, the port column in
+the process table — is painted with this token and **not** with `--color-accent`.
+The accent is the brand and the primary-action colour, so a status drawn in it
+reads as an affordance, and a re-brand would repaint every live dot along with
+the buttons. The two are never the same colour on the same screen.
+
 ### Typography
 
 - **Heading Font:** JetBrains Mono
@@ -42,6 +49,26 @@
 ```css
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 ```
+
+### Type Scale (decided 2026-10-08, ATR-072)
+
+The 2026-10-07 review measured **127** sub-12px usages across 20+ files and found
+one role written three ways: 9px, 10px and 11px were each used for uppercase
+section labels and control captions as well as for metadata. That question is
+closed. Two named tiers carry every label and one carries metadata, and **a raw
+pixel font size below 12px is not allowed in a component** —
+`tests/unit/renderer/type-scale.spec.ts` fails on one, and
+`tests/e2e/workstream-c.spec.ts` reads the built renderer to confirm none reaches
+the screen.
+
+| Class       | Size                | Use                                                                                                                                                              |
+| ----------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.atr-label` | 12px (`text-xs`)    | Every label, caption, section heading, tab and column header — the floor. Size and leading only, so the site keeps its own weight, tracking, case and colour.     |
+| `.atr-micro` | 10px                | The one sanctioned sub-12px tier: a number, unit or badge word read as data. Never a label, a heading or a sentence.                                              |
+| `.atr-meta`  | 11px mono muted     | Timestamps, counts and paths sitting inside running text. It sets its own colour and family, which is why it is a metadata tier and not a size to reach for.      |
+
+A third label size is not a matter of taste to settle per screen: if a screen
+seems to need one, the tier is wrong, or the element is not a label.
 
 ### Spacing Variables
 

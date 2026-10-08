@@ -111,7 +111,7 @@ function HeaderCell({ column }: { column: ColumnDef }) {
         isActive ? (order === "asc" ? "ascending" : "descending") : "none"
       }
       className={cn(
-        "sticky top-0 z-10 border-b border-border bg-background px-3 py-2 font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground",
+        "sticky top-0 z-10 border-b border-border bg-background px-3 py-2 font-mono atr-label font-medium uppercase tracking-wider text-muted-foreground",
         column.numeric ? "text-right" : "text-left",
         column.className,
       )}
@@ -246,7 +246,7 @@ export function RepoTable({
                       {repo.missing ? <MissingMark compact /> : null}
                       {repo.isDirty ? <DirtyMark compact /> : null}
                     </div>
-                    <span className="atr-truncate block text-[11px] text-muted-foreground">
+                    <span className="atr-truncate block atr-label text-muted-foreground">
                       {description ?? "—"}
                     </span>
                   </div>

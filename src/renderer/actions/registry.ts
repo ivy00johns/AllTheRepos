@@ -45,6 +45,16 @@ const isDev: boolean | undefined = (
 ).env?.DEV;
 
 /**
+ * Whether this bundle was built in development mode.
+ *
+ * The top bar reads this to decide whether to draw its dev-only affordance
+ * (ATR-074). Exported rather than recomputed there so the two answers cannot
+ * drift: `electron-vite dev` sets it, `electron-vite build` does not, and a
+ * packaged release is always the latter.
+ */
+export const isDevBuild: boolean = isDev === true;
+
+/**
  * Strict subset of the TanStack Router `useNavigate` return type that
  * action handlers actually need.
  *
@@ -218,6 +228,18 @@ export const actions: RegisteredAction[] = [
       if (atr?.app.toggleDevtools) {
         await atr.app.toggleDevtools();
       }
+    },
+  },
+
+  {
+    id: "app.open-debug",
+    label: "Open Debug Page",
+    scope: "global",
+    group: "App",
+    devOnly: true,
+    hint: "The Phase 0 bridge/ping smoke test",
+    handler: (ctx) => {
+      void ctx.navigate({ to: "/debug" });
     },
   },
 

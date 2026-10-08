@@ -151,7 +151,7 @@ function groupRepos(
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-baseline gap-2 border-b border-border/60 bg-background/95 px-4 py-1.5 backdrop-blur-sm">
-      <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-foreground">
+      <h2 className="atr-label font-mono font-semibold uppercase tracking-wider text-foreground">
         {label}
       </h2>
       <span className="atr-meta tabular-nums">{count}</span>

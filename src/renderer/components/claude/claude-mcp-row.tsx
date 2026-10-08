@@ -36,16 +36,16 @@ export function ClaudeMcpRow({ server }: ClaudeMcpRowProps) {
       <span className="truncate font-mono font-semibold text-foreground">
         {server.name}
       </span>
-      <Badge variant="outline" className="font-mono text-[10px] uppercase">
+      <Badge variant="outline" className="font-mono atr-label uppercase">
         {server.type}
       </Badge>
       <Badge
         variant={STATUS_VARIANT[server.status]}
-        className="font-mono text-[10px]"
+        className="font-mono atr-label"
       >
         {STATUS_LABEL[server.status]}
       </Badge>
-      <span className="ml-auto truncate font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <span className="ml-auto truncate font-mono atr-label uppercase tracking-widest text-muted-foreground">
         {server.configuredIn}
       </span>
     </div>

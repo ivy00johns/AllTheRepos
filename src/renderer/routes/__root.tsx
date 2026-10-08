@@ -78,6 +78,27 @@ function RootLayout() {
    */
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/*
+        ATR-071 — the skip link. Before it, the first thing the keyboard met on
+        every route was the top bar's sidebar toggle, and the only way into
+        `main` was to tab through four destinations, the search field, up to
+        three update affordances and the whole notice stack (a scan bar, an
+        ad-hoc build notice, an action notice) — and the notice stack is not a
+        fixed size, so the number of stops depended on what the app was doing.
+        Now the first Tab reaches this, and Enter moves focus into `main`
+        itself rather than to its first control, because the target carries
+        `tabIndex={-1}` (a skip link that lands a person on a random button is
+        a different bug). It is `sr-only` until it is focused, so it takes no
+        space in the shell's flex column and nothing on screen moves —
+        `layout-overflow.spec.ts` asserts this column holds only elements and
+        fits the window exactly.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-3 focus:py-1.5 focus:text-xs focus:text-foreground focus:shadow-overlay"
+      >
+        Skip to content
+      </a>
       <TopBar />
       <ScanStatusBar />
       {/*
@@ -104,7 +125,11 @@ function RootLayout() {
         `min-height: auto`, so it could not shrink and it took its height out of
         `main`.
       */}
-      <main className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden outline-none"
+      >
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (
             <Outlet />

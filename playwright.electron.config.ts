@@ -52,8 +52,12 @@ export default defineConfig({
   // workstream-b.spec.ts — the seven P2 findings (ATR-063…069): the two
   // states a first paint never reaches are forced from the main process, since
   // `contextBridge` freezes the renderer's copy of the bridge.
+  // workstream-c.spec.ts — the five P3 findings (ATR-070…074): a heading
+  // level, the first Tab stop, the computed size of the type tiers, the hue of
+  // the live-status dot, and the absence of Debug from the navigation — read
+  // off the running app rather than the source.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
