@@ -61,6 +61,10 @@ const RANGE_OPTIONS: { key: RangeKey; label: string; days: number | null }[] = [
 function ClaudePage() {
   const bridgeAvailable = typeof window !== "undefined" && Boolean(getAtr());
   const [range, setRange] = React.useState<RangeKey>("30d");
+  // Roving tabindex for the range radios. The group is one tab stop and the
+  // arrows move inside it, so we need a handle on each button to hand focus
+  // over when a key selects a different one.
+  const rangeButtons = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   const filter = React.useMemo<ClaudeGlobalUsageInput>(() => {
     const opt = RANGE_OPTIONS.find((o) => o.key === range);
@@ -76,6 +80,34 @@ function ClaudePage() {
 
   const usageQuery = useClaudeGlobalUsage(filter);
   const projectsQuery = useClaudeProjects();
+
+  /**
+   * Radios are a roving-tabindex group: exactly one sits in the tab order,
+   * ArrowLeft/Right (and Up/Down) move between them, Home/End jump to the
+   * ends, and moving focus selects. The control declared `role="radio"` and
+   * `aria-checked` while implementing none of it, so all four were tab stops
+   * and the keys a radio is expected to answer did nothing (ATR-065).
+   */
+  const selectRange = (index: number) => {
+    const next = RANGE_OPTIONS[index];
+    if (!next) return;
+    setRange(next.key);
+    rangeButtons.current[index]?.focus();
+  };
+
+  const handleRangeKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const last = RANGE_OPTIONS.length - 1;
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    let target: number | null = null;
+    if (forward) target = (index + 1) % RANGE_OPTIONS.length;
+    else if (backward) target = (index + last) % RANGE_OPTIONS.length;
+    else if (event.key === "Home") target = 0;
+    else if (event.key === "End") target = last;
+    if (target === null) return;
+    event.preventDefault();
+    selectRange(target);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -118,7 +150,7 @@ function ClaudePage() {
             aria-label="Date range"
             className="flex items-center gap-1 rounded-md border border-border bg-card p-1 self-start"
           >
-            {RANGE_OPTIONS.map((opt) => {
+            {RANGE_OPTIONS.map((opt, index) => {
               const active = range === opt.key;
               return (
                 <button
@@ -126,6 +158,11 @@ function ClaudePage() {
                   type="button"
                   role="radio"
                   aria-checked={active}
+                  tabIndex={active ? 0 : -1}
+                  ref={(element) => {
+                    rangeButtons.current[index] = element;
+                  }}
+                  onKeyDown={(event) => handleRangeKeyDown(event, index)}
                   onClick={() => setRange(opt.key)}
                   className={cn(
                     "rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",

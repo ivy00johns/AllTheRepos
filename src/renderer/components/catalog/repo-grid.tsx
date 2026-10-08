@@ -14,6 +14,7 @@ import { FolderSearch } from "lucide-react";
 
 import type { Repo } from "@shared/types";
 
+import { Skeleton } from "@renderer/components/ui/skeleton";
 import { cn } from "@renderer/lib/cn";
 import {
   ACTIVITY_LABELS,
@@ -166,10 +167,10 @@ function GridSkeleton({ gallery }: { gallery: boolean }) {
       className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
     >
       {Array.from({ length: gallery ? 8 : 9 }).map((_, index) => (
-        <div
+        <Skeleton
           key={index}
           className={cn(
-            "animate-pulse rounded-lg border border-border bg-card",
+            "rounded-lg border border-border bg-card",
             gallery ? "h-64" : "h-[124px]",
           )}
         />

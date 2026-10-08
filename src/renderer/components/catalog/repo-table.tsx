@@ -8,6 +8,13 @@
  * Sorting is column-driven with `aria-sort` so the current order is
  * announced, and every row keeps the same marks as the card views so
  * the two modes stay legible against each other.
+ *
+ * The project name is the control, and the row is a container (ATR-066).
+ * The row used to carry `tabIndex={0}`, an `onClick` and an Enter-only
+ * `onKeyDown` while being announced as a plain row: no role, no name, and
+ * Space did nothing. Both keyboard stops now live on a real `<button>`
+ * around the name, which is also the row's only accessible name. The row
+ * keeps its click handler so the mouse target is unchanged.
  */
 
 import * as React from "react";
@@ -174,31 +181,33 @@ export function RepoTable({
           );
           const isChecked = checkedSlugs.has(repo.slug);
 
+          /**
+           * One behaviour, two callers — the row (mouse) and the name
+           * button (mouse and keyboard) — so the modifiers cannot drift
+           * apart the way a duplicated handler would let them.
+           */
+          const activate = (
+            event: React.MouseEvent<HTMLElement> | React.KeyboardEvent,
+          ) => {
+            if (event.metaKey || event.ctrlKey) {
+              onToggleChecked(repo.slug, true);
+              return;
+            }
+            if (event.shiftKey) {
+              onOpenEditor(repo.slug);
+              return;
+            }
+            onSelect(repo.slug);
+          };
+
           return (
             <tr
               key={repo.slug}
               data-repo-slug={repo.slug}
               data-selected={selectedSlug === repo.slug ? "true" : "false"}
-              tabIndex={0}
               draggable
               onDragStart={(event) => onDragStart?.(repo.slug, event)}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey) {
-                  onToggleChecked(repo.slug, true);
-                  return;
-                }
-                if (event.shiftKey) {
-                  onOpenEditor(repo.slug);
-                  return;
-                }
-                onSelect(repo.slug);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onSelect(repo.slug);
-                }
-              }}
+              onClick={activate}
               className={cn(
                 "cursor-pointer border-b border-border/60 transition-colors duration-150",
                 "hover:bg-surface-raised",
@@ -222,9 +231,18 @@ export function RepoTable({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="atr-truncate font-mono text-[13px] font-medium text-foreground">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          // The row would otherwise handle the same click
+                          // twice.
+                          event.stopPropagation();
+                          activate(event);
+                        }}
+                        className="atr-truncate cursor-pointer text-left font-mono text-[13px] font-medium text-foreground"
+                      >
                         {repo.name}
-                      </span>
+                      </button>
                       {repo.missing ? <MissingMark compact /> : null}
                       {repo.isDirty ? <DirtyMark compact /> : null}
                     </div>

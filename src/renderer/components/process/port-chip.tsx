@@ -6,15 +6,17 @@
  * Visual: small green pulsing dot + `:<port>` label. Multiple ports
  * for the same repo render multiple chips side-by-side.
  *
- * Kill confirmation uses `window.confirm()` for Phase 3a — simple,
- * accessible, and avoids the cost of authoring a confirm Dialog right
- * now. Promote to a Dialog in Phase 5 polish.
+ * Kill asks through the shared `ConfirmDialog` (ATR-067), the same one the
+ * process table uses. It used to call `window.confirm()`, which blocks the
+ * whole renderer and is announced differently from every other confirmation
+ * in the app.
  */
 
 import * as React from "react";
 
 import type { ProcessInfo } from "@shared/types";
 
+import { ConfirmDialog } from "@renderer/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +36,7 @@ interface PortChipProps {
 export function PortChip({ process, className }: PortChipProps) {
   const url = `http://localhost:${process.port}`;
   const kill = useKillProcess();
+  const [confirming, setConfirming] = React.useState(false);
 
   const handleCopy = React.useCallback(async () => {
     try {
@@ -54,59 +57,80 @@ export function PortChip({ process, className }: PortChipProps) {
   }, [url]);
 
   const handleKill = React.useCallback(() => {
-    const ok = window.confirm(
-      `Kill PID ${process.pid} (${process.command}) on port ${process.port}?`,
-    );
-    if (!ok) return;
+    setConfirming(true);
+  }, []);
+
+  const confirmKill = React.useCallback(() => {
     kill.mutate({ pid: process.pid });
-  }, [kill, process.pid, process.command, process.port]);
+    setConfirming(false);
+  }, [kill, process.pid]);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Port ${process.port} actions (PID ${process.pid})`}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent transition-colors hover:bg-accent/20 focus:outline-none focus:ring-2 focus:ring-ring",
-            kill.isPending && "opacity-50",
-            className,
-          )}
-          onClick={(e) => {
-            // Prevent click bubbling into parent repo-card (which
-            // would otherwise call `onSelect` / open the editor).
-            e.stopPropagation();
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <span aria-hidden className="relative inline-flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-          </span>
-          <span>:{process.port}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuLabel className="font-mono text-xs">
-          PID {process.pid} · {process.command}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={handleOpen}>
-          Open in browser
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={handleCopy}>
-          Copy URL ({url})
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={handleKill}
-          className="text-destructive focus:text-destructive"
-        >
-          Kill process
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Port ${process.port} actions (PID ${process.pid})`}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent transition-colors hover:bg-accent/20 focus:outline-none focus:ring-2 focus:ring-ring",
+              kill.isPending && "opacity-50",
+              className,
+            )}
+            onClick={(e) => {
+              // Prevent click bubbling into parent repo-card (which
+              // would otherwise call `onSelect` / open the editor).
+              e.stopPropagation();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <span aria-hidden className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+            </span>
+            <span>:{process.port}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuLabel className="font-mono text-xs">
+            PID {process.pid} · {process.command}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={handleOpen}>
+            Open in browser
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleCopy}>
+            Copy URL ({url})
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={handleKill}
+            className="text-destructive focus:text-destructive"
+          >
+            Kill process
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Kill PID ${process.pid}?`}
+        description={
+          <>
+            Sends <code className="font-mono">SIGINT</code> to{" "}
+            <code className="font-mono">{process.command}</code> on port{" "}
+            {process.port}, then escalates to SIGTERM and SIGKILL if it does not
+            exit. Nothing on disk is touched.
+          </>
+        }
+        confirmLabel="Kill process"
+        destructive
+        pending={kill.isPending}
+        onConfirm={confirmKill}
+      />
+    </>
   );
 }
 

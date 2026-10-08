@@ -56,19 +56,27 @@ function RootLayout() {
   const isFullShell =
     location.pathname === "/" || location.pathname === "/graph";
 
+  /*
+   * The height contract, learned the hard way in the 2026-10-07 UI/UX review
+   * (ATR-061/ATR-062): this column is exactly the window and `main` is the
+   * only thing that flexes. Rooting it at `min-h-screen` instead let the
+   * document grow to content height, so the window itself scrolled — which
+   * clipped the catalog's own scroll region behind `main`'s
+   * `overflow-hidden` (its `h-[100dvh]` then ran 48px past the bottom) and
+   * pushed the map's bottom-anchored legend and control bar below the fold.
+   * Both are asserted as numbers in `tests/e2e/layout-overflow.spec.ts`, so a
+   * regression fails as "848 against 800" rather than as a screenshot nobody
+   * looks at.
+   *
+   * Written here, above the `return`, on purpose: JSX children are verbatim
+   * text, so a comment left *between* two elements is how code-looking prose
+   * ends up on screen — and as a text child of this flex column it is also an
+   * anonymous flex item, taking its own height out of `main`.
+   * `tests/unit/renderer/jsx-text.spec.ts` fails on the forms that render, and
+   * `layout-overflow.spec.ts` asserts the shell holds only elements before it
+   * measures a height.
+   */
   return (
-    /*
-     * The height contract, learned the hard way in the 2026-10-07 UI/UX review
-     * (ATR-061/ATR-062): this column is exactly the window and `main` is the
-     * only thing that flexes. Rooting it at `min-h-screen` instead let the
-     * document grow to content height, so the window itself scrolled — which
-     * clipped the catalog's own scroll region behind `main`'s
-     * `overflow-hidden` (its `h-[100dvh]` then ran 48px past the bottom) and
-     * pushed the map's bottom-anchored legend and control bar below the fold.
-     * Both are asserted as numbers in `tests/e2e/layout-overflow.spec.ts`, so a
-     * regression fails as "848 against 800" rather than as a screenshot nobody
-     * looks at.
-     */
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <TopBar />
       <ScanStatusBar />
@@ -79,16 +87,23 @@ function RootLayout() {
       */}
       <AdHocBuildNotice />
       <ActionNotice />
-      /*
-       * `grid`, not `block`, and that is load-bearing: a route asks for
-       * `h-full`, and a percentage height only resolves against a *definite*
-       * parent height. `main` gets its height from `flex-1` — a resolved used
-       * height, but its `height` property is still `auto` — so as a block
-       * container it handed every route `auto` instead, and each one grew to
-       * content and pushed the window. A single `minmax(0, 1fr)` track makes
-       * the area definite, so `h-full` means the window and the route's own
-       * `overflow-y-auto` becomes the thing that scrolls.
-       */
+      {/*
+        `grid`, not `block`, and that is load-bearing: a route asks for
+        `h-full`, and a percentage height only resolves against a *definite*
+        parent height. `main` gets its height from `flex-1` — a resolved used
+        height, but its `height` property is still `auto` — so as a block
+        container it handed every route `auto` instead, and each one grew to
+        content and pushed the window. A single `minmax(0, 1fr)` track makes
+        the area definite, so `h-full` means the window and the route's own
+        `overflow-y-auto` becomes the thing that scrolls.
+
+        The braces are not decoration. Written as a bare block comment between
+        two elements, this text is JSX *content*: it rendered — on every route —
+        as a literal block of CSS-looking prose above the page, while explaining
+        nothing to anybody. It also became an anonymous flex item with
+        `min-height: auto`, so it could not shrink and it took its height out of
+        `main`.
+      */}
       <main className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (

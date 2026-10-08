@@ -585,14 +585,22 @@ export function CatalogShell({
 
   const scopeLabel = selectedDir ? tildify(selectedDir) : null;
 
+  /*
+   * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root
+   * layout has already sized to the window minus the top bar. Asking for a
+   * second full viewport stacked 48px of catalog past the bottom of the
+   * window, and `overflow-hidden` here turned that overflow into an
+   * unreachable tail of the grid rather than a scroll (ATR-061).
+   *
+   * Above the `return`, not inside it. JSX children are verbatim text, so a
+   * comment written without braces is how code-looking prose ends up on screen
+   * — and, as a text child of this flex column, it is also an anonymous flex
+   * item that takes its own height out of the catalog's box. Two guards hold
+   * this: `tests/unit/renderer/jsx-text.spec.ts` fails on the comment forms
+   * that render, and `layout-overflow.spec.ts` asserts the shell holds only
+   * elements before it measures a height.
+   */
   return (
-    /*
-     * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root
-     * layout has already sized to the window minus the top bar. Asking for a
-     * second full viewport stacked 48px of catalog past the bottom of the
-     * window, and `overflow-hidden` here turned that overflow into an
-     * unreachable tail of the grid rather than a scroll (ATR-061).
-     */
     <div className="flex h-full w-full overflow-hidden bg-background">
       <DirRail
         repos={initialRepos}

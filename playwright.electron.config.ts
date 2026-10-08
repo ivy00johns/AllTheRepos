@@ -49,8 +49,11 @@ export default defineConfig({
   // The release rehearsal runs that same script with
   // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
   // version is below the feed by construction.
+  // workstream-b.spec.ts — the seven P2 findings (ATR-063…069): the two
+  // states a first paint never reaches are forced from the main process, since
+  // `contextBridge` freezes the renderer's copy of the bridge.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.

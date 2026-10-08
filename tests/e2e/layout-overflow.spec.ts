@@ -130,6 +130,33 @@ function layoutChain(win: Page): Promise<Array<Record<string, unknown>>> {
 }
 
 /**
+ * The shell holds elements and nothing else.
+ *
+ * A JSX comment written without its braces is *text*, so React renders it — and
+ * a loose text child of the shell column is not cosmetic: it becomes an
+ * anonymous flex item, cannot shrink below its content, and takes its height
+ * out of `main`. That shipped: a block of CSS-looking prose above the content
+ * on every route, which cost `main` a hundred pixels while every assertion in
+ * this file still passed, because the document never grew. Hence a guard that
+ * names the failure directly instead of one more height nobody would notice.
+ */
+async function expectShellHoldsOnlyElements(win: Page): Promise<void> {
+  const stray = await win.evaluate(() => {
+    const shell = document.querySelector("main")?.parentElement;
+    if (!shell) return "no shell element above <main>";
+    return [...shell.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => (node.textContent ?? "").trim())
+      .filter(Boolean)
+      .join(" | ");
+  });
+  expect(
+    stray,
+    `the shell renders loose text instead of only elements: ${stray}`,
+  ).toBe("");
+}
+
+/**
  * Assert every measured route fits the window on both axes, in one go. The
  * assertion is written over the collected numbers rather than route by route so
  * a run reports *both* overflows: "848 against 800" is the whole finding, and
@@ -257,6 +284,11 @@ test.describe("window fits the route", () => {
     await expect(cards.first()).toBeVisible({ timeout: 15_000 });
     await expect(cards).toHaveCount(DEMO_REPO_COUNT, { timeout: 15_000 });
 
+    // The shell is shared by every route, so once is enough — and it is
+    // checked before the numbers, because a stray text node is what makes the
+    // numbers look plausible while the content is pushed down.
+    await expectShellHoldsOnlyElements(win);
+
     const measured: Record<string, DocumentMetrics> = {
       "/": await metrics(win),
     };
@@ -308,5 +340,43 @@ test.describe("window fits the route", () => {
     const lastSection = win.getByRole("heading", { name: /^Scan now$/i });
     await lastSection.scrollIntoViewIfNeeded();
     await expect(lastSection).toBeInViewport();
+
+    // ----- The rest of the routes, on the same number. -----
+    // The positioning-context fix is route-agnostic, which is reasoning and not
+    // measurement: only `/`, `/graph` and `/settings` were ever held to this
+    // contract. These four render and navigate elsewhere in the suite, so what
+    // was missing is exactly the height. "Reachable end" checks are not
+    // repeated here — the routes that carry bottom-anchored furniture already
+    // have one, and inventing a marker for each of these would be asserting the
+    // fixture rather than the route.
+    const heights: Array<[string, RegExp, RegExp]> = [
+      ["/claude", /^claude$/i, /^Claude Usage$/i],
+      ["/processes", /^running/i, /^Processes$/i],
+      ["/debug", /^debug$/i, /^\/debug — system\.ping$/i],
+    ];
+    for (const [route, label, heading] of heights) {
+      await topBar.getByRole("link", { name: label }).click();
+      // The route has painted: its own heading, whatever that route calls it.
+      await expect(win.getByRole("heading", { name: heading })).toBeVisible({
+        timeout: 15_000,
+      });
+      measured[route] = await metrics(win);
+    }
+
+    // The standalone repo page, through the affordance that opens it: select a
+    // card, then take the detail panel's "open in a page" link.
+    await topBar.getByRole("link", { name: /^AllTheRepos$/i }).click();
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    await cards.first().click();
+    const openPage = win.getByRole("link", { name: "Open full detail page" });
+    await expect(openPage).toBeVisible({ timeout: 15_000 });
+    await openPage.click();
+    await expect(
+      win.getByRole("link", { name: /back to catalog/i }),
+    ).toBeVisible({ timeout: 15_000 });
+    measured["/repos/$slug"] = await metrics(win);
+
+    // Every route, one comparison — a failure names which one and by how much.
+    await expectFitsWindow(win, measured);
   });
 });

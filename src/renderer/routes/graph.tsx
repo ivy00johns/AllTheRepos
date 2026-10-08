@@ -87,6 +87,15 @@ function GraphPage() {
   const [moveSlugs, setMoveSlugs] = React.useState<string[]>([]);
   const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
   const [moveOpen, setMoveOpen] = React.useState(false);
+  /*
+   * ATR-069: cytoscape paints the map into untitled `<canvas>` elements, so
+   * none of the nodes can be focused and the inspector could only describe the
+   * node that was already selected. These back the keyboard path over the same
+   * selection — one tab stop, arrows inside it (`role="listbox"` over the
+   * nodes currently drawn).
+   */
+  const nodeOptionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const [rovingIndex, setRovingIndex] = React.useState(0);
 
   const data = graph.data;
 
@@ -174,15 +183,73 @@ function GraphPage() {
   const nameOf = (slug: string) =>
     data?.nodes.find((n) => n.slug === slug)?.name ?? slug;
 
+  /**
+   * Where the list's single tab stop sits. Clamped rather than trusted: the
+   * node set shrinks when a cluster is isolated or the filter changes, and an
+   * index past the end would leave the list with nothing tabbable at all.
+   */
+  const rovingOption =
+    visibleNodes.length === 0
+      ? -1
+      : Math.min(rovingIndex, visibleNodes.length - 1);
+
+  /*
+   * Follow the map: selecting a node there (or in the link list below) moves
+   * the tab stop to match. Focus is never taken — only which option is
+   * tabbable — so this cannot fight the mouse.
+   */
+  React.useEffect(() => {
+    if (!selectedSlug) return;
+    const index = visibleNodes.findIndex((node) => node.slug === selectedSlug);
+    if (index >= 0) setRovingIndex(index);
+  }, [selectedSlug, visibleNodes]);
+
+  /** Move the tab stop, focus it, and select — the keyboard's tap. */
+  const selectNodeOption = (index: number) => {
+    const node = visibleNodes[index];
+    if (!node) return;
+    setRovingIndex(index);
+    setSelectedSlug(node.slug);
+    nodeOptionRefs.current[index]?.focus();
+  };
+
+  const handleNodeOptionKeyDown = (
+    event: React.KeyboardEvent,
+    index: number,
+  ) => {
+    const last = visibleNodes.length - 1;
+    let target: number | null = null;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      target = index >= last ? 0 : index + 1;
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      target = index <= 0 ? last : index - 1;
+    } else if (event.key === "Home") {
+      target = 0;
+    } else if (event.key === "End") {
+      target = last;
+    }
+    if (target === null || target < 0) return;
+    event.preventDefault();
+    selectNodeOption(target);
+  };
+
+  /*
+   * `h-full`, not a viewport sum: this route is in the shell's full-height
+   * set (`__root.tsx`), so the parent already decided the height. It used to
+   * size itself `calc(100dvh - 3rem)` — the top bar's 48px — which is exactly
+   * the arithmetic that made it 64px taller than the window, because the
+   * route was in fact rendering inside `SimpleShell`'s 32px of vertical
+   * padding on top (ATR-062).
+   *
+   * Above the `return`, not inside it. JSX children are verbatim text, so a
+   * comment written without braces is how code-looking prose ends up on screen
+   * — and, as a text child of this flex column, it is also an anonymous flex
+   * item that takes its own height out of the map's box. Two guards hold this:
+   * `tests/unit/renderer/jsx-text.spec.ts` fails on the comment forms that
+   * render, and `layout-overflow.spec.ts` asserts the shell holds only elements
+   * before it measures a height.
+   */
   return (
-    /*
-     * `h-full`, not a viewport sum: this route is in the shell's full-height
-     * set (`__root.tsx`), so the parent already decided the height. It used to
-     * size itself `calc(100dvh - 3rem)` — the top bar's 48px — which is exactly
-     * the arithmetic that made it 64px taller than the window, because the
-     * route was in fact rendering inside `SimpleShell`'s 32px of vertical
-     * padding on top (ATR-062).
-     */
     <div className="flex h-full w-full overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
@@ -322,6 +389,62 @@ function GraphPage() {
       </div>
 
       <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+        {/*
+          The keyboard equivalent of tapping a dot. Kept above the selection
+          detail so it is there in the default state, when nothing is selected
+          and there is otherwise no way to select anything.
+        */}
+        <section className="border-b border-border p-4">
+          <h2 className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Repositories
+          </h2>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            The map is painted on a canvas, so no dot on it can take focus. Pick
+            one here instead — arrow keys move through the list, and Enter or
+            Space selects the same node.
+          </p>
+
+          <div
+            role="listbox"
+            aria-label="Repositories on the map"
+            className="mt-3 flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+          >
+            {visibleNodes.map((node, index) => (
+              <button
+                key={node.slug}
+                type="button"
+                role="option"
+                aria-selected={node.slug === selectedSlug}
+                tabIndex={index === rovingOption ? 0 : -1}
+                ref={(element) => {
+                  nodeOptionRefs.current[index] = element;
+                }}
+                onKeyDown={(event) => handleNodeOptionKeyDown(event, index)}
+                onClick={() => {
+                  setRovingIndex(index);
+                  setSelectedSlug(node.slug);
+                }}
+                className="atr-rail-row px-2 py-1"
+              >
+                <span className="atr-truncate font-mono text-[11px] text-foreground">
+                  {node.name}
+                </span>
+                <span className="atr-meta ml-auto shrink-0 tabular-nums">
+                  {node.degree}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {visibleNodes.length === 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {graph.isPending
+                ? "Reading the catalog…"
+                : "No repositories to show."}
+            </p>
+          ) : null}
+        </section>
+
         {selectedNode ? (
           <section className="border-b border-border p-4">
             <h2 className="font-mono text-sm font-semibold text-foreground">

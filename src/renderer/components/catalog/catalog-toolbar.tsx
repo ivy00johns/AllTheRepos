@@ -103,7 +103,7 @@ function ToolbarSelect<T extends string>({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="h-7 cursor-pointer rounded border border-border bg-input px-1.5 text-xs text-foreground transition-colors duration-150 hover:border-border-strong"
+        className="h-8 cursor-pointer rounded border border-border bg-input px-1.5 text-xs text-foreground transition-colors duration-150 hover:border-border-strong"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -273,7 +273,7 @@ export function CatalogToolbar({
             <button
               type="button"
               onClick={onMoveSelection}
-              className="flex h-7 cursor-pointer items-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
             >
               <FolderInput className="h-3.5 w-3.5" aria-hidden />
               Move…

@@ -254,19 +254,29 @@ test.describe("Phase 3a process flow", () => {
           `did not match the catalog path ${repoDir}.`,
       ).toBeVisible();
 
-      // 5. Click the kill button on this row.
+      // 5. Click the kill button on this row, then confirm.
+      //
+      // The confirmation is the app's own dialog rather than `window.confirm`
+      // (ATR-067), so there is no page `dialog` event left to accept: the click
+      // only opens the prompt, and nothing is signalled until the prompt is
+      // answered. The kill button returning before the process goes means the
+      // wait below has to be on the child itself, not on the click — a sweep
+      // that ran early would be right to still list it.
       const killBtn = rowSelector.getByRole("button", {
         name: new RegExp(`kill pid ${pid}`, "i"),
       });
       await expect(killBtn).toBeVisible({ timeout: 5_000 });
-
-      // The kill handler opens window.confirm; auto-accept. The click returns
-      // as soon as it dispatches, so wait for the child itself to go before
-      // sweeping — a sweep that ran early would be right to still list it.
-      win.once("dialog", (d) => {
-        void d.accept();
-      });
       await killBtn.click();
+
+      const confirmDialog = win.getByRole("alertdialog");
+      await expect(
+        confirmDialog,
+        "clicking kill did not open the confirmation dialog, so the kill was " +
+          "never gated",
+      ).toBeVisible({ timeout: 10_000 });
+      await confirmDialog
+        .getByRole("button", { name: /^kill process$/i })
+        .click();
       const exitDeadline = Date.now() + EXIT_TIMEOUT_MS;
       while (child.exitCode === null && child.signalCode === null) {
         if (Date.now() > exitDeadline) break;

@@ -37,12 +37,25 @@ state, not history.
 group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
 (**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). Before any of that, unblock the
 build: **ATR-057** breaks native ABI flips on this machine. New since Wave 5: ATR-056/057/058,
-and the 2026-10-07 UI/UX intake (**ATR-059…074** — filed, not fixed).
+and the 2026-10-07 UI/UX intake, which is now largely applied: **ATR-059…069** closed
+2026-10-08, **ATR-075** found and closed with them, leaving **ATR-070…074** (P3).
 
-**Build health (verified 2026-10-06, after the related-repos follow-up):** `pnpm typecheck` ✅ **0 errors
+**Build health (verified 2026-10-08, on the UI/UX pass):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
-`vitest` **1004 passed / 0 failed / 0 skipped** (45 files) · **Electron E2E 7/7** (1.4 min).
-Fonts (IBM Plex Sans) load at runtime.
+`vitest` **1690 passed / 0 failed** (84 files) · **Electron E2E 20 passed / 5 skipped / 0 failed**
+(13 specs; the skips are the packaged-update ones, which need a packaged bundle).
+Fonts (IBM Plex Sans) load at runtime. Added later the same day:
+`tests/unit/renderer/jsx-text.spec.ts` (2 tests) and, re-run green on its own,
+`layout-overflow.spec.ts` (1 test) and `workstream-b.spec.ts` (8 tests).
+
+**Also verified 2026-10-08, by looking at the app rather than at the tests:** the catalog,
+`/graph`, `/claude`, `/processes`, `/settings` and `/debug` were each screenshotted and
+read back from the DOM, in three builds — this branch's bundle, `electron-vite dev`, and
+the `main` checkout's own build — and every one of them paints the top bar and nothing
+else: no comment prose, no stray text node in the shell, no text injected by the graph's
+palette probe. The A/B behind that claim (the bare block comment restored on purpose, then
+removed again) is written up in **ATR-075**'s row in
+[`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
 
 > ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
 > finishes booting. Filed as ATR-055; expect a slow first paint until it lands.

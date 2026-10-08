@@ -12,6 +12,8 @@ import { ArrowLeft } from "lucide-react";
 
 import { RepoDetailContent } from "@renderer/components/catalog/repo-detail-content";
 import { Button } from "@renderer/components/ui/button";
+import { ErrorState } from "@renderer/components/ui/error-state";
+import { Skeleton, SkeletonRegion } from "@renderer/components/ui/skeleton";
 import { useRepo } from "@renderer/hooks/use-repo";
 import { Route as RootRoute } from "./__root";
 
@@ -26,23 +28,29 @@ function RepoPage() {
   const repoQuery = useRepo(slug);
 
   if (repoQuery.isLoading) {
+    /*
+     * The detail panel's own shape, at page width — a sentence here would be
+     * the same wait the panel already shows as pulse blocks (ATR-064).
+     */
     return (
-      <p className="font-mono text-sm text-muted-foreground">
-        Loading repo…
-      </p>
+      <SkeletonRegion label="Loading repo…" className="gap-4">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-6 w-2/3" />
+        <Skeleton className="h-4 w-1/3" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </SkeletonRegion>
     );
   }
 
   if (repoQuery.error) {
     return (
-      <div className="flex flex-col gap-2">
-        <p className="text-base font-medium text-destructive">
-          Failed to load repo
-        </p>
-        <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs text-muted-foreground">
-          {repoQuery.error.message}
-        </pre>
-      </div>
+      <ErrorState
+        title="Failed to load repo"
+        error={repoQuery.error}
+        onRetry={() => void repoQuery.refetch()}
+        retrying={repoQuery.isFetching}
+      />
     );
   }
 

@@ -233,15 +233,27 @@
     @apply bg-secondary font-medium text-foreground;
   }
 
-  /* Toolbar segmented-control button. */
+  /*
+   * Toolbar segmented-control button — the catalog's view modes and the map's
+   * signal filters.
+   *
+   * The active state was `bg-secondary` on a `bg-muted` container: measured at
+   * rgb(35,46,59) against rgb(26,34,45), a ~5% luminance step that reads as
+   * nothing on a marginal display, so "which one is on" was guesswork
+   * (ATR-068). It now takes the accent treatment the detail tabs and the range
+   * selector already use, making "on" a hue change. The height moved with it:
+   * 28px sat below every other control on the same row (Button `sm` and the
+   * toolbar's own selects are 32px), which is the mismatch the finding named.
+   * Both surfaces share this class, so both move together.
+   */
   .atr-segment {
-    @apply flex h-7 cursor-pointer items-center gap-1.5 rounded px-2 text-xs text-muted-foreground transition-colors duration-150;
+    @apply flex h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-xs text-muted-foreground transition-colors duration-150;
   }
   .atr-segment:hover {
     @apply bg-surface-raised text-foreground;
   }
   .atr-segment[data-active="true"] {
-    @apply bg-secondary text-foreground;
+    @apply bg-accent/15 font-medium text-accent;
   }
 
   /* Truncating single-line text that still shrinks inside flex parents. */
