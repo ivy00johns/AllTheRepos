@@ -57,8 +57,10 @@ one role written three ways: 9px, 10px and 11px were each used for uppercase
 section labels and control captions as well as for metadata. That question is
 closed. Every size names a step, and **no component states a raw font size at any
 value** — `tests/unit/renderer/type-scale.spec.ts` fails on one, in `px`, `rem`
-or `em` alike, and `tests/e2e/workstream-c.spec.ts` reads the built renderer to
-confirm none reaches the screen on the catalog, its table view or the map.
+or `em` alike, and `tests/e2e/type-scale.spec.ts` reads the built renderer to
+confirm none reaches the screen on **any** of them: it takes its routes from
+`src/renderer/routes/` and its view modes from the running toolbar, and fails if a
+screen the router composes is not in its visit plan.
 
 | Class       | Size                | Use                                                                                                                                                              |
 | ----------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |

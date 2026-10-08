@@ -1,9 +1,10 @@
 /**
- * Workstream C E2E — the five P3 findings (ATR-070…074), on the built app.
+ * Workstream C E2E — four of the five P3 findings (ATR-070…074), on the built app.
  *
- * These are the items the ledger had been holding: each one is a small decision
- * that was never made, and four of the five are only visible in the rendered
- * result — a heading level, the first thing Tab reaches, the computed size of a
+ * ATR-072 moved out: the type scale is now swept on every screen by
+ * `type-scale.spec.ts`, so what is left here are the four whose answer is one
+ * element rather than a rule. Each is a small decision that was never made, and
+ * all four are only visible in the rendered result — a heading level, the first thing Tab reaches, the computed size of a
  * label, the hue of a status dot, and what is *not* in the navigation. So every
  * assertion here reads the running app rather than the source:
  *
@@ -11,12 +12,10 @@
  *     routes' first heading is level 1.
  *   - ATR-071 — the first Tab stop is a skip link, it becomes visible when it is
  *     focused, and activating it moves focus into `main` itself.
- *   - ATR-072 — no element in the built renderer names a raw font size, at any
- *     value; the named tiers compute to the sizes they claim (12px, 10px, and
- *     the 13px `text-body` step); and no heading, tab or column header is below
- *     the 12px floor. Audited on three screens — the catalog, its table view and
- *     the map — because the check only sees what is on screen, and the two
- *     screens the 13px sweep touched are not the one the route opens on.
+ *   - ATR-072 — *not* here: the type scale is swept on every route and every view
+ *     mode by `type-scale.spec.ts`, which reads its screens out of the router's own
+ *     route files. It moved there because a hand-written list of three screens is
+ *     what let a raw size sit on the one screen the list did not name.
  *   - ATR-073 — the live-status dot is painted with `--color-status-live`, and
  *     paints a different colour from `--color-accent`.
  *   - ATR-074 — the primary navigation holds its four destinations and nothing
@@ -83,51 +82,6 @@ function headingLevels(win: Page): Promise<number[]> {
 }
 
 /**
- * One page's type scale, as the built renderer computes it.
- *
- * The rule the unit guard enforces in the source, read back off the running app:
- * every `text-[…]` arbitrary size in any unit (a raw size is the same defect
- * whether it is written in px, rem or em), each named tier's computed size, and
- * the roles the ATR-072 finding was about.
- */
-function typeScaleAudit(win: Page): Promise<{
-  raw: string[];
-  label: Array<{ text: string; size: number }>;
-  micro: Array<{ text: string; size: number }>;
-  body: Array<{ text: string; size: number }>;
-  underFloor: Array<{ tag: string; size: number; text: string }>;
-}> {
-  return win.evaluate(() => {
-    const raw: string[] = [];
-    const label: Array<{ text: string; size: number }> = [];
-    const micro: Array<{ text: string; size: number }> = [];
-    const body: Array<{ text: string; size: number }> = [];
-    const underFloor: Array<{ tag: string; size: number; text: string }> = [];
-
-    const FLOOR_SELECTOR =
-      'h1,h2,h3,h4,h5,h6,[role="tab"],[role="columnheader"]';
-
-    document.querySelectorAll<HTMLElement>("*").forEach((el) => {
-      const cls = typeof el.className === "string" ? el.className : "";
-      if (/text-\[[^\]\s]*(?:px|rem|em)\]/.test(cls)) {
-        raw.push(`${el.tagName.toLowerCase()}.${cls.slice(0, 80)}`);
-      }
-
-      const size = parseFloat(getComputedStyle(el).fontSize);
-      const text = (el.textContent ?? "").trim().slice(0, 40);
-      if (/(^|\s)atr-label(\s|$)/.test(cls)) label.push({ text, size });
-      if (/(^|\s)atr-micro(\s|$)/.test(cls)) micro.push({ text, size });
-      if (/(^|\s)text-body(\s|$)/.test(cls)) body.push({ text, size });
-      if (text.length > 0 && el.matches(FLOOR_SELECTOR)) {
-        underFloor.push({ tag: el.tagName.toLowerCase(), size, text });
-      }
-    });
-
-    return { raw, label, micro, body, underFloor };
-  });
-}
-
-/**
  * A colour token resolved to what Chromium actually paints, read off a probe
  * element rather than compared as a hex string from the stylesheet.
  */
@@ -142,7 +96,7 @@ function tokenColor(win: Page, name: string): Promise<string> {
   }, name);
 }
 
-test.describe("workstream C — the four small decisions and one door", () => {
+test.describe("workstream C — the three small decisions and one door", () => {
   test.beforeAll(() => {
     if (!existsSync(MAIN_ENTRY)) {
       throw new Error(
@@ -271,108 +225,14 @@ test.describe("workstream C — the four small decisions and one door", () => {
     }
   });
 
-  test("ATR-072 — every size comes from a named tier, and labels sit on the floor", async () => {
-    const { app, close } = await launchApp();
-
-    try {
-      const win = await app.firstWindow();
-      await win.waitForLoadState("domcontentloaded");
-      await expect(
-        win.getByRole("link", { name: /^AllTheRepos$/i }),
-      ).toBeVisible({ timeout: 15_000 });
-
-      /** The rule, read off whatever is on screen — the half that holds everywhere. */
-      const auditScreen = async (screen: string) => {
-        const audit = await typeScaleAudit(win);
-        expect(
-          audit.raw,
-          `a rendered element on ${screen} still carries a raw font size`,
-        ).toEqual([]);
-        return audit;
-      };
-
-      /**
-       * The 13px step is drawn, and it computes to 13.
-       *
-       * `text-body` is a theme token (`--text-body`), so this is also what says
-       * the token produces a real utility rather than a class nothing matches:
-       * a misdeclared step would leave these elements inheriting 16px. Asserted
-       * only where the step is on screen, since the catalog's gallery view draws
-       * no rail row — an empty list there would be a fact about the view, not
-       * about the tier.
-       */
-      const expectStep = (
-        audit: Awaited<ReturnType<typeof typeScaleAudit>>,
-        screen: string,
-      ): void => {
-        expect(
-          audit.body.length,
-          `no text-body element rendered on ${screen}`,
-        ).toBeGreaterThan(0);
-        expect(
-          audit.body.filter((b) => b.size !== 13),
-          `a text-body element on ${screen} is not the 13px step`,
-        ).toEqual([]);
-      };
-
-      // ----- The catalog: the route the tier decision was made on. -----
-      const catalog = await auditScreen("/");
-
-      // The tiers are live, and each computes to the number it claims.
-      expect(
-        catalog.label.length,
-        "no .atr-label element rendered",
-      ).toBeGreaterThan(0);
-      expect(
-        catalog.label.filter((l) => l.size !== 12),
-        "an .atr-label element is not 12px",
-      ).toEqual([]);
-      expect(
-        catalog.micro.length,
-        "no .atr-micro element rendered",
-      ).toBeGreaterThan(0);
-      expect(
-        catalog.micro.filter((m) => m.size !== 10),
-        "an .atr-micro element is not 10px",
-      ).toEqual([]);
-
-      // And the finding itself: headings, tabs and column headers — the roles
-      // that were being written at 9/10/11px — are on the floor now.
-      expect(
-        catalog.underFloor.filter((el) => el.size < 12),
-        "a heading, tab or column header is still below 12px",
-      ).toEqual([]);
-
-      // ----- The table view: the repo name is one of the four sizes the sweep
-      // moved, and it exists only on this view. -----
-      await win
-        .getByRole("group", { name: "View mode" })
-        .getByRole("button", { name: "Table" })
-        .click();
-      await expect(win.locator("tbody tr").first()).toBeVisible({
-        timeout: 10_000,
-      });
-
-      expectStep(await auditScreen("/ — table view"), "/ — table view");
-
-      // ----- The map: where the legend glyphs and the node list are, the other
-      // surface the sweep touched. Audited because this check only sees what is
-      // on screen, and a size written on a screen the spec never opens is a
-      // finding it cannot read. -----
-      await win
-        .getByRole("banner")
-        .getByRole("link", { name: /^Map$/i })
-        .click();
-      await expect(
-        win.getByRole("heading", { name: /^Relationships$/i, level: 1 }),
-      ).toBeVisible({ timeout: 15_000 });
-
-      expectStep(await auditScreen("/graph"), "/graph");
-    } finally {
-      await close();
-    }
-  });
-
+  /*
+   * ATR-072's on-screen half used to live here, reading three screens by hand.
+   * It moved to `type-scale.spec.ts`, which derives its screens from the router's
+   * own route files and the toolbar's own view modes: a rule about every screen
+   * should not depend on somebody remembering to add the next one to a list, and
+   * the three-screen version was exactly how a raw size survived on `/`'s table
+   * view. What stays here is the other four findings.
+   */
   test("ATR-073 — the live-status dot is its own token, not the accent", async () => {
     const repoDir = seededRepoDir(SEEDED_REPO);
     let child: ChildProcess | null = null;

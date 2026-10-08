@@ -53,11 +53,15 @@ export default defineConfig({
   // states a first paint never reaches are forced from the main process, since
   // `contextBridge` freezes the renderer's copy of the bridge.
   // workstream-c.spec.ts — the five P3 findings (ATR-070…074): a heading
-  // level, the first Tab stop, the computed size of the type tiers, the hue of
-  // the live-status dot, and the absence of Debug from the navigation — read
-  // off the running app rather than the source.
+  // level, the first Tab stop, the hue of the live-status dot, and the absence
+  // of Debug from the navigation — read off the running app rather than the
+  // source.
+  // type-scale.spec.ts — the type-scale rule (ATR-072) on *every* screen: the
+  // routes come from `src/renderer/routes/` and the view modes from the running
+  // toolbar, so a screen added later cannot go unaudited. It is the spec that
+  // would have caught the raw 13px size living on a route the sweep never opened.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
