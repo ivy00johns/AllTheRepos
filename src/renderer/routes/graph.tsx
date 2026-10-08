@@ -74,7 +74,12 @@ const OVERVIEW_EDGE_CAP = 320;
 
 function GraphPage() {
   const graph = useGraph();
-  const reposQuery = useRepos({ limit: 500 });
+  /*
+   * The move dialog's repo list, at the contract's page ceiling (see
+   * `ListReposInputSchema`). The 500 this used to ask for was rejected before the
+   * query ran, so the dialog listed no repos to move.
+   */
+  const reposQuery = useRepos({ limit: 200 });
   const settingsQuery = useSettings();
 
   const [enabled, setEnabled] = React.useState<Set<GraphSignal>>(

@@ -14,7 +14,9 @@
  *   - The satellite windows are read out of the factories that create them, so the
  *     spotlight and the tray popover are audited too. They are separate renderer
  *     roots over this same bundle, and the popover has no door from a renderer at
- *     all — see `SATELLITES` for how each one is opened.
+ *     all — see `SATELLITES` for how each one is opened and what each one has to
+ *     show, which is chrome *and* its own read: a window whose data call was
+ *     rejected draws a perfectly healthy search box over nothing.
  *
  * Each screen is then held to the same three things, on the built renderer:
  *
@@ -228,11 +230,24 @@ async function toRepoPage(win: Page): Promise<void> {
  * publishes on `globalThis` for an `ATR_E2E` run. That is the one seam this spec
  * needs, and it is the app's real path rather than a second factory.
  */
-const SATELLITES: Array<{
+interface Satellite {
   kind: string;
   open: (ctx: { app: ElectronApplication; win: Page }) => Promise<void>;
   marker: (page: Page) => Locator;
-}> = [
+  /**
+   * The window's own data, when it reads some.
+   *
+   * Chrome is not enough: the spotlight's repo list is a `catalog:list` read, and
+   * a rejected read leaves its search box, its footer and "Start typing to search."
+   * perfectly visible over an empty list. That is how this window shipped
+   * searching nothing while looking like it worked, and why the sweep asks for a
+   * row of it — the seeded catalog's repos are the answer its read is supposed to
+   * produce.
+   */
+  lists?: (page: Page) => Locator;
+}
+
+const SATELLITES: Satellite[] = [
   {
     kind: "spotlight",
     open: async ({ win }) => {
@@ -248,6 +263,7 @@ const SATELLITES: Array<{
       await expect(palette).toBeHidden({ timeout: 5_000 });
     },
     marker: (page) => page.getByLabel("Spotlight search"),
+    lists: (page) => page.getByRole("option", { name: /Demo Web/ }).first(),
   },
   {
     kind: "tray-popover",
@@ -263,7 +279,8 @@ const SATELLITES: Array<{
 ];
 
 /**
- * The Page behind a satellite window, once it exists and paints.
+ * The Page behind a satellite window, once it exists, paints and has answered its
+ * own read.
  *
  * The windows appear asynchronously — the spotlight is created lazily on its
  * first `show()`, and the popover on its first `showAt()` — so this polls the
@@ -271,9 +288,9 @@ const SATELLITES: Array<{
  */
 async function satellitePage(
   app: ElectronApplication,
-  kind: string,
-  marker: (page: Page) => Locator,
+  satellite: Satellite,
 ): Promise<Page> {
+  const { kind, marker, lists } = satellite;
   let found: Page | undefined;
   await expect
     .poll(
@@ -294,6 +311,8 @@ async function satellitePage(
   await page.waitForLoadState("domcontentloaded");
   // Its own control, so the audit reads a painted screen rather than a blank one.
   await expect(marker(page)).toBeVisible({ timeout: 15_000 });
+  // And its own read, where it has one — see {@link Satellite.lists}.
+  if (lists) await expect(lists(page)).toBeVisible({ timeout: 15_000 });
   return page;
 }
 
@@ -482,7 +501,7 @@ test.describe("type scale, on every screen", () => {
       // with their own type. -----
       for (const satellite of SATELLITES) {
         await satellite.open({ app, win });
-        const page = await satellitePage(app, satellite.kind, satellite.marker);
+        const page = await satellitePage(app, satellite);
         await auditScreen(`#window=${satellite.kind}`, page);
       }
 
