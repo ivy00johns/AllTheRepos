@@ -30,6 +30,7 @@ import {
   RepoDetailSchema,
   SearchReposInputSchema,
   SearchReposResultSchema,
+  SemanticSearchStatusSchema,
   RescanRepoInputSchema,
   SetRepoTagsInputSchema,
   SmartFilterInputSchema,
@@ -843,8 +844,95 @@ describe("SearchHitSchema", () => {
     ).toThrow();
   });
 
-  it("SearchReposResultSchema accepts an empty array", () => {
-    expect(SearchReposResultSchema.parse([])).toEqual([]);
+  it("accepts an empty hit list", () => {
+    expect(
+      SearchReposResultSchema.parse({ hits: [], semantic: { state: "vectors" } }),
+    ).toEqual({ hits: [], semantic: { state: "vectors" } });
+  });
+
+  it("accepts a hit beside a vector status", () => {
+    const result = {
+      hits: [
+        { repo, score: 0.87, matchKind: "hybrid" as const, snippet: "async fn" },
+      ],
+      semantic: { state: "vectors" as const },
+    };
+    expect(SearchReposResultSchema.parse(result)).toEqual(result);
+  });
+
+  /**
+   * The response used to BE the array. A handler left on the old shape would
+   * otherwise sail through this schema unchecked, which is exactly the kind of
+   * drift the parse in `handleCatalogSearch` exists to catch.
+   */
+  it("rejects the pre-vector-store response shape (a bare array)", () => {
+    expect(() => SearchReposResultSchema.parse([])).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog:search — semantic status (why the vector half did not run)
+// ---------------------------------------------------------------------------
+
+describe("SemanticSearchStatusSchema", () => {
+  it("accepts the running state", () => {
+    expect(SemanticSearchStatusSchema.parse({ state: "vectors" })).toEqual({
+      state: "vectors",
+    });
+  });
+
+  it("accepts each off reason with a null detail", () => {
+    for (const reason of [
+      "requested",
+      "no-vector-store",
+      "no-embedding-provider",
+    ] as const) {
+      expect(
+        SemanticSearchStatusSchema.parse({ state: "off", reason, detail: null }),
+      ).toEqual({ state: "off", reason, detail: null });
+    }
+  });
+
+  it("accepts each off reason with the underlying message attached", () => {
+    for (const reason of [
+      "requested",
+      "no-vector-store",
+      "no-embedding-provider",
+    ] as const) {
+      expect(
+        SemanticSearchStatusSchema.parse({
+          state: "off",
+          reason,
+          detail: "Ollama unreachable at http://localhost:11434",
+        }),
+      ).toEqual({
+        state: "off",
+        reason,
+        detail: "Ollama unreachable at http://localhost:11434",
+      });
+    }
+  });
+
+  it("rejects an unknown reason", () => {
+    expect(() =>
+      SemanticSearchStatusSchema.parse({
+        state: "off",
+        reason: "vector-store-on-fire",
+        detail: null,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an off state with no detail field at all", () => {
+    expect(() =>
+      SemanticSearchStatusSchema.parse({ state: "off", reason: "requested" }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown state", () => {
+    expect(() =>
+      SemanticSearchStatusSchema.parse({ state: "maybe" }),
+    ).toThrow();
   });
 });
 

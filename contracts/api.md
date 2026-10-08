@@ -88,6 +88,12 @@ export function scanPaths(paths: string[]): AsyncIterable<ScanProgressEvent>
 export function hybridSearch(q: SearchQuery): Promise<SearchHit[]>
 ```
 
+The Electron app keeps this entry point in `src/main/services/search.ts`, where
+it also takes the search `mode` (`"fts"`, `"vector"` or `"hybrid"`) and returns
+`{ hits, semantic }` rather than a bare array — `semantic` reports whether the
+vector store took part, and why not when it did not. See
+`contracts/ipc.v1.md > catalog:search`.
+
 ## Error Codes
 
 | Code | Meaning |

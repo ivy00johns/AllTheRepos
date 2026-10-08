@@ -44,7 +44,7 @@ import {
 import { getSqlite } from "@main/db/client";
 
 import { indexRepoEmbedding } from "./embedding";
-import { deleteEmbedding } from "./lance";
+import { deleteEmbedding } from "./vector-store";
 import {
   canonicalPath,
   readRepoMetadata,
@@ -204,14 +204,14 @@ class CatalogService {
   /**
    * Remove one repo row from the catalog. Never touches the repo on disk.
    * The FTS delete trigger and the `repo_groups` cascade fire with the row;
-   * the LanceDB vector is cleared best-effort — a vector-cleanup failure
+   * the stored embedding is cleared best-effort — a vector-cleanup failure
    * never fails the delete (the row is the source of truth).
    */
   async deleteRepo(slug: string): Promise<DeleteRepoResult> {
     const deleted = deleteRepoBySlug(slug);
     if (!deleted) return { slug, deleted: false };
     try {
-      await deleteEmbedding(deleted.id);
+      deleteEmbedding(deleted.id);
     } catch (err) {
       console.error("[catalog] vector cleanup failed on delete", err);
     }

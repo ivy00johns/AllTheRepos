@@ -159,17 +159,29 @@ Single repo detail by slug.
 
 #### `catalog:search`
 
-Hybrid FTS5 + LanceDB vector search. Maps 1:1 to the legacy
-`POST /api/search` + `lib/search/query.ts > hybridSearch()`.
+Hybrid FTS5 + vector search, fused with reciprocal rank fusion
+(k = 60). The vector half is a `vec0` table in the same SQLite file as
+the FTS5 index — see `contracts/data-layer.v1.md`. Maps 1:1 to the
+legacy `POST /api/search` + `lib/search/query.ts > hybridSearch()`.
 
 - **Constant:** `IPC.CATALOG.SEARCH`
 - **Input schema:** `SearchReposInputSchema`
-- **Output schema:** `SearchReposResultSchema` (`SearchHit[]`)
+- **Output schema:** `SearchReposResultSchema` —
+  `{ hits: SearchHit[]; semantic: SemanticSearchStatus }`
 - **Renderer call:** `window.atr.catalog.search(input)`
 - **Idempotency:** pure read.
-- **Notes:** `mode` defaults to `"hybrid"`. When the embedding service
-  is unavailable, the handler falls back to FTS-only and still returns
-  a valid `SearchHit[]` (with `matchKind: "fts"`).
+- **Notes:** `mode` defaults to `"hybrid"` and is honoured: `"fts"`
+  runs keywords only, `"vector"` the vector store only, `"hybrid"`
+  both. When the vector half does not run, the handler still returns a
+  valid hit list (FTS-only, `matchKind: "fts"`) **and says why** on
+  `semantic`, which is either `{ state: "vectors" }` or
+  `{ state: "off", reason, detail }` with `reason` one of
+  `"requested"` (the caller asked for keywords), `"no-vector-store"`
+  (the `sqlite-vec` extension did not load on this machine) or
+  `"no-embedding-provider"` (no Ollama and no `OPENAI_API_KEY`), and
+  `detail` carrying the underlying message. The renderer surfaces that
+  as a notice on the results — a search that quietly lost half its
+  pipeline used to look exactly like one that had not.
 
 #### `catalog:rescan`
 

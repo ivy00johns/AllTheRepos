@@ -31,8 +31,8 @@ import type {
   RescanRepoResult,
   ScanEvent,
   ScanStatusResult,
-  SearchHit,
   SearchReposInput,
+  SearchReposResult,
   SetGroupMembersResult,
   SetRepoTagsResult,
   Settings,
@@ -69,7 +69,12 @@ export interface CatalogService {
 // ---------------------------------------------------------------------------
 
 export interface SearchService {
-  search(input: SearchReposInput): Promise<SearchHit[]>;
+  /**
+   * Ranked hits, plus whether the vector half of the pipeline ran — a search
+   * that silently answered with keywords alone is the bug this carries the
+   * answer to.
+   */
+  search(input: SearchReposInput): Promise<SearchReposResult>;
 }
 
 // ---------------------------------------------------------------------------

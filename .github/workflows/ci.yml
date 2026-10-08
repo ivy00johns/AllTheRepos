@@ -180,19 +180,25 @@ jobs:
   # Two legs, one per architecture a Mac comes in. Only one of them is a build
   # anybody can download — `electron-builder.yml` ships arm64 and nothing else —
   # so the Intel leg tests no product. It answers a different question: **does
-  # this app run on x86_64 at all?** Measured on its first run: yes, and it was
-  # the same 13 tests answered the same way on both machines. It is also the
-  # precondition for the decision still open upstream of it — adding `x64` to the
-  # dmg/zip targets is a one-line change that packages and uploads an Intel build,
-  # and whether that build is worth shipping is what this leg is for.
+  # this app run on x86_64 at all?** Measured on its first run: yes, and every
+  # test answered the same way on both machines. It is also the precondition for
+  # the decision still open upstream of it — adding `x64` to the dmg/zip targets
+  # is a one-line change that packages and uploads an Intel build, and whether
+  # that build is worth shipping is what this leg is for.
   #
-  # What it does not cover, because it cannot: **nothing in the suite calls into
-  # the vector path**, so a green run here means the app builds, boots, renders,
-  # navigates, spawns and kills processes on x86_64 — not that semantic search
-  # works there. It does not: `@lancedb/lancedb` publishes no darwin-x64 binary,
-  # and `services/lance.ts` fails soft on purpose, so the loss is silent by
-  # design. `pnpm platforms:check` is where that loss is asserted; this leg is
-  # where the rest of the app is proved to survive it.
+  # The loss that comes with it is unglamorous and easy to miss: no darwin-x64
+  # binary means no vector store, `services/lance.ts` fails soft on purpose, and
+  # semantic search quietly degrades to FTS. Two gates cover that pair.
+  # `pnpm platforms:check` asserts the missing binary from package metadata, on
+  # the fast job. `tests/e2e/vector-store.spec.ts` measures it here — it asks the
+  # app's own runtime whether the binding loads, and then drives a real search
+  # with an embedding provider arranged on the runner, which is what puts
+  # `lance.ts`'s own `catch` under test rather than one of the two around it.
+  # Delete that catch and this leg goes red, the only place in this repository
+  # that would notice. `tests/e2e/semantic-search.spec.ts` is the other side of
+  # the same seam: it scans the seeded repos with a provider on the runner and
+  # asserts a search comes back with a vector contribution, which is the only
+  # test where a stored embedding and a query meet.
   #
   # `macos-13` was the Intel label this leg was first asked for, and it no longer
   # exists: GitHub retired the macOS 13 images on 2025-12-04 (the last x86_64

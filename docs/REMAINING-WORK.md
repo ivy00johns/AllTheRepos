@@ -189,11 +189,65 @@ not by running a documented command on one machine:
   with `find-git-repositories` compiling from source and `better-sqlite3` loading on Intel. The
   leg is not free: 188s of runner against the arm64 leg's 61s, because the Intel image is three
   cores and `pnpm install` builds both natives from source there (71s against 6s).
-  **Nothing in the suite calls into the vector path**, so that green says the app builds,
-  boots, renders, navigates, spawns and kills processes on x86_64 — it does not say semantic
-  search works there, and it cannot: `@lancedb/lancedb` publishes no darwin-x64 binary, so the
-  app runs FTS-only on Intel and `services/lance.ts` fails soft rather than saying so. That
-  half is still an inference from the code, not a measurement.
+  **Nothing in the suite called into the vector path** on that first run, so that green said
+  the app builds, boots, renders, navigates, spawns and kills processes on x86_64 — not that
+  semantic search works there, which it cannot: `@lancedb/lancedb` publishes no darwin-x64
+  binary, so an Intel Mac runs FTS-only and `services/lance.ts` fails soft rather than saying
+  so. **That half is a measurement now**, in `tests/e2e/vector-store.spec.ts`: the app's own
+  runtime is asked whether the binding loads (on x86_64 it does not — the premise the leg
+  rests on, asserted instead of assumed), and then a real search is driven over IPC with a
+  mock embedding provider on the runner, so the vector path is entered and `lance.ts`'s own
+  `catch` is what gets exercised. It is the innermost of three, so nothing else in this
+  repository would notice its removal; built with the catch deleted and the app reporting
+  `x86_64`, that spec goes red on `[backend] vector path error`. **The decision it was built
+  upstream of is made**: Intel stays unbuilt, with the reasoning and the four options priced in
+  [`docs/FUTURE.md`](./FUTURE.md) — `@lancedb/lancedb` dropped darwin-x64 for good (last stable
+  2025-11-07), so an Intel build means no semantic search or an engine eleven months behind.
+  **Green on both legs**
+  (CI run `37683034472`): 15 tests, 10 passed / 5 skipped, 27.3s of suite on `macos-14` and
+  1.3m on `macos-15-intel` — the binding probe 425ms there against 2.3s on Intel, where it is
+  answering no. Neither leg skips it: the expectations are architecture-dependent, which is
+  the difference between a leg that checks Intel and a leg that runs on it. **Superseded later
+  the same day** — the "it cannot work there" half of that record stopped being true when the
+  vector store moved to `sqlite-vec`, which publishes a `darwin-x64` binary; see the vector-store
+  entry above, and the Intel leg now asserts stored vectors and ranking on x86_64 rather than the
+  absence of a binding.
+- **Semantic search has an end-to-end test** (2026-10-07):
+  [`tests/e2e/semantic-search.spec.ts`](../tests/e2e/semantic-search.spec.ts) runs a real scan with
+  a mock embedding provider on the runner and asserts that search comes back *ranked with the
+  vectors that scan stored* — every seeded repo `hybrid`, and a query naming one repo ranking it
+  first. It exists because the two halves had never met in a test: the unit specs either mock the
+  vector store or stub `indexRepoEmbedding`, so nothing had ever written a real vector and read it
+  back through a real search. **The write path was already wired** — ATR-018, in `scan.ts`'s
+  `discovered` handler and in `catalog:rescan`, with `FUTURE.md` already saying so; the audit of
+  2026-05-31 that reads "embeddings are never written" describes a commit that no longer exists.
+  What was missing was proof, and it is now three mutations deep: remove the scan's
+  `indexRepoEmbedding` call, aim the app at a provider that is not there, or drop the vector side
+  in `hybridSearch`'s merge — each turns the spec red, and the last of those is a failure no unit
+  test can reach. The profile is what makes it mean something: a launch copies the seeded SQLite
+  file and settings, and the seeder writes rows only, so a vector hit has to be one this run's
+  scan stored rather than something the fixture brought along.
+- **The vector store is SQLite now** (2026-10-07) — semantic search stopped being gated on one
+  architecture's binary matrix. `@lancedb/lancedb` publishes prebuilt bindings per platform and
+  there is **no `darwin-x64` among them** (last stable `0.22.3`, 2025-11-07, against this
+  repository's `0.27.2`), so an Intel Mac would have run without semantic search — silently, since
+  the wrapper in `services/lance.ts` failed soft by design. The replacement is `sqlite-vec@0.1.9`,
+  which publishes a binary for **every** platform the app could ship (`darwin-x64`,
+  `darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`), and the embeddings now live in a
+  `vec0` table inside `alltherepos.db` — the same file FTS5 was already in — loaded through
+  better-sqlite3's `loadExtension`. `services/lance.ts` is deleted and `@lancedb/lancedb` is out of
+  `package.json`, so the coupling to a third party's release matrix is gone rather than paid for.
+  `pnpm platforms:check` now reports **`darwin-x64` would build today**; the Intel question is a
+  packaging decision, not a vector-engine one (see [`FUTURE.md`](./FUTURE.md)).
+  Two things the switch is not allowed to hide: a search that cannot reach the vector store
+  **says so** — `catalog:search` returns `{ hits, semantic }`, and the catalog renders a
+  "keyword matches only" notice instead of returning a smaller-ranked result set that looks
+  exactly like a complete one — and `sqlite-vec` is stricter than the store it replaced, rejecting
+  a wrong-width vector (`Dimension mismatch`) where the old one would have written it. Known
+  consequence of the move, worth stating: existing installs have vectors in the old `lance/`
+  directory that nothing reads any more, and the next scan or rescan re-embeds into SQLite
+  (the content-hash gate finds no row, so it re-embeds rather than skipping). The stale directory
+  is left on disk rather than deleted.
 
 **Related repos (2026-10-06, on top of Wave 5)** — the MCP's curated links became a
 first-class part of the app, and then the app was handed the pen as well:

@@ -5,6 +5,11 @@
 > app by the IPC contracts in `ipc.v3*.md` (and `ipc.v1.md`) plus
 > `data-layer.v1.*`. Read those for the current desktop architecture; this
 > file is retained for historical context only.
+>
+> Which includes the vector store: the LanceDB directory described below
+> (`{dataDir}/lance`) is that app's. The Electron app keeps its embeddings in a
+> `repo_embeddings` `vec0` table **inside `alltherepos.db`**, through the
+> `sqlite-vec` extension — see [`data-layer.v1.md`](./data-layer.v1.md).
 
 **Contract version:** v1.0 — 2026-04-15
 **Status:** Frozen for initial build. Changes require orchestrator approval + version bump.

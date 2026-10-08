@@ -588,6 +588,13 @@ describe("the mac build configuration", () => {
     // rather than quietly skipping notarisation.
     expect(builder).toMatch(/^afterSign: scripts\/notarize\.mjs$/m);
     expect(builder).not.toMatch(/^\s+afterSign:/m);
+    // Same reasoning for the other hook: `afterPack` is where the vector
+    // store's library is copied into the bundle, and it is a root property too.
+    // A release that quietly stopped calling it would ship without semantic
+    // search — the library is an optional dependency, so electron-builder does
+    // not collect it by itself.
+    expect(builder).toMatch(/^afterPack: scripts\/pack-vector-extension\.mjs$/m);
+    expect(builder).not.toMatch(/^\s+afterPack:/m);
     // Required for notarisation, and the reason a release cannot be signed
     // without it.
     expect(builder).toMatch(/^  hardenedRuntime: true$/m);

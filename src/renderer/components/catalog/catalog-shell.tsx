@@ -17,7 +17,7 @@
  */
 
 import * as React from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { RefreshCw, Undo2 } from "lucide-react";
 
 import type { Group, Repo, RepoDetail } from "@shared/types";
@@ -239,6 +239,24 @@ export function CatalogShell({
     },
   });
 
+  /**
+   * Why these results are keyword-only, when they are.
+   *
+   * The backend reports this on every search, because the alternative — which
+   * is what shipped first — was a search that quietly stopped using embeddings
+   * and returned a smaller, differently-ranked set that looked exactly like a
+   * successful one. `reason: "requested"` is excluded: a caller that asked for
+   * FTS-only does not need telling it got what it asked for.
+   */
+  const semanticNotice = React.useMemo(() => {
+    const semantic = searchQuery.data?.semantic;
+    if (!isSearching || !semantic || semantic.state !== "off") return null;
+    if (semantic.reason === "requested") return null;
+    return semantic.reason === "no-embedding-provider"
+      ? "Keyword matches only — semantic search is off. No embedding provider is reachable (Ollama or an OpenAI key)."
+      : "Keyword matches only — semantic search is off. The vector store is unavailable on this machine.";
+  }, [isSearching, searchQuery.data]);
+
   const activeGroup = React.useMemo(
     () => groups.find((g) => g.id === queryGroupId) ?? null,
     [groups, queryGroupId],
@@ -259,7 +277,7 @@ export function CatalogShell({
 
   const filtered = React.useMemo(() => {
     const base = isSearching
-      ? (searchQuery.data ?? []).map((hit) => hit.repo)
+      ? (searchQuery.data?.hits ?? []).map((hit) => hit.repo)
       : initialRepos;
 
     // Selecting an archived folder is an explicit request to look inside
@@ -635,6 +653,31 @@ export function CatalogShell({
             >
               Dismiss
             </button>
+          </div>
+        ) : null}
+
+        {semanticNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-warning/10 px-4 py-1.5"
+          >
+            <span
+              className="text-[11px] text-warning"
+              title={
+                searchQuery.data?.semantic.state === "off"
+                  ? (searchQuery.data.semantic.detail ?? undefined)
+                  : undefined
+              }
+            >
+              {semanticNotice}
+            </span>
+            <Link
+              to="/settings"
+              className="cursor-pointer font-mono text-[11px] text-accent underline-offset-2 hover:underline"
+            >
+              Set up
+            </Link>
           </div>
         ) : null}
 

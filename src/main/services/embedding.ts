@@ -15,7 +15,7 @@
 import crypto from "node:crypto";
 
 import { getSettings } from "./settings";
-import { getEmbeddingContentHash, upsertEmbedding } from "./lance";
+import { getEmbeddingContentHash, upsertEmbedding } from "./vector-store";
 
 const MAX_INPUT_CHARS = 2000;
 
@@ -217,10 +217,9 @@ export type IndexEmbeddingOutcome =
  * Compute + store the semantic-search embedding for one repo, gated on the
  * embedding-input content hash.
  *
- * Contract:
- *   - Only re-embeds when {@link embeddingContentHash} (name + description +
- *     readme) differs from the hash stored alongside the existing LanceDB row
- *     (returns `"skipped-unchanged"` when equal).
+ * Contract:   *   - Only re-embeds when {@link embeddingContentHash} (name + description +
+   *     readme) differs from the hash stored alongside the existing vector row
+   *     (returns `"skipped-unchanged"` when equal).
  *   - The embedding provider (Ollama / OpenAI) may be DOWN. A failed `embed()`
  *     is logged and SWALLOWED — this function NEVER throws. The scan/rescan
  *     path that calls it must complete (and the repo must still be FTS-indexed)
@@ -233,11 +232,11 @@ export async function indexRepoEmbedding(
 ): Promise<IndexEmbeddingOutcome> {
   const contentHash = embeddingContentHash(repo);
 
-  // 1. Content-hash gate — skip the (expensive) embed + LanceDB upsert when the
+  // 1. Content-hash gate — skip the (expensive) embed + vector upsert when the
   //    embedding input (name + description + readme) is unchanged since the
   //    last successful embed.
   try {
-    const prior = await getEmbeddingContentHash(repo.repoId);
+    const prior = getEmbeddingContentHash(repo.repoId);
     if (prior !== null && prior === contentHash) {
       return "skipped-unchanged";
     }
@@ -270,9 +269,10 @@ export async function indexRepoEmbedding(
     return "skipped-unavailable";
   }
 
-  // 3. Store. A LanceDB write failure is non-fatal to the scan as well.
+  // 3. Store. A vector-store write failure is non-fatal to the scan as well —
+  //    the repo is already FTS-indexed, which is what the scan is for.
   try {
-    await upsertEmbedding({
+    upsertEmbedding({
       repo_id: repo.repoId,
       slug: repo.slug,
       vector,

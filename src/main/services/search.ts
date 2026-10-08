@@ -1,20 +1,27 @@
 /**
- * Search service — hybrid FTS5 + LanceDB vectors with Reciprocal Rank Fusion.
+ * Search service — hybrid FTS5 + vector search with Reciprocal Rank Fusion.
  *
  * Port of `lib/search/query.ts > hybridSearch()`. Exposed via the
  * `searchService` singleton consumed by `catalog:search` IPC handler.
  *
- * Graceful degradation:
- *   - If LanceDB / the embedding service is unreachable, returns FTS-only
- *     results with `matchKind: "fts"`.
- *   - If FTS yields nothing but vectors do, returns vector-only results.
- *   - If neither yields anything, returns `[]`.
+ * Graceful degradation, now said out loud:
+ *   - If the vector store or the embedding service is unreachable, the result
+ *     is FTS-only with `matchKind: "fts"` — and the response carries a
+ *     {@link SemanticSearchStatus} saying which of the two was missing, so the
+ *     UI can tell the user instead of quietly returning fewer kinds of match.
+ *   - `mode` is honoured: `"fts"` skips the vector half entirely (and reports
+ *     `reason: "requested"`, which is a choice rather than a failure),
+ *     `"vector"` skips FTS, `"hybrid"` (the default) runs both.
+ *   - If neither half yields anything, `hits` is empty and `semantic` still
+ *     says what was tried.
  */
 
 import type {
   SearchHit,
   SearchQuery,
   SearchReposInput,
+  SearchReposResult,
+  SemanticSearchStatus,
   Tag,
 } from "@shared/types";
 import type { RepoRow } from "@main/db/schema";
@@ -23,13 +30,16 @@ import { getSqlite } from "@main/db/client";
 import { mapRawRepoRow, rowToRepo } from "@main/db/queries";
 
 import { embed, EmbedUnavailableError } from "./embedding";
-import { vectorSearch } from "./lance";
+import { vectorSearch, vectorStoreStatus } from "./vector-store";
 
 interface FtsMatch {
   slug: string;
   rank: number;
   snippet: string | null;
 }
+
+/** Which halves of the pipeline to run. `"hybrid"` runs both. */
+type SearchMode = NonNullable<SearchReposInput["mode"]>;
 
 function escapeFtsQuery(q: string): string {
   const cleaned = q.replace(/"/g, " ").trim();
@@ -129,32 +139,100 @@ async function filterByGroupIds(
 }
 
 /**
+ * Why the vector half did not run, as a status the UI can act on.
+ *
+ * `"vectors"` means it ran — not that it contributed: an empty store, or a
+ * query whose nearest neighbours are all past `candidateLimit`, both leave the
+ * ranking FTS-shaped while the store itself is working. The distinction the UI
+ * needs is "this machine cannot do semantic search" versus "this query found
+ * nothing semantically", and only the first one is worth interrupting a user
+ * about.
+ */
+async function vectorHalf(
+  q: string,
+  candidateLimit: number,
+): Promise<{ hits: { slug: string; score: number }[]; status: SemanticSearchStatus }> {
+  const store = vectorStoreStatus();
+  if (!store.available) {
+    return {
+      hits: [],
+      status: {
+        state: "off",
+        reason: "no-vector-store",
+        detail: store.reason,
+      },
+    };
+  }
+  try {
+    const vec = await embed(q);
+    return {
+      hits: vectorSearch(vec, candidateLimit),
+      status: { state: "vectors" },
+    };
+  } catch (err) {
+    if (err instanceof EmbedUnavailableError) {
+      console.warn("[backend] embedding unavailable; FTS-only", err.message);
+      return {
+        hits: [],
+        status: {
+          state: "off",
+          reason: "no-embedding-provider",
+          detail: err.message,
+        },
+      };
+    }
+    // Anything else is the vector path itself failing. It must not take the
+    // search down — but it must not be silent either, which is the whole
+    // point of this response shape.
+    console.error("[backend] vector path error", err);
+    return {
+      hits: [],
+      status: {
+        state: "off",
+        reason: "no-vector-store",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
  * Hybrid FTS5 + vector search with Reciprocal Rank Fusion (RRF, k=60).
  *
  * Exported for unit tests / direct calls. The IPC layer goes through
  * `searchService.search(input)`.
  */
-export async function hybridSearch(q: SearchQuery): Promise<SearchHit[]> {
+export async function hybridSearch(
+  q: SearchQuery,
+  mode: SearchMode = "hybrid",
+): Promise<SearchReposResult> {
   const limit = Math.min(q.limit ?? 50, 200);
   const candidateLimit = Math.max(limit * 3, 100);
 
-  // 1. FTS
-  const ftsResults = ftsSearch(q.query, candidateLimit);
+  // 1. FTS — skipped only when the caller asked for vectors alone.
   const ftsBySlug = new Map<string, FtsMatch>();
-  ftsResults.forEach((m, idx) => ftsBySlug.set(m.slug, { ...m, rank: idx }));
-
-  // 2. Vector — graceful degradation when Ollama/OpenAI/LanceDB unavailable.
-  let vectorHits: { slug: string; score: number }[] = [];
-  try {
-    const vec = await embed(q.query);
-    vectorHits = await vectorSearch(vec, candidateLimit);
-  } catch (err) {
-    if (err instanceof EmbedUnavailableError) {
-      console.warn("[backend] embedding unavailable; FTS-only", err.message);
-    } else {
-      console.error("[backend] vector path error", err);
-    }
+  if (mode !== "vector") {
+    const ftsResults = ftsSearch(q.query, candidateLimit);
+    ftsResults.forEach((m, idx) => ftsBySlug.set(m.slug, { ...m, rank: idx }));
   }
+
+  // 2. Vector — skipped when the caller asked for keywords alone, and otherwise
+  //    attempted with the failure reported rather than swallowed. One call, not
+  //    two: `embed()` is a network round trip and the status is a by-product of
+  //    running it, not a second opinion about it.
+  const vectorHalfResult: {
+    hits: { slug: string; score: number }[];
+    status: SemanticSearchStatus;
+  } =
+    mode === "fts"
+      ? {
+          hits: [],
+          status: { state: "off", reason: "requested", detail: null },
+        }
+      : await vectorHalf(q.query, candidateLimit);
+  const semantic: SemanticSearchStatus = vectorHalfResult.status;
+  const vectorHits = vectorHalfResult.hits;
+
   const vectorRankBySlug = new Map<string, number>();
   vectorHits.forEach((v, idx) => vectorRankBySlug.set(v.slug, idx));
 
@@ -188,7 +266,7 @@ export async function hybridSearch(q: SearchQuery): Promise<SearchHit[]> {
     }
   }
 
-  if (scored.size === 0) return [];
+  if (scored.size === 0) return { hits: [], semantic };
 
   const slugs = [...scored.keys()];
   const rowBySlug = fetchReposBySlugs(slugs);
@@ -219,7 +297,7 @@ export async function hybridSearch(q: SearchQuery): Promise<SearchHit[]> {
   });
 
   hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, limit);
+  return { hits: hits.slice(0, limit), semantic };
 }
 
 class SearchService {
@@ -228,12 +306,12 @@ class SearchService {
    * the IPC `SearchReposInput` (uses `q`) into the internal `SearchQuery`
    * shape (uses `query`).
    *
-   * The `mode` field is accepted but ignored in Phase 1 — implementers may
-   * use it in Phase 4 to bypass either FTS or vector pathways. The current
-   * implementation always runs the hybrid pipeline (with graceful
-   * degradation when one side fails).
+   * `mode` is honoured rather than ignored (it used to be accepted and
+   * dropped): `"fts"` runs keywords only, `"vector"` runs the vector store
+   * only, `"hybrid"` — the default when the field is absent — runs both and
+   * fuses them with RRF.
    */
-  search(input: SearchReposInput): Promise<SearchHit[]> {
+  search(input: SearchReposInput): Promise<SearchReposResult> {
     const query: SearchQuery = {
       query: input.q,
       filters: input.filters
@@ -246,7 +324,7 @@ class SearchService {
         : undefined,
       limit: input.limit,
     };
-    return hybridSearch(query);
+    return hybridSearch(query, input.mode ?? "hybrid");
   }
 }
 

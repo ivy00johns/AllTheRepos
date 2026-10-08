@@ -11,38 +11,49 @@
  * darwin. So the question *"can we ship an Intel Mac, or Windows?"* is answered
  * almost entirely by whether the native modules have a binary for the target.
  *
- * Two of the three do. One does not, and that asymmetry is why this check
- * exists:
+ * That makes a native module's platform matrix a property of every release, and
+ * a change in it a change in what the product does on a machine somebody owns —
+ * which is why this check reads the matrix out of the installed packages rather
+ * than trusting a note like this one. Three dependencies, three shapes:
  *
  *   - `better-sqlite3` and `find-git-repositories` ship C++ sources and a
  *     `binding.gyp`, and `npmRebuild` in `electron-builder.yml` compiles them for
  *     whatever architecture is being packaged. They cover anything the toolchain
  *     covers — including an Intel Mac, which matters because
  *     `find-git-repositories` publishes no darwin-x64 prebuild of its own.
- *   - `@lancedb/lancedb` ships **prebuilt** binaries, one npm package per target,
- *     and its set is `darwin-arm64`, `linux-x64`, `linux-arm64`, `win32-x64`,
- *     `win32-arm64`. There is **no `darwin-x64`**, and there has not been one
- *     since 0.24.0: the last Intel-Mac build of it is `0.22.3`. (0.23.0 and
- *     0.23.1 *declare* an optional dependency on `@lancedb/lancedb-darwin-x64@0.23.0`,
- *     a package that was never published — so "it is in the dependency list" is
- *     not the same question as "it exists on the registry".) The app is on
- *     0.27.2.
+ *   - `sqlite-vec` ships **prebuilt** binaries, one npm package per target —
+ *     `sqlite-vec-darwin-arm64`, `-darwin-x64`, `-linux-x64`, `-linux-arm64`,
+ *     `-windows-x64` — and the vector table it serves lives in the app's own
+ *     SQLite file: one `vec0.dylib` beside a database, rather than a second
+ *     engine beside it.
+ *   - a package with no native code at all has nothing to check, and is
+ *     classified as such rather than skipped by name.
  *
- * The failure that asymmetry produces is the quiet kind. Adding `x64` to the
- * `dmg` and `zip` targets is a two-line change, and the resulting Intel DMG would
- * **package fine**. It would also launch, because `src/main/services/lance.ts`
- * fails soft on purpose — `vectorSearch` returns `[]`, `getEmbeddingContentHash`
- * returns `null`, `indexRepoEmbedding` swallows an upsert failure and the scan
- * keeps its FTS index. So every gate would be green and the only symptom would be
- * a feature that stopped existing: semantic search, silently, on one
- * architecture. A green build cannot report that. This can.
+ * The failure a miss in that matrix produces is the quiet kind. Adding `x64` to
+ * the `dmg` and `zip` targets is a two-line change, and the resulting Intel DMG
+ * would **package fine**. It would also launch, because the vector store fails
+ * soft on purpose — `vectorSearch()` returns `[]`,
+ * `getEmbeddingContentHash()` returns `null`, `indexRepoEmbedding()` swallows an
+ * upsert failure and the scan keeps its FTS index. So every gate would be green
+ * and the only symptom would be a feature that stopped existing: semantic
+ * search, silently, on one architecture. A green build cannot report that. This
+ * can — and it did. Until 2026-10-07 the vector store was
+ * `@lancedb/lancedb`, whose last Intel-Mac build was `0.22.3` against the `0.27.2`
+ * this app ran; the finding below is what that looked like as a fact about the
+ * product rather than a footnote on a registry page, and it is why the
+ * dependency was replaced with one whose matrix covers every architecture the
+ * toolchain can package.
  *
  * What it deliberately does not do is guess. It reads the installed tarball's own
  * metadata — `napi.targets` for napi-rs packages, the platform-named optional
- * dependencies, `prebuilds/`, `binding.gyp` — so a platform package that a
- * release declares but never published is invisible from here. That is exactly
- * why the honest Intel floor is 0.22.3 and not 0.23.0: 0.23.0's own metadata says
- * yes, and the registry says 404.
+ * dependencies, `prebuilds/`, `binding.gyp` — so a dependency whose shape it has
+ * not seen before is still classified by what that dependency says about itself.
+ * The limit of that is worth knowing: metadata describes what a release
+ * *declares*, and a declaration is not a publication. Upstream,
+ * `@lancedb/lancedb@0.23.0` declared a `darwin-x64` package that was never
+ * published, which is why the honest floor for that dependency was `0.22.3` and
+ * not `0.23.0` — and why a green run here is a tripwire worth having rather than
+ * a substitute for looking at what a release actually ships.
  *
  * Usage:
  *   node scripts/check-platforms.mjs
@@ -85,9 +96,9 @@ export const CANDIDATES = ["darwin-x64", "win32-x64", "linux-x64"];
  *
  * Empty, and it should stay empty until somebody makes that call: an entry here
  * turns a failure into a line that is printed on every run. The shape is
- * `{ target: "darwin-x64", cost: "@lancedb/lancedb — semantic search falls back
- * to FTS-only there" }`, and it exists so that shipping a degraded architecture
- * is a sentence somebody wrote, not an omission nobody noticed.
+ * `{ target: "<platform>-<arch>", cost: "<module> — <what a person on that
+ * architecture loses>" }`, and it exists so that shipping a degraded
+ * architecture is a sentence somebody wrote, not an omission nobody noticed.
  */
 export const ACCEPTED_DEGRADATIONS = [];
 
@@ -109,17 +120,31 @@ export const RUST_TRIPLES = {
 };
 
 /**
- * A dependency whose name *is* a platform: `@lancedb/lancedb-darwin-arm64`,
+ * A dependency whose name *is* a platform: `sqlite-vec-darwin-arm64`,
  * `@esbuild/linux-x64`. Anchored at the end so `-helper` or `-cli` suffixes do
  * not sneak in, and applied to the last path segment so both the scoped and
  * unscoped spellings work.
  *
  * Deliberately narrower than "any hyphenated name": a package called
- * `left-pad-win32-x64` would be a false positive, and there is no such thing —
- * whereas the alternative, trusting `napi.targets` alone, would have said yes to
- * 0.23.0's Intel Mac.
+ * `left-pad-win32-x64` would be a false positive, and there is no such thing.
+ * The narrower pattern is also what caught the finding this script was written
+ * for — a vector store whose declared platform matrix had no `darwin-x64` in it,
+ * where trusting `napi.targets` alone would have called that Intel Mac covered
+ * on the strength of a target whose package was never published.
  */
-const PLATFORM_PACKAGE = /(?:^|-)(darwin|win32|linux)-(x64|arm64|ia32)(?:-(?:gnu|musl|msvc))?$/;
+const PLATFORM_PACKAGE = /(?:^|-)(darwin|win32|linux|windows)-(x64|arm64|ia32)(?:-(?:gnu|musl|msvc))?$/;
+
+/**
+ * Platform spellings that mean `win32`.
+ *
+ * `sqlite-vec` publishes its Windows binary as `sqlite-vec-windows-x64` —
+ * "windows", not "win32", the spelling Node uses for the platform id. A reader
+ * that only knew the Node spelling would classify that package as pure
+ * JavaScript, and then report a Windows target as covered without having looked
+ * at the one native module in the bundle. Normalising here rather than widening
+ * `PLATFORM_PACKAGE` to "any word" keeps `left-pad-win32-x64` a false positive.
+ */
+const PLATFORM_ALIASES = { windows: "win32" };
 
 /** `prebuilds/darwin-x64+arm64/` — prebuildify's directory-per-target layout. */
 const PREBUILD_DIR = /^(darwin|win32|linux)-(.+)$/;
@@ -188,10 +213,12 @@ export function classify({ manifest = {}, dir = null } = {}) {
   const fromPackages = packageNames
     .map((dependency) => PLATFORM_PACKAGE.exec(dependency.split("/").at(-1)))
     .filter(Boolean)
-    // Normalised through the capture groups rather than the whole match, so
-    // `@lancedb/lancedb-linux-x64-gnu` and `…-linux-x64-musl` are one
-    // architecture with two libc spellings rather than two architectures.
-    .map((match) => `${match[1]}-${match[2]}`);
+    // Normalised through the capture groups rather than the whole match, so a
+    // dependency published as both `…-linux-x64-gnu` and `…-linux-x64-musl` is
+    // one architecture with two libc spellings rather than two architectures.
+    .map(
+      (match) => `${PLATFORM_ALIASES[match[1]] ?? match[1]}-${match[2]}`,
+    );
   for (const platform of fromPackages) declared.add(platform);
   if (fromPackages.length > 0) {
     evidence.push(`${fromPackages.length} platform package(s)`);
