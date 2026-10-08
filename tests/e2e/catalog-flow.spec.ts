@@ -102,14 +102,14 @@ test.describe("Phase 1 catalog flow", () => {
       // Scope to the top-bar <header> banner so the group-sidebar's
       // duplicate Settings link doesn't trip strict-mode matching.
       const topBar = win.getByRole("banner");
-      // `/debug` is deliberately not a destination (ATR-074): this is a
-      // production render, so the dev-only affordance is absent and the chrome
-      // carries the four destinations the app is for. The absence itself is
-      // asserted in `nav-card-a11y.spec.ts` and `workstream-c.spec.ts`; here it
-      // is enough that the settings destination is still there to click.
+      // `/debug` is deliberately not a destination (ATR-074). The dev-only door to
+      // it does exist in an unpackaged run, beside the nav rather than in it — so
+      // the claim here is the one that matters: no destination is Debug. The other
+      // half (a packaged build draws no affordance anywhere) is asserted in
+      // `workstream-c.spec.ts`.
       await expect(
-        topBar.getByRole("link", { name: /^debug$/i }),
-        "a Debug affordance is in the app chrome of a production build",
+        win.locator("header nav").getByRole("link", { name: /^debug/i }),
+        "Debug is a destination again",
       ).toHaveCount(0);
       const settingsLink = topBar.getByRole("link", { name: /^settings$/i });
       await expect(settingsLink).toBeVisible();

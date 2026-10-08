@@ -16,6 +16,7 @@ import { BrowserWindow, shell } from "electron";
 import { join } from "node:path";
 
 import { isUrlAllowed } from "../security/allowlist";
+import { rendererAdditionalArguments } from "../build-info";
 
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
@@ -64,6 +65,10 @@ export function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      // The one fact the renderer cannot learn for itself — whether this run is
+      // the app that ships — stated where it is known and read by the preload off
+      // `process.argv`. See `@shared/build-info`.
+      additionalArguments: rendererAdditionalArguments(),
       // electron-vite outputs preload as CommonJS; main bundle sits at
       // `out/main/index.js`, so the preload is one level up + over.
       preload: join(__dirname, "../preload/index.cjs"),

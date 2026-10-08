@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { isUrlAllowed } from "../security/allowlist";
+import { rendererAdditionalArguments } from "../build-info";
 
 const POPOVER_WIDTH = 320;
 const POPOVER_HEIGHT = 420;
@@ -96,6 +97,9 @@ function create(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      // Same build fact as the main window, so no window has to guess. See
+      // `@shared/build-info`.
+      additionalArguments: rendererAdditionalArguments(),
       preload: join(__dirname, "../preload/index.cjs"),
     },
   });

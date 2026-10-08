@@ -91,7 +91,22 @@ export interface LaunchedApp {
   close(): Promise<void>;
 }
 
-export async function launchApp(): Promise<LaunchedApp> {
+export interface LaunchOptions {
+  /**
+   * Extra environment for this one app process.
+   *
+   * Per launch rather than by assigning to `process.env`, which would leak the
+   * setting into every later spec in the same worker. The specs that need this
+   * are the ones driving a branch a normal launch cannot reach — `ATR_FORCE_PACKAGED`
+   * (main's documented override, see `src/main/build-info.ts`) is the first, and it
+   * has to apply to a single launch or the whole suite would run as a release.
+   */
+  env?: Record<string, string>;
+}
+
+export async function launchApp(
+  options: LaunchOptions = {},
+): Promise<LaunchedApp> {
   const profileDir = mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
   inheritSeededProfile(profileDir);
 
@@ -104,6 +119,7 @@ export async function launchApp(): Promise<LaunchedApp> {
         ...process.env,
         NODE_ENV: "test",
         ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
+        ...options.env,
       },
     });
   } catch (error) {

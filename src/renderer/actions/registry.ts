@@ -28,7 +28,7 @@
 import type { Action, RepoDetail } from "@shared/types";
 
 import { queryClient, queryKeys } from "@renderer/lib/query-client";
-import { getAtr } from "@renderer/lib/atr";
+import { getAtr, isPackagedBuild } from "@renderer/lib/atr";
 
 /**
  * Vite injects `import.meta.env.DEV` at build time. The renderer tsconfig
@@ -45,14 +45,14 @@ const isDev: boolean | undefined = (
 ).env?.DEV;
 
 /**
- * Whether this bundle was built in development mode.
- *
- * The top bar reads this to decide whether to draw its dev-only affordance
- * (ATR-074). Exported rather than recomputed there so the two answers cannot
- * drift: `electron-vite dev` sets it, `electron-vite build` does not, and a
- * packaged release is always the latter.
+ * `isDev` above is a *build mode*, and it is the right answer to exactly one
+ * question: should this bundle be chatty (dev warnings on a drifted action id, a
+ * console line when a launch action fails)? It is the wrong answer to "does this
+ * build ship" — `electron-vite build` clears it, so the E2E suite and
+ * `electron-vite preview` both misread as a release. That question is answered at
+ * runtime by `isPackagedBuild()` (see `@renderer/lib/atr`), and by
+ * {@link isActionAvailable} below.
  */
-export const isDevBuild: boolean = isDev === true;
 
 /**
  * Strict subset of the TanStack Router `useNavigate` return type that
@@ -458,16 +458,33 @@ export function dispatchAction(id: string, ctx: ActionContext): void {
 }
 
 /**
+ * Is this action offered in a build that ships?
+ *
+ * The single rule behind both ways an action reaches a person — the native menu
+ * (through {@link serializeActionsForIpc}) and the in-app command palette — so a
+ * `devOnly` action cannot be dropped from one and left in the other. It used to
+ * be exactly that: the menu filtered them by build mode while the palette filtered
+ * nothing, which put "Toggle DevTools" and "Open Debug Page" in the palette of a
+ * shipped release while the menu it was meant to mirror had no such entry.
+ */
+export function isActionAvailable(
+  action: { devOnly?: boolean },
+  packaged: boolean,
+): boolean {
+  return !packaged || !action.devOnly;
+}
+
+/**
  * Strip the renderer-only `handler` field before sending the registry
  * over IPC. Main only needs the metadata to build the native menu and
  * bind accelerators.
  *
- * Also filters out `devOnly: true` actions in production builds per
+ * Also filters out `devOnly: true` actions in a packaged build per
  * `contracts/actions.v1.md` (the renderer is the source of truth for
  * which actions are dev-only).
  */
-export function serializeActionsForIpc(isProd = !isDev): Action[] {
+export function serializeActionsForIpc(packaged = isPackagedBuild()): Action[] {
   return actions
-    .filter((a) => !isProd || !a.devOnly)
+    .filter((a) => isActionAvailable(a, packaged))
     .map(({ handler: _handler, ...meta }) => meta);
 }

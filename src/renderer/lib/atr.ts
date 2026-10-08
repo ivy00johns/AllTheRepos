@@ -282,6 +282,15 @@ export interface AtrBridge {
     setMembers(input: SetGroupMembersInput): Promise<SetGroupMembersResult>;
   };
   /**
+   * Facts about the running build, read synchronously off the preload — no
+   * `await`. Only `packaged` matters to the renderer: whether this run is the app
+   * that ships, which decides whether a dev-only action is offered at all. See
+   * {@link isPackagedBuild} and `@shared/build-info`.
+   */
+  build?: {
+    packaged: boolean;
+  };
+  /**
    * Phase 2 — native shell + actions registry + push-event
    * subscriptions. The preload exposes these per
    * `contracts/ipc.v1.md` (Phase 2 section).
@@ -406,6 +415,28 @@ declare global {
 export function getAtr(): AtrBridge | null {
   if (typeof window === "undefined") return null;
   return window.atr ?? null;
+}
+
+/**
+ * Is this run a packaged build — the app that ships?
+ *
+ * The renderer cannot work this out for itself: `sandbox: true` and
+ * `contextIsolation` mean there is no `app` here, and the build mode is the wrong
+ * question — `electron-vite build` produces a bundle that is unpackaged (the E2E
+ * suite, `electron-vite preview`), while `electron-vite dev` produces one that is
+ * not packaged either. Main states the fact and the preload hands it over (see
+ * `@shared/build-info`).
+ *
+ * Everything here treats an **unknown** answer as "not packaged": with no bridge
+ * (a browser tab during QE) or no flag, the page a dev-only action opens is
+ * unreachable anyway, and the alternative — hiding the developer's own tools
+ * because a harness did not set an argument — is the failure this replaced.
+ *
+ * One reader, so the top bar's dev affordance and the palette's dev-only actions
+ * cannot give different answers to the same question.
+ */
+export function isPackagedBuild(): boolean {
+  return getAtr()?.build?.packaged === true;
 }
 
 /**

@@ -33,7 +33,7 @@ import {
 
 import { Button } from "@renderer/components/ui/button";
 import { SearchBar } from "@renderer/components/search/search-bar";
-import { isDevBuild } from "@renderer/actions/registry";
+import { isPackagedBuild } from "@renderer/lib/atr";
 import { useProcessCount } from "@renderer/hooks/use-processes";
 import { cn } from "@renderer/lib/cn";
 import { useUiStore } from "@renderer/stores/ui";
@@ -72,6 +72,8 @@ export function TopBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const update = useUpdate();
   const processCount = useProcessCount();
+  // Stable for the life of the process — main states it once per window.
+  const packaged = React.useMemo(() => isPackagedBuild(), []);
 
   // ATR-012-search: ONE search source of truth. The catalog reads its
   // query from the TanStack Router `q` search param, so the global
@@ -253,16 +255,19 @@ export function TopBar() {
       {/*
         The dev-only door to `/debug` (ATR-074) — outside the `<nav>` on
         purpose, so the primary navigation is exactly its four destinations and
-        this cannot be mistaken for a fifth. `isDevBuild` is `electron-vite`'s
-        own build flag: `pnpm electron:dev` sets it, `electron-vite build`
-        (every shipped bundle, and the E2E suite) does not, so a release has no
-        Debug affordance anywhere in its chrome.
+        this cannot be mistaken for a fifth. `isPackagedBuild()` is the runtime
+        answer main states per window (see `@shared/build-info`): every unpackaged
+        run draws this — the dev server, `electron-vite preview`, the E2E suite —
+        and a packaged release draws nothing, so a shipped build has no Debug
+        affordance anywhere in its chrome. It used to read the build-mode flag,
+        which put the affordance in `electron-vite dev` and nowhere else, and so
+        disagreed with the palette it sits beside.
 
         The divider is what keeps it from reading as part of the destination
         row; the `sr-only` suffix is what keeps its accessible name from being
         just "Debug", which is what the old nav button was called.
       */}
-      {isDevBuild ? (
+      {packaged ? null : (
         <>
           <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
           <Link
@@ -274,7 +279,7 @@ export function TopBar() {
             <span className="sr-only"> (development build)</span>
           </Link>
         </>
-      ) : null}
+      )}
     </header>
   );
 }

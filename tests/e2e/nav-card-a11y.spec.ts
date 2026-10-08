@@ -23,10 +23,11 @@
  *     walks the keyboard through the card one stop at a time.
  *
  * It also carries the **ATR-074** assertion, which is about what is *absent*:
- * `/debug` used to be the fifth destination in this nav. The suite launches a
- * production render (`pnpm electron:build`), and the dev-only top-bar
- * affordance is gated on `import.meta.env.DEV` — so in exactly the build that
- * ships, the destination is gone and this spec is where that is checked.
+ * `/debug` used to be the fifth destination in this nav. The suite launches `out/`
+ * on a disk, which is not the app that ships — so the dev-only door exists in this
+ * run, and the claim is the narrower one that matters: it is not one of the
+ * destinations. `workstream-c.spec.ts` proves the other half, in a launch forced to
+ * look packaged, where no such affordance is drawn at all.
  *
  * The port chip only exists while a process is listening, so the spec spawns one
  * inside a seeded repo and forces a sweep through the `/processes` Refresh
@@ -182,17 +183,19 @@ test.describe("nav names and repo-card focus order", () => {
       }
 
       // ----- ATR-074: the primary navigation is exactly its destinations. -----
-      // Two assertions, because the finding has two halves: the count (there is
-      // no room in this nav for a page that is not a destination) and the name
-      // (nothing in the chrome is called Debug, dev affordance included — this
-      // is a production render, so it must not be there either).
+      // Two assertions, because the finding has two halves: the count (there is no
+      // room in this nav for a page that is not a destination) and the name (no
+      // destination is called Debug). Scoped to the `<nav>` on purpose — the dev
+      // door to `/debug` lives beside it in an unpackaged run, which is the whole
+      // point of the fix: reachable, but not a destination.
+      const nav = win.locator("header nav");
       expect(
-        await win.locator("header nav a").count(),
+        await nav.locator("a").count(),
         "the primary navigation gained a destination — ATR-074 put /debug back in it",
       ).toBe(NAV_LABELS.length);
       await expect(
-        topBar.getByRole("link", { name: /^debug/i }),
-        "a Debug affordance is in the app chrome of a production build",
+        nav.getByRole("link", { name: /^debug/i }),
+        "Debug is a destination again",
       ).toHaveCount(0);
 
       // ----- Spawn a listener so the card carries a port chip. -----

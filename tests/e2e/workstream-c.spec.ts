@@ -17,9 +17,13 @@
  *   - ATR-073 — the live-status dot is painted with `--color-status-live`, and
  *     paints a different colour from `--color-accent`.
  *   - ATR-074 — the primary navigation holds its four destinations and nothing
- *     called Debug, and the command palette's dev-tools action still reaches the
- *     page (this suite launches a production render, so the top-bar dev
- *     affordance is absent by construction — which is the finding).
+ *     called Debug; the page is reached from the command palette's dev-tools
+ *     action, in the one build that offers it. This one is tested twice, because
+ *     the answer depends on the build: an unpackaged run draws the top bar's dev
+ *     affordance and offers the palette entry, and a packaged build draws neither.
+ *     The second launch is forced with main's `ATR_FORCE_PACKAGED=1`, which exists
+ *     so the branch a release takes is exercised by the suite rather than first
+ *     seen by whoever installs the DMG.
  *
  * The listener ATR-073 needs is spawned inside a seeded repo, the same way
  * `nav-card-a11y.spec.ts` does it, and for the same reason: `ATR_E2E` shows the
@@ -416,7 +420,7 @@ test.describe("workstream C — the four small decisions and one door", () => {
     }
   });
 
-  test("ATR-074 — Debug is not a destination, and the palette is the door", async () => {
+  test("ATR-074 — Debug is not a destination, and an unpackaged run has both doors", async () => {
     const { app, close } = await launchApp();
 
     try {
@@ -433,9 +437,28 @@ test.describe("workstream C — the four small decisions and one door", () => {
         "the primary navigation is not the four destinations",
       ).toBe(NAV_LABELS.length);
       await expect(
-        topBar.getByRole("link", { name: /^debug/i }),
-        "a Debug affordance is in the app chrome of a production build",
+        win
+          .locator("header nav")
+          .getByRole("link", { name: /^debug/i }),
+        "Debug is back in the primary navigation",
       ).toHaveCount(0);
+
+      // ----- The dev affordance, which this run is entitled to. -----
+      // `out/` on a disk is not the app that ships, so the door is here — with a
+      // name that says what it is, rather than the bare "Debug" the nav button
+      // carried — and it sits outside the `<nav>` so the destination row cannot be
+      // read as five items again.
+      const devDoor = topBar.getByRole("link", {
+        name: /^debug \(development build\)$/i,
+      });
+      await expect(
+        devDoor,
+        "an unpackaged run offers no door to /debug",
+      ).toBeVisible({ timeout: 15_000 });
+      expect(
+        await win.locator("header nav").getByRole("link", { name: /^debug/i }).count(),
+        "the dev door is inside the primary navigation",
+      ).toBe(0);
 
       // ----- The door, which is the command palette's dev-tools action. -----
       await win.keyboard.press("Meta+K");
@@ -452,6 +475,70 @@ test.describe("workstream C — the four small decisions and one door", () => {
       await expect(
         win.getByRole("heading", { name: /^\/debug — system\.ping$/i }),
       ).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await close();
+    }
+  });
+
+  test("ATR-074 — a packaged build offers no dev-only affordance at all", async () => {
+    // The branch a release takes, reached without building a DMG: main's
+    // `ATR_FORCE_PACKAGED=1` override states "packaged" to the renderer and
+    // changes nothing else about the run. What is under test is the whole chain —
+    // main's window options, the preload's read of `process.argv`, the renderer's
+    // one signal — because the assertions below can only pass if all three agree.
+    const { app, close } = await launchApp({
+      env: { ATR_FORCE_PACKAGED: "1" },
+    });
+
+    try {
+      const win = await app.firstWindow();
+      await win.waitForLoadState("domcontentloaded");
+      await expect(
+        win.getByRole("link", { name: /^AllTheRepos$/i }),
+      ).toBeVisible({ timeout: 15_000 });
+      const topBar = win.getByRole("banner");
+
+      // The destinations are untouched by the flag.
+      expect(
+        await win.locator("header nav a").count(),
+        "the primary navigation is not the four destinations",
+      ).toBe(NAV_LABELS.length);
+
+      // And nothing in the chrome offers the dev page — not the nav, not the
+      // affordance beside it, not a stray link anywhere in the header.
+      await expect(
+        topBar.getByRole("link", { name: /^debug/i }),
+        "a Debug affordance is in the chrome of a packaged build",
+      ).toHaveCount(0);
+
+      // The palette is the other half, and it is the half the two callers had
+      // been disagreeing about: the native menu dropped dev-only actions by build
+      // mode while the palette listed them in every build.
+      await win.keyboard.press("Meta+K");
+      const palette = win.getByRole("dialog", { name: /command palette/i });
+      await expect(palette).toBeVisible({ timeout: 15_000 });
+
+      // It still works — an ordinary action is right there — so an empty palette
+      // cannot pass this test.
+      await palette.getByPlaceholder(/run a command/i).fill("settings");
+      await expect(
+        palette.getByText(/^open settings$/i).first(),
+      ).toBeVisible({ timeout: 5_000 });
+
+      await palette.getByPlaceholder(/run a command/i).fill("debug");
+      await expect(
+        palette.getByText(/^open debug page$/i),
+        "a packaged build still offers Open Debug Page",
+      ).toHaveCount(0);
+
+      await palette.getByPlaceholder(/run a command/i).fill("devtools");
+      await expect(
+        palette.getByText(/^toggle devtools$/i),
+        "a packaged build still offers Toggle DevTools",
+      ).toHaveCount(0);
+
+      await win.keyboard.press("Escape");
+      await expect(palette).toBeHidden({ timeout: 5_000 });
     } finally {
       await close();
     }

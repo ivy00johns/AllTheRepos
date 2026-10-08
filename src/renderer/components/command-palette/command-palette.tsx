@@ -17,6 +17,12 @@
  * actions. Per `contracts/actions.v1.md`, `spotlight` scope is hidden
  * here — it's only meant for the standalone spotlight window.
  *
+ * Build filtering: `devOnly` actions are offered only in a run that is not
+ * packaged, through the same {@link isActionAvailable} rule the native menu uses.
+ * The palette used to list them in every build — including a shipped release,
+ * where its dev-tools entries pointed at a page that had just been taken out of
+ * the chrome.
+ *
  * uFuzzy is NOT used in this component. cmdk's built-in scoring is
  * the right tool for a static ~10-100 action set. uFuzzy is reserved
  * for the spotlight repo search (large N, mostly path-segment matches).
@@ -33,10 +39,12 @@ import {
   actions,
   dispatchAction,
   focusedSlugFromLocation,
+  isActionAvailable,
   resolveFocusedRepo,
   type ActionContext,
   type RegisteredAction,
 } from "@renderer/actions/registry";
+import { isPackagedBuild } from "@renderer/lib/atr";
 import type { ActionScope } from "@shared/types";
 
 /**
@@ -56,15 +64,17 @@ function scopeForPath(pathname: string): ActionScope {
 
 /**
  * The action set the in-app palette MAY show. Always excludes
- * `spotlight`-scoped actions. Within the current scope plus `global`
- * we keep the registry's order so the grouping rendered below mirrors
- * the native menu.
+ * `spotlight`-scoped actions, and `devOnly` ones in a packaged build.
+ * Within the current scope plus `global` we keep the registry's order so
+ * the grouping rendered below mirrors the native menu.
  */
 function filterForPalette(
   registry: RegisteredAction[],
   currentScope: ActionScope,
+  packaged: boolean,
 ): RegisteredAction[] {
   return registry.filter((a) => {
+    if (!isActionAvailable(a, packaged)) return false;
     if (a.scope === "spotlight") return false;
     if (a.scope === "global") return true;
     return a.scope === currentScope;
@@ -118,9 +128,11 @@ export function CommandPalette() {
   );
 
   const scope = scopeForPath(location.pathname);
+  // Read once: it is a property on the bridge, fixed for the life of the process.
+  const packaged = React.useMemo(() => isPackagedBuild(), []);
   const visible = React.useMemo(
-    () => filterForPalette(actions, scope),
-    [scope],
+    () => filterForPalette(actions, scope, packaged),
+    [scope, packaged],
   );
 
   // cmdk groups its items by `<Command.Group heading="…">`. We

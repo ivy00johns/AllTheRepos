@@ -43,12 +43,16 @@ P2s) closed first, **ATR-075** found and closed with them, then the last five P3
 
 **Build health (verified 2026-10-08, on the UI/UX pass):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
-`pnpm lint` ✅ 0 · `vitest` **1695 passed / 0 failed** (86 files) · **Electron E2E 26 passed /
+`pnpm lint` ✅ 0 · `vitest` **1708 passed / 0 failed** (87 files) · **Electron E2E 27 passed /
 5 skipped / 0 failed** (14 specs; the skips are the packaged-update ones, which need a
-packaged bundle). Fonts (IBM Plex Sans) load at runtime. Added later the same day:
+packaged bundle). The suite also launches the app once with `ATR_FORCE_PACKAGED=1`
+(`src/main/build-info.ts`), so the branch a release takes — no dev-only affordance anywhere,
+no dev-only action in the palette — is tested rather than assumed. Fonts (IBM Plex Sans) load
+at runtime. Added later the same day:
 `tests/unit/renderer/jsx-text.spec.ts` (2 tests), `tests/unit/renderer/type-scale.spec.ts`
-(3, the guard that fails the build on a raw sub-12px size), and on the running app
-`workstream-b.spec.ts` (8 tests) and `workstream-c.spec.ts` (5), the last two reading the
+(3, the guard that fails the build on a raw sub-12px size), `tests/unit/shared/build-info.spec.ts`
+(7, the packaged flag main states and the preload reads), and on the running app
+`workstream-b.spec.ts` (8 tests) and `workstream-c.spec.ts` (6), the last two reading the
 built renderer rather than the source.
 
 **Also verified 2026-10-08, by looking at the app rather than at the tests:** the catalog,
