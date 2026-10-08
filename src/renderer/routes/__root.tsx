@@ -79,7 +79,17 @@ function RootLayout() {
       */}
       <AdHocBuildNotice />
       <ActionNotice />
-      <main className="flex-1 min-h-0 overflow-hidden">
+      /*
+       * `grid`, not `block`, and that is load-bearing: a route asks for
+       * `h-full`, and a percentage height only resolves against a *definite*
+       * parent height. `main` gets its height from `flex-1` — a resolved used
+       * height, but its `height` property is still `auto` — so as a block
+       * container it handed every route `auto` instead, and each one grew to
+       * content and pushed the window. A single `minmax(0, 1fr)` track makes
+       * the area definite, so `h-full` means the window and the route's own
+       * `overflow-y-auto` becomes the thing that scrolls.
+       */
+      <main className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (
             <Outlet />
