@@ -211,7 +211,17 @@ export function TopBar() {
           >
             <Link to={to}>
               <Icon className="h-4 w-4" aria-hidden />
-              <span className="hidden text-xs lg:inline">{label}</span>
+              {/*
+                The label names the link at every width, so the collapsed
+                state has to hide it *visually* rather than with
+                `display: none` — which takes the text out of the accessible
+                name and leaves an `aria-hidden` icon as the link's entire
+                content. The window's minimum width is 800 and `lg` starts at
+                1024, so below that every one of these destinations was an
+                unnamed icon. `lg:not-sr-only` puts the label back in flow
+                where there is room for it.
+              */}
+              <span className="sr-only text-xs lg:not-sr-only">{label}</span>
               {badge === "processes" && processCount > 0 ? (
                 <span
                   aria-hidden

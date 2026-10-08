@@ -161,7 +161,14 @@ function OutputPane({
 }
 
 export function TaskRunner({ slug, runs, onClearRun }: TaskRunnerProps) {
-  const [expanded, setExpanded] = React.useState(true);
+  /*
+   * Collapsed on open. Expanded by default, a project with a dozen
+   * scripts pushed the README — the reason the panel is open at all —
+   * below the fold, so the first thing you saw on every repo was a
+   * command list you had not asked to run. The header still names the
+   * section and counts the tasks, and one click opens it.
+   */
+  const [expanded, setExpanded] = React.useState(false);
   const tasksQuery = useRepoTasks(slug);
   const startTask = useStartTask();
   const stopTask = useStopTask();

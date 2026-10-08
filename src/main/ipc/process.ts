@@ -9,6 +9,13 @@
  *
  * The handlers never call `lsof` / `ps` themselves — `ProcessService` is
  * the only owner of subprocess invocations.
+ *
+ * Each registration awaits `processService.boot()` first, because the window
+ * is created before the services are (ATR-055) and the service builds its
+ * cwd→repo trie during boot: without this await, the first `process:list` of a
+ * launch could read rows before the trie that binds them to repos exists. The
+ * await is cheap — the trie build is synchronous and the service deliberately
+ * does not wait for its first sweep.
  */
 
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
@@ -81,6 +88,7 @@ export function registerProcessHandlers(): void {
     IPC.PROCESS.LIST,
     async (event: IpcMainInvokeEvent, raw): Promise<ListProcessesResult> => {
       assertRendererFrame(event);
+      await processService.boot();
       return handleProcessList(raw);
     },
   );
@@ -89,6 +97,7 @@ export function registerProcessHandlers(): void {
     IPC.PROCESS.LIST_FOR_REPO,
     async (event: IpcMainInvokeEvent, raw): Promise<ListProcessesResult> => {
       assertRendererFrame(event);
+      await processService.boot();
       return handleProcessListForRepo(raw);
     },
   );
@@ -97,6 +106,7 @@ export function registerProcessHandlers(): void {
     IPC.PROCESS.REFRESH,
     async (event: IpcMainInvokeEvent, raw): Promise<ListProcessesResult> => {
       assertRendererFrame(event);
+      await processService.boot();
       return handleProcessRefresh(raw);
     },
   );
@@ -105,6 +115,7 @@ export function registerProcessHandlers(): void {
     IPC.PROCESS.KILL,
     async (event: IpcMainInvokeEvent, raw): Promise<KillProcessResult> => {
       assertRendererFrame(event);
+      await processService.boot();
       return handleProcessKill(raw);
     },
   );

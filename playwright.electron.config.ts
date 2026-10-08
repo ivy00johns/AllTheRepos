@@ -31,6 +31,22 @@ export default defineConfig({
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
   // curated links: curate-link-flow.spec.ts — builds its own profile and
   // seeds its own git repos, because it needs to drive git-backed reads.
+  // accessibility.spec.ts — the shell blockers from the 2026-10-07 UI/UX
+  // review (ATR-059, ATR-060, ATR-066, ATR-069, ATR-065): it resizes the real
+  // window to 900px and reads the names and roles back out of the real
+  // accessibility tree, and presses the keys on the controls that promised to
+  // answer them.
+  // viewport-fit.spec.ts — the other two P1s from that review (ATR-061,
+  // ATR-062): it resizes the window to the 1280x800 the review measured at and
+  // asserts the catalog and the map both fit it.
+  // retry-and-loading.spec.ts — the review's error-state and loading-state
+  // items (ATR-063, ATR-064): it starts the app with the IPC fault switch
+  // (`src/main/ipc/_faults.ts`) naming a channel to fail or to delay, so the
+  // error screen and its retry, and the skeleton, are reached for real.
+  // detail-readme.spec.ts — the repo detail panel's README and folder rail:
+  // it seeds a repo with markdown and a script list, then reads the computed
+  // style back off the rendered README, the Tasks section's default state and
+  // the rail's "directly in this folder" control.
   // vector-store.spec.ts — the sqlite-vec extension and what the app does
   // without one: it loads the real library the app ships and drives a search
   // through it, so it measures the machine rather than the metadata.
@@ -45,7 +61,7 @@ export default defineConfig({
   // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
   // version is below the feed by construction.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check)\.spec\.ts$/,
+    /(accessibility|viewport-fit|retry-and-loading|detail-readme|electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.

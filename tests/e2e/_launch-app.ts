@@ -91,7 +91,22 @@ export interface LaunchedApp {
   close(): Promise<void>;
 }
 
-export async function launchApp(): Promise<LaunchedApp> {
+export interface LaunchOptions {
+  /**
+   * Extra environment for this launch only, merged over the inherited one.
+   *
+   * For switches the app reads at boot and cannot change afterwards — the
+   * fault injection in `src/main/ipc/_faults.ts` is the reason it exists: an
+   * error state and a loading state are only reachable if a real call is made
+   * to fail or to be slow, and both have to be arranged before the process
+   * starts.
+   */
+  env?: Record<string, string>;
+}
+
+export async function launchApp(
+  options: LaunchOptions = {},
+): Promise<LaunchedApp> {
   const profileDir = mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
   inheritSeededProfile(profileDir);
 
@@ -104,6 +119,7 @@ export async function launchApp(): Promise<LaunchedApp> {
         ...process.env,
         NODE_ENV: "test",
         ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
+        ...options.env,
       },
     });
   } catch (error) {

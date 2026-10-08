@@ -48,6 +48,7 @@ import {
 } from "@renderer/lib/ownership";
 import {
   isArchivedPath,
+  isDirectlyIn,
   isUnder,
   owningRoot,
   tildify,
@@ -110,6 +111,7 @@ export function CatalogShell({
   const [rootNotice, setRootNotice] = React.useState<string | null>(null);
 
   const selectedDir = useCatalogView((s) => s.selectedDir);
+  const selectedDirExact = useCatalogView((s) => s.selectedDirExact);
   const setSelectedDir = useCatalogView((s) => s.setSelectedDir);
   const ownershipFilter = useCatalogView((s) => s.ownershipFilter);
   const includeArchived = useCatalogView((s) => s.includeArchived);
@@ -294,7 +296,14 @@ export function CatalogShell({
       ) {
         return false;
       }
-      if (selectedDir && !isUnder(repo.fullPath, selectedDir)) return false;
+      if (selectedDir) {
+        // "directly in this folder" narrows to the folder's own repos;
+        // selecting the folder itself takes the whole subtree.
+        const inScope = selectedDirExact
+          ? isDirectlyIn(repo.fullPath, selectedDir)
+          : isUnder(repo.fullPath, selectedDir);
+        if (!inScope) return false;
+      }
       if (ownershipFilter.length > 0) {
         const kind = ownershipKindBySlug.get(repo.slug);
         if (!kind || !ownershipFilter.includes(kind)) return false;
@@ -322,6 +331,7 @@ export function CatalogShell({
     includeArchived,
     favoritesOnly,
     selectedDir,
+    selectedDirExact,
     ownershipFilter,
     ownershipKindBySlug,
     activeGroup,
@@ -583,10 +593,22 @@ export function CatalogShell({
     [displayedRepos],
   );
 
-  const scopeLabel = selectedDir ? tildify(selectedDir) : null;
+  const scopeLabel = selectedDir
+    ? selectedDirExact
+      ? `${tildify(selectedDir)} (top level)`
+      : tildify(selectedDir)
+    : null;
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+    /*
+      `h-full`, not `h-[100dvh]`. The shell lives inside `main.flex-1`, which
+      already sits under the 48px top bar, so sizing the shell to the whole
+      viewport made it exactly 48px taller than the space it had — and because
+      it is `overflow-hidden`, the tail of the grid was clipped instead of
+      scrollable (ATR-061, measured at 1280x800: a 848px page in an 800px
+      window). `main` already knows how tall it is; this takes that answer.
+    */
+    <div className="flex h-full w-full overflow-hidden bg-background">
       <DirRail
         repos={initialRepos}
         groups={groups}

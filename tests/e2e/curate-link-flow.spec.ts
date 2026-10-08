@@ -82,8 +82,9 @@ function initRepo(dir: string): void {
 
 test.describe("curated links in the repo detail panel", () => {
   // Two app launches (one to migrate the profile, one to drive) plus the
-  // ~22s cold start ATR-055 leaves in place — the suite default of 60s is not
-  // enough, and a timeout here would look like a product defect.
+  // per-test work — the suite default of 60s is not enough, and a timeout here
+  // would look like a product defect. The launches themselves are quick now:
+  // the window paints before the services boot (ATR-055).
   test.describe.configure({ timeout: 180_000 });
 
   test.beforeAll(() => {

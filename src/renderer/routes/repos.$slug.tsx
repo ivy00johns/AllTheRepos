@@ -12,6 +12,8 @@ import { ArrowLeft } from "lucide-react";
 
 import { RepoDetailContent } from "@renderer/components/catalog/repo-detail-content";
 import { Button } from "@renderer/components/ui/button";
+import { ErrorState } from "@renderer/components/ui/error-state";
+import { Skeleton } from "@renderer/components/ui/skeleton";
 import { useRepo } from "@renderer/hooks/use-repo";
 import { Route as RootRoute } from "./__root";
 
@@ -25,24 +27,31 @@ function RepoPage() {
   const { slug } = Route.useParams();
   const repoQuery = useRepo(slug);
 
+  // The placeholders carry the page's own shape — the back affordance, the
+  // name, the meta line and the two content blocks — so the layout does not
+  // jump when the repo arrives (ATR-064).
   if (repoQuery.isLoading) {
     return (
-      <p className="font-mono text-sm text-muted-foreground">
-        Loading repo…
-      </p>
+      <div aria-busy="true" aria-live="polite" className="flex flex-col gap-4">
+        <Skeleton className="h-8 w-32" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-6 w-56" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
     );
   }
 
   if (repoQuery.error) {
     return (
-      <div className="flex flex-col gap-2">
-        <p className="text-base font-medium text-destructive">
-          Failed to load repo
-        </p>
-        <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs text-muted-foreground">
-          {repoQuery.error.message}
-        </pre>
-      </div>
+      <ErrorState
+        title="Failed to load repo"
+        message={repoQuery.error.message}
+        onRetry={() => void repoQuery.refetch()}
+        retrying={repoQuery.isFetching}
+      />
     );
   }
 

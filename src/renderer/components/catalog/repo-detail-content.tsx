@@ -1,9 +1,5 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -24,7 +20,7 @@ import type { RepoDetail } from "@shared/types";
 import { cn } from "@renderer/lib/cn";
 import { useLauncher, useLauncherDetect } from "@renderer/hooks/use-launcher";
 import { useDeleteRepo, useSetRepoTags } from "@renderer/hooks/use-repos";
-import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
+import { Markdown } from "@renderer/components/markdown";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -42,10 +38,6 @@ import { LanguageBar } from "./language-bar";
 import { RepoCover } from "./repo-cover";
 import { colorForLanguage } from "./language-colors";
 import { relativeTime } from "./relative-time";
-
-// Re-export the schema so other surfaces (e.g. the Claude tab) can
-// reuse the same sanitize allowlist without diverging.
-export { README_SANITIZE_SCHEMA };
 
 type DetailTab = "details" | "claude";
 
@@ -510,17 +502,7 @@ export function RepoDetailContent({
                 README
               </p>
               {repo.readmeContent ? (
-                <div className="prose prose-invert prose-sm max-w-none font-sans prose-headings:font-mono prose-code:font-mono prose-code:text-accent prose-a:text-accent">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[
-                      rehypeRaw,
-                      [rehypeSanitize, README_SANITIZE_SCHEMA],
-                    ]}
-                  >
-                    {repo.readmeContent}
-                  </ReactMarkdown>
-                </div>
+                <Markdown>{repo.readmeContent}</Markdown>
               ) : (
                 <p className="text-xs italic text-muted-foreground">
                   No README detected.

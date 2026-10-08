@@ -39,6 +39,17 @@
  * the disorganisation the view exists to reveal.
  *
  * The old `./force-layout` module is left on disk, unused.
+ *
+ * ## Keyboard
+ *
+ * Cytoscape paints into untitled `<canvas>` elements, so nothing it draws can
+ * be focused or announced: without the list beside the picture, a keyboard user
+ * cannot reach a node at all, and the inspector — which *is* readable — can only
+ * describe a node somebody else already selected. Every node is therefore also
+ * a button in a visually hidden list: one tab stop for the whole list, arrows to
+ * move between nodes, Enter to select. The hidden part is the list; what it
+ * drives is visible, because selection rings the node on the canvas and fills
+ * the inspector.
  */
 
 import * as React from "react";
@@ -537,6 +548,60 @@ export function GraphCanvas({
     [nodes],
   );
 
+  /**
+   * The roving cursor for the keyboard list.
+   *
+   * One tab stop for the whole map rather than one per repository: the real
+   * catalog holds hundreds of nodes, and hundreds of tab stops is another way
+   * of being unreachable.
+   */
+  const [cursor, setCursor] = React.useState(0);
+  const nodeButtonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  // A narrower node set (a cluster selected, a filter applied) must not leave
+  // the cursor pointing past the end of it.
+  React.useEffect(() => {
+    setCursor((current) => (current < nodes.length ? current : 0));
+  }, [nodes.length]);
+
+  /** Move the roving cursor and put focus on whatever it lands on. */
+  const moveCursor = (next: number) => {
+    if (nodes.length === 0) return;
+    const index = (next + nodes.length) % nodes.length;
+    setCursor(index);
+    nodeButtonsRef.current[index]?.focus();
+  };
+
+  /**
+   * Arrows move, Home/End jump — the list conventions every keyboard user
+   * already has. Space and Enter need nothing here: they belong to the button.
+   */
+  const handleNodeKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        moveCursor(index + 1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        moveCursor(index - 1);
+        break;
+      case "Home":
+        event.preventDefault();
+        moveCursor(0);
+        break;
+      case "End":
+        event.preventDefault();
+        moveCursor(nodes.length - 1);
+        break;
+      default:
+        break;
+    }
+  };
+
   // --- instance -----------------------------------------------------------
   React.useEffect(() => {
     const container = containerRef.current;
@@ -745,6 +810,40 @@ export function GraphCanvas({
         role="img"
         aria-label={mapSummary}
       />
+
+      {/*
+        The keyboard path to the same nodes the canvas drew. Visually hidden
+        because the picture above already shows them, and because a visible
+        duplicate of a 263-node map would be a worse map — the feedback for
+        using this is the selection ring on the canvas and the inspector
+        beside it, both of which are on screen.
+      */}
+      <div className="sr-only">
+        <h3>Repositories on the map</h3>
+        <ul>
+          {nodes.map((node, index) => (
+            <li key={node.slug}>
+              <button
+                ref={(element) => {
+                  nodeButtonsRef.current[index] = element;
+                }}
+                type="button"
+                tabIndex={index === cursor ? 0 : -1}
+                aria-pressed={node.slug === selectedSlug}
+                onClick={() => onSelect(node.slug)}
+                // Hovering is how the canvas says "this one" without a
+                // selection, so focusing a node says it the same way —
+                // otherwise arrowing through the list would look inert.
+                onFocus={() => setHovered(node.slug)}
+                onBlur={() => setHovered(null)}
+                onKeyDown={(event) => handleNodeKeyDown(event, index)}
+              >
+                {node.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {layingOut ? (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">

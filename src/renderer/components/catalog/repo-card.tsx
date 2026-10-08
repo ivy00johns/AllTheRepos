@@ -15,6 +15,14 @@
  *    passes down which tags are too common to be worth the space.
  *  - Cover first. It's the fastest path to recognising a project you
  *    haven't opened in months.
+ *
+ * One structural rule, because it is easy to undo: this card is a
+ * *container*, not a button. It holds real buttons — the favourite star, the
+ * port chips, the launcher row — and giving the `<article>` `role="button"`
+ * (which is what it used to do) makes assistive tech flatten or skip those
+ * descendants, so they stop being reachable at all. The card-level click is
+ * kept as a convenience for a pointer; the named, keyboard-reachable control
+ * is the title.
  */
 
 import * as React from "react";
@@ -56,7 +64,6 @@ export interface RepoCardProps {
   onToggleChecked?: (slug: string, additive: boolean) => void;
   onOpenEditor?: (slug: string) => void;
   onDragStart?: (slug: string, event: React.DragEvent) => void;
-  tabIndex?: number;
 }
 
 /** Tags worth showing: distinctive ones first, ubiquitous ones dropped. */
@@ -85,7 +92,6 @@ export function RepoCard({
   onToggleChecked,
   onOpenEditor,
   onDragStart,
-  tabIndex = 0,
 }: RepoCardProps) {
   const { processes } = useProcessesForRepo(repo.slug);
   const gallery = variant === "gallery";
@@ -119,25 +125,25 @@ export function RepoCard({
     onSelect?.(repo.slug);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onSelect?.(repo.slug);
-    }
+  /**
+   * The title's click, answered exactly once.
+   *
+   * Without the stop the same event would also reach the article's handler
+   * and run the action twice — which for a Cmd-click means selecting and
+   * immediately un-selecting, a no-op that reads as a dead control.
+   */
+  const handleTitleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    handleClick(event);
   };
 
   return (
     <article
-      role="button"
-      tabIndex={tabIndex}
-      aria-pressed={selected ? "true" : "false"}
-      aria-label={`${repo.name}, ${ownership.label}, in ${folderLabel}, last touched ${activity.relative}${repo.isDirty ? ", uncommitted changes" : ""}`}
       data-repo-slug={repo.slug}
       data-selected={selected ? "true" : "false"}
       draggable
       onDragStart={(event) => onDragStart?.(repo.slug, event)}
       onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
         "atr-surface group relative flex overflow-hidden rounded-lg shadow-card",
         gallery ? "h-[268px] flex-col" : "h-[128px] flex-row gap-3 p-3",
@@ -171,7 +177,14 @@ export function RepoCard({
       >
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <h3 className="atr-truncate font-mono text-sm font-semibold text-foreground">
-            {repo.name}
+            <button
+              type="button"
+              onClick={handleTitleClick}
+              aria-pressed={selected ? "true" : "false"}
+              className="max-w-full cursor-pointer truncate text-left"
+            >
+              {repo.name}
+            </button>
           </h3>
           <PortChipsForRepo processes={processes} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">

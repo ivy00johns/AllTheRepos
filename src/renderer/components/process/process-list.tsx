@@ -20,6 +20,8 @@ import { Copy, Square } from "lucide-react";
 import type { ProcessInfo } from "@shared/types";
 
 import { Button } from "@renderer/components/ui/button";
+import { ErrorState } from "@renderer/components/ui/error-state";
+import { Skeleton } from "@renderer/components/ui/skeleton";
 import { useKillProcess, useProcesses } from "@renderer/hooks/use-processes";
 import { cn } from "@renderer/lib/cn";
 
@@ -51,36 +53,44 @@ export function ProcessList({ className }: ProcessListProps) {
     }
   }, []);
 
+  // The rows the table is about to have: render order, port, PID, age and the
+  // action pair, at the widths those columns take (ATR-064).
   if (query.isLoading) {
     return (
       <div
         aria-busy="true"
         aria-live="polite"
         className={cn(
-          "rounded-lg border border-border bg-card p-8 text-center font-mono text-sm text-muted-foreground",
+          "overflow-hidden rounded-lg border border-border bg-card",
           className,
         )}
       >
-        Loading processes…
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0"
+          >
+            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-3.5 flex-1" />
+            <Skeleton className="h-3.5 w-10" />
+            <Skeleton className="h-3.5 w-12" />
+            <Skeleton className="h-3.5 w-14" />
+            <Skeleton className="h-7 w-16" />
+          </div>
+        ))}
       </div>
     );
   }
 
   if (query.error) {
     return (
-      <div
-        className={cn(
-          "rounded-lg border border-destructive/30 bg-destructive/5 p-6",
-          className,
-        )}
-      >
-        <p className="font-medium text-destructive">
-          Failed to read process snapshot
-        </p>
-        <pre className="mt-2 overflow-x-auto font-mono text-xs text-muted-foreground">
-          {query.error.message}
-        </pre>
-      </div>
+      <ErrorState
+        title="Failed to read process snapshot"
+        message={query.error.message}
+        onRetry={() => void query.refetch()}
+        retrying={query.isFetching}
+        className={className}
+      />
     );
   }
 

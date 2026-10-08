@@ -462,32 +462,50 @@ class ProcessService {
   private interval: NodeJS.Timeout | null = null;
   private isFocused = true;
   private lastConsumerAt = 0;
-  private booted = false;
+  /**
+   * The boot promise, so a caller that arrives while the trie is being built
+   * joins that work instead of racing it.
+   *
+   * This replaced a boolean `booted` flag, which made a *second* caller return
+   * early — harmless while the main entry awaited the boot before any handler
+   * could run, and wrong the moment the window is created before the services
+   * are (ATR-055): the first `process:list` would have raced the build.
+   */
+  private bootPromise: Promise<void> | null = null;
   private appWired = false;
   private inFlight: Promise<void> | null = null;
   /** Memo for `resolveRealPath` — see {@link REALPATH_MEMO_MAX}. */
   private readonly realPaths = new Map<string, string>();
 
   /**
-   * Idempotent: build the catalog trie and prime the snapshot once.
+   * Idempotent AND awaitable: build the catalog trie and prime the snapshot
+   * once, and hand every caller the same promise.
+   *
    * Does NOT start the interval — that's triggered by `ensurePolling()`
-   * from the IPC handler on the first `process:list` invocation.
+   * from the IPC handler on the first `process:list` invocation. Neither does
+   * it wait for the prime tick; see below.
    */
-  async boot(): Promise<void> {
-    if (this.booted) return;
-    this.booted = true;
+  boot(): Promise<void> {
+    this.bootPromise ??= this.bootOnce().catch((err: unknown) => {
+      // Clear the memo rather than caching a rejected promise: a failed boot
+      // that can never be retried is worse than a retry that fails again.
+      this.bootPromise = null;
+      throw err;
+    });
+    return this.bootPromise;
+  }
+
+  private async bootOnce(): Promise<void> {
     this.rebuildTrie();
     this.wireAppFocusEvents();
     // Prime an initial snapshot so `process:list` doesn't block on its
-    // first call — but do NOT await it. `boot()` is awaited before the main
-    // window is created, so awaiting the prime delayed the first paint by a
-    // whole tick (ATR-055); a tick is now three subprocess rounds rather
-    // than one per hop per listener, but it is still not startup work.
-    // Nothing depends on the prime having finished: `list()` already
-    // triggers its own tick when the snapshot is still empty, so the worst
-    // case without priming is that the FIRST `process:list` call pays for
-    // one tick instead of startup paying for it. Errors are non-fatal — the
-    // next tick recovers.
+    // first call — but do NOT await it. It is not startup work: nothing
+    // depends on the prime having finished, because `list()` triggers its own
+    // tick when the snapshot is still empty, so the worst case without it is
+    // that the FIRST `process:list` call pays for one tick instead. Awaiting
+    // it here would put a full subprocess round on the path to the first
+    // paint, which is the mistake ATR-055 is about. Errors are non-fatal —
+    // the next tick recovers.
     void this.tickOnce().catch((err: unknown) => {
       console.error("[backend] processService.boot prime tick failed", err);
     });

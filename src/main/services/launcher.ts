@@ -338,18 +338,32 @@ function probeCliPath(cliName: string): Promise<string | null> {
 
 class LauncherService {
   private cache: DetectLauncherResult | null = null;
-  private booted = false;
+  private bootPromise: Promise<void> | null = null;
 
   /**
-   * Run editor + terminal detection. Idempotent - repeat calls are
-   * no-ops after the first successful detection. Detection must
-   * complete in well under 500ms on a typical machine; CLI probes run
-   * in parallel.
+   * Run editor + terminal detection. Idempotent, and every caller gets the
+   * same promise. Detection must complete in well under 500ms on a typical
+   * machine; CLI probes run in parallel.
+   *
+   * The promise is the point, not just the flag it replaced. Detection is
+   * asynchronous, so a boolean guard let a second caller return *before* the
+   * cache existed and read the all-unavailable fallback — which is exactly
+   * what the first `launcher:detect` after a cold start would have done once
+   * the window stopped waiting for this boot (ATR-055).
    */
-  async boot(): Promise<void> {
-    if (this.booted) return;
-    this.booted = true;
-    this.cache = await this.runDetection();
+  boot(): Promise<void> {
+    if (!this.bootPromise) {
+      this.bootPromise = this.runDetection()
+        .then((result) => {
+          this.cache = result;
+        })
+        .catch((err: unknown) => {
+          // Retryable: a failed detection should not be cached as permanent.
+          this.bootPromise = null;
+          throw err;
+        });
+    }
+    return this.bootPromise;
   }
 
   /** Returns the cached detection result. */

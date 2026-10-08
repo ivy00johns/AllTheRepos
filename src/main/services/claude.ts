@@ -115,18 +115,38 @@ class ClaudeService {
 
   private watcher: WatcherHandle | null = null;
 
+  /** See {@link boot} — the in-flight or finished first walk. */
+  private bootPromise: Promise<void> | null = null;
+
   // -------------------------------------------------------------------------
   // Boot / index
   // -------------------------------------------------------------------------
 
   /**
    * Build / rebuild the registry + session index, then (re)start the
-   * chokidar watcher. Idempotent: a second call closes the prior
-   * watcher first.
+   * chokidar watcher. Idempotent: a second call closes the prior watcher
+   * first, and a caller that arrives mid-walk joins the walk in progress
+   * rather than starting a second one.
+   *
+   * That memo is what makes this awaitable from a handler. The window no
+   * longer waits for this boot (ATR-055), so a `claude:*` call on the first
+   * paint has to be able to wait for the walk that is already running — and
+   * this walk is the expensive one, since it reads every project's session
+   * files.
    */
-  async boot(): Promise<void> {
-    await this.rebuild();
-    await this.restartWatcher();
+  boot(): Promise<void> {
+    if (!this.bootPromise) {
+      this.bootPromise = (async () => {
+        await this.rebuild();
+        await this.restartWatcher();
+      })().catch((err: unknown) => {
+        // Clear the memo so a retry can try again rather than inheriting a
+        // rejection that will never be retried.
+        this.bootPromise = null;
+        throw err;
+      });
+    }
+    return this.bootPromise;
   }
 
   /**

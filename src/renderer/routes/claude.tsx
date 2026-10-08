@@ -62,6 +62,58 @@ function ClaudePage() {
   const bridgeAvailable = typeof window !== "undefined" && Boolean(getAtr());
   const [range, setRange] = React.useState<RangeKey>("30d");
 
+  /**
+   * The range selector is a real radio group, not a row of toggles with radio
+   * roles pasted on. The roles were already right — a range is one of N with a
+   * persistent choice — but the pattern behind them was missing: every option
+   * was a tab stop and the arrow keys did nothing. Native radios answer arrows,
+   * and the choice follows the focus, so the JSX below gives the group one tab
+   * stop (the checked option) and lets the arrows both move and select, which
+   * is also what the panel underneath reads.
+   */
+  const rangeButtonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  /** Focus and select the option at `next`, wrapping at both ends. */
+  const moveRange = React.useCallback((next: number) => {
+    const index = (next + RANGE_OPTIONS.length) % RANGE_OPTIONS.length;
+    const option = RANGE_OPTIONS[index];
+    if (!option) return;
+    setRange(option.key);
+    rangeButtonsRef.current[index]?.focus();
+  }, []);
+
+  /**
+   * Arrows move and select; Home/End jump. Enter and Space are left to the
+   * `<button>`, so there is no hand-rolled activation to drift from it.
+   */
+  const handleRangeKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          event.preventDefault();
+          moveRange(index + 1);
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          event.preventDefault();
+          moveRange(index - 1);
+          break;
+        case "Home":
+          event.preventDefault();
+          moveRange(0);
+          break;
+        case "End":
+          event.preventDefault();
+          moveRange(RANGE_OPTIONS.length - 1);
+          break;
+        default:
+          break;
+      }
+    },
+    [moveRange],
+  );
+
   const filter = React.useMemo<ClaudeGlobalUsageInput>(() => {
     const opt = RANGE_OPTIONS.find((o) => o.key === range);
     if (!opt || opt.days === null) return {};
@@ -118,15 +170,23 @@ function ClaudePage() {
             aria-label="Date range"
             className="flex items-center gap-1 rounded-md border border-border bg-card p-1 self-start"
           >
-            {RANGE_OPTIONS.map((opt) => {
+            {RANGE_OPTIONS.map((opt, index) => {
               const active = range === opt.key;
               return (
                 <button
                   key={opt.key}
+                  ref={(element) => {
+                    rangeButtonsRef.current[index] = element;
+                  }}
                   type="button"
                   role="radio"
                   aria-checked={active}
+                  // One tab stop for the group: the checked option carries it,
+                  // the arrows move it. Before this, all four were tab stops
+                  // and the keys a radio group answers did nothing (ATR-065).
+                  tabIndex={active ? 0 : -1}
                   onClick={() => setRange(opt.key)}
+                  onKeyDown={(event) => handleRangeKeyDown(event, index)}
                   className={cn(
                     "rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",
                     active

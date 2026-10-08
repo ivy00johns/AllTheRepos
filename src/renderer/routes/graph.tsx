@@ -24,7 +24,6 @@ import {
 
 import type { GraphCluster, GraphSignal } from "@shared/types";
 
-import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
 import { MoveDialog } from "@renderer/components/catalog/move-dialog";
 import { RelatedRepos } from "@renderer/components/catalog/related-repos";
 import { Button } from "@renderer/components/ui/button";
@@ -36,6 +35,21 @@ import { countEdgesBySignal } from "@renderer/lib/graph-signals";
 import { tildify } from "@renderer/lib/repo-tree";
 
 import { Route as RootRoute } from "./__root";
+
+/*
+ * The map is cytoscape plus the fcose layout, together the single
+ * heaviest thing the renderer ships — and it is only ever needed on this
+ * route. Loading it on demand keeps all of it out of the bundle the
+ * shell parses before its first paint, which is the cost that was left
+ * after the launch reorder. The `Suspense` below is local, so a pending
+ * chunk shows a placeholder in the map pane rather than blanking the
+ * route and its inspector.
+ */
+const GraphCanvas = React.lazy(() =>
+  import("@renderer/components/graph/graph-canvas").then((m) => ({
+    default: m.GraphCanvas,
+  })),
+);
 
 export const Route = createRoute({
   getParentRoute: () => RootRoute,
@@ -175,7 +189,16 @@ function GraphPage() {
     data?.nodes.find((n) => n.slug === slug)?.name ?? slug;
 
   return (
-    <div className="flex h-[calc(100dvh-3rem)] w-full overflow-hidden bg-background">
+    /*
+      `flex-1 min-h-0`, not `h-[calc(100dvh-3rem)]`. The map renders inside
+      `SimpleShell`, which adds its own padding, so subtracting only the 48px
+      top bar made the page 64px taller than the window and pushed the
+      bottom-anchored legend and control bar below the fold on first paint
+      (ATR-062, measured at 1280x800: 864px against an 800px window). Asking
+      the shell for the space that is actually left cannot drift when the
+      shell's padding changes.
+    */
+    <div className="flex min-h-0 w-full flex-1 overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
           Two rows, not one. The map lives in the max-w-5xl shell beside a
@@ -301,14 +324,22 @@ function GraphPage() {
               </Button>
             </div>
           ) : (
-            <GraphCanvas
-              nodes={visibleNodes}
-              edges={visibleEdges}
-              selectedSlug={selectedSlug}
-              highlightSlugs={highlight}
-              onSelect={setSelectedSlug}
-              onOpen={(slug) => setSelectedSlug(slug)}
-            />
+            <React.Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
+                  Laying out the map…
+                </div>
+              }
+            >
+              <GraphCanvas
+                nodes={visibleNodes}
+                edges={visibleEdges}
+                selectedSlug={selectedSlug}
+                highlightSlugs={highlight}
+                onSelect={setSelectedSlug}
+                onOpen={(slug) => setSelectedSlug(slug)}
+              />
+            </React.Suspense>
           )}
         </div>
       </div>

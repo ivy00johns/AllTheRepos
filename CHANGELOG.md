@@ -13,6 +13,33 @@ source of truth for the current version.
 
 ### Added
 
+- render the app in a plain browser tab. `electron-vite dev` serves the renderer at
+  `http://localhost:5173`, which reads like a review URL, but every screen goes through `window.atr` — the
+  preload bridge Electron mounts — so in a browser the catalog came up empty and the first control that
+  needed the main process rejected with "preload bridge is not mounted": an uncaught error in the console
+  rather than a UI state. `src/renderer/lib/browser-bridge.ts` installs a demo bridge **only when no real
+  one is present** (Electron always mounts its own, so this can never shadow real IPC), so the shell, rail,
+  detail panel and map all render for review. Every write is refused with a reason rather than faked, so
+  nothing here can make the UI claim it saved. `tests/unit/renderer/browser-bridge.spec.ts` pins the guard,
+  which is the part that matters: a bug there would have the app answering from demo data while claiming to
+  read your disk.
+- a browser tab you can actually review the whole app from. The bridge above shipped with a catalog and a
+  picture of a map, which left four routes unable to be looked at without Electron: `/graph` drew no nodes,
+  a repo's Claude tab and `/claude` drew their empty states, `/processes` said nothing was listening, and
+  `/settings` rendered rows with nothing in them. The data now lives in `src/renderer/lib/demo-library.ts`,
+  which is the same 12-repo library the README screenshots are built from (`scripts/make-readme-shots.mjs`)
+  — several of those repos sit in the same folder, two are loose at the top of the scan root, and the rest
+  is derived from them: 38 links over six clusters for the map, CLAUDE.md with skills, agents, MCP servers
+  and sessions for four of the repos (the other eight keep the empty state, because that is a state too),
+  five listening dev servers with two ports on one repo and one belonging to no repo at all, and the
+  settings, launcher-detection and update rows. Reusing the screenshot library rather than inventing a
+  second fixture is what keeps a browser review and a published screenshot from disagreeing about the demo
+  machine, and `tests/unit/renderer/demo-library.spec.ts` holds them together: every row it serves parses
+  against the same Zod schema the IPC layer validates with — the failure that once made the catalog render
+  blank with nothing in the console — plus its own arithmetic (cluster membership, stray counts, node
+  degree, a transcript that pages to an end) and that each route has the state worth looking at. The demo
+  graph carries an owner link between every pair of repos whose remote belongs to the same person, because
+  that is the honest shape of that signal: 36 faint links the strong ones have to be read against.
 - keep the macOS bill from creeping back, in `scripts/check-ci-cost.mjs`. macOS runner minutes bill at
   ten times the Linux rate on a private repository, which makes where a job runs a spending decision
   rather than a style one — and nothing was keeping count, which is how a two-leg Electron matrix came
@@ -77,6 +104,132 @@ source of truth for the current version.
 
 ### Fixed
 
+- make the window the height everything else measures against, instead of the page growing with its
+  content. The root column was `min-h-screen` — a minimum, not a height — so `main` was sized by whatever it
+  held: a full catalog grid pushed it to 1404px inside a 900px window (and the body scrolled), while a short
+  route left the column at its content height, which is what collapsed `/graph`'s map pane to a 156px ribbon
+  with the rest of the window empty below it. Both routes asked for `h-full` and were told the truth only
+  sometimes. The column is `h-screen` with `min-h-0` on `main` now — the second half matters, because a flex
+  item will not shrink below its content by default — so `main` is always the space that is actually left,
+  the catalog scrolls inside its own grid area rather than the page, and the map gets the 703px it asks for
+  instead of 156. `/graph` went from a diagram nobody could read to one where the clusters, the curated link
+  between them and the two favourites are all legible.
+- render a README as markdown, with the app's own styling. The detail panel and the Claude tab both wrapped
+  `react-markdown` in `prose prose-invert prose-sm` and the `prose-*:` modifiers, and neither
+  `@tailwindcss/typography` nor a `@plugin` line was ever in the tree — so every one of those classes compiled
+  to nothing, and preflight left a README as one undifferentiated block of text: no heading scale, no list
+  markers, no code tint. Both surfaces render through one `Markdown` component now, whose `.atr-prose` class in
+  `styles/globals.css` does the styling with this project's tokens (mono headings, accent links and inline
+  code), which is also what keeps the two from drifting apart. `tests/e2e/detail-readme.spec.ts` seeds a repo
+  with markdown and reads the **computed** style back off the rendered README — the heading's font family, the
+  link and code colours, the list markers — rather than asserting that the class names survived.
+- stop the Tasks section hiding the README. It opened expanded, so a project with a dozen declared scripts
+  pushed the README — the reason the panel is open at all — below the fold on every repo, and the first thing
+  you saw was a command list you had not asked to run. It opens collapsed and still names the section and
+  counts the tasks. `tests/e2e/detail-readme.spec.ts` asserts `aria-expanded="false"` on a repo that declares
+  a script.
+- make the rail's "directly in this folder" row open the folder it names. It was an inert `<div>` carrying a
+  count, which left the repos sitting at a scan root's top level with no way to see just those: selecting the
+  root shows the whole subtree and buries them among everything below. It is a control now — it scopes the
+  catalog to the repos whose parent IS that folder (`isDirectlyIn`, beside `isUnder` in `lib/repo-tree.ts`),
+  the toolbar names the scope, and clicking it again clears it. `tests/e2e/detail-readme.spec.ts` drives the row
+  in the real window and asserts the scope chip appears; the helper is unit-tested in
+  `tests/unit/renderer/catalog-derivations.spec.ts`.
+- split the renderer bundle so the first paint stops parsing screens it is not showing. The shell ran from one
+  3,657 kB chunk that carried cytoscape and the fcose layout (the map), `react-markdown` with its whole plugin
+  chain (a README) and cmdk (the palette), none of which a first paint needs. Each is a dynamic import now,
+  caught by a local `Suspense` so a pending chunk leaves the surrounding panel in place instead of blanking the
+  route. The initial chunk is **1,574 kB**, with the map (1,359 kB), the markdown renderer (685 kB) and the
+  palette (23 kB) as chunks of their own. **Measured with `scripts/measure-cold-start.mjs` on this machine,
+  three launches each and back to back under identical conditions: the dom-to-shell gap went 2514 ms → 2174 ms
+  and the shell 5900 ms → 5096 ms.** `tests/e2e/detail-readme.spec.ts` asserts the README renders through the
+  lazily imported chunk, so a split that broke the panel would fail the suite rather than merely be fast.
+- open the window before the services boot, instead of after them. `app.whenReady()` used to await the
+  process scan, the editor detection and the whole Claude session index before creating the main
+  window, so a launch could not paint until everything the first paint does *not* need had finished
+  (ATR-055). The entry now subscribes the events, registers the IPC handlers, creates the window, and
+  boots those services behind it. Making that safe required the part that is easy to miss: each of the
+  three services guarded its boot with a boolean, which makes a *second* caller return **before** the
+  work is done — harmless while nothing could call a handler until the boot had finished, and wrong the
+  moment the window exists first, where the first `process:list` would race the trie build and the first
+  launcher click would read the all-unavailable fallback. They memoise the promise now, and every
+  `process:*`, `launcher:*` and `claude:*` handler awaits it, so a panel that paints early joins the
+  boot in progress. A service that fails to boot is logged and reported by the panel that needs it
+  rather than aborting the launch — a broken Claude index used to be able to keep the catalog from
+  opening. **Measured with `scripts/measure-cold-start.mjs` on this machine, three launches each: the
+  window went 5381ms → 1345ms and the shell 6619ms → 3156ms** — the fixed build has the whole shell on
+  screen before the old one had a window at all.
+- give the three dead-end error screens a way out, and their waits a shape. `/repos/$slug`, `/settings`
+  and the process list each rendered a headline plus the raw message and stopped, so a transient IPC
+  failure left a screen whose only exit was to quit and relaunch (ATR-063); they now share one
+  `ErrorState` — the shape `/graph` had grown — which keeps printing the reason and offers **Try again**,
+  disabled while the refetch is in flight. The same three rendered a bare sentence while their data was
+  on its way (ATR-064) where the grid and the detail panel already used skeletons, so they now share one
+  `Skeleton` primitive and each stands in for its own content: the repo page's back affordance, name,
+  meta line and two blocks; the settings form's label-and-field rows; the process table's rows at their
+  column widths. `tests/e2e/retry-and-loading.spec.ts` reaches both states for real rather than
+  asserting that the branches exist: `src/main/ipc/_faults.ts` makes a named IPC channel fail or hold,
+  behind a flag file a test writes before launch and deletes when the outage should clear. One flag file
+  gates both, which is the fix for a second problem the first attempt had — a *one-shot* delay goes to
+  whoever asks first, and on this app that is the top bar's process badge or `settings:get` for the
+  catalog, so "is the skeleton on screen" became a question about mount order instead of about the
+  placeholder. Lifting the file releases a read that is already waiting, so the answer that arrives is
+  the app's own. Removing either fix turns the spec red, which is how the assertions were checked.
+- make the Claude range selector behave like the radio group it claims to be. It declared
+  `role="radiogroup"` over four `role="radio"` buttons and implemented none of the pattern: every option
+  was its own tab stop and the arrow keys did nothing, so a screen reader was told "radio button" and
+  handed a control that ignored the keys radios answer (ATR-065). The chosen option carries the group's
+  single tab stop, the arrows move *and* select with a wrap at both ends, and Home/End jump; Enter and
+  Space are left to the `<button>`. `tests/e2e/accessibility.spec.ts` presses the keys on `/claude` in
+  the real window and reads the choice back out of the accessibility tree, and reverting the fix fails
+  it at the first assertion.
+- name the top-bar destinations at every width, and stop the repo card pretending to be a button. Both
+  were P1 accessibility blockers in the [2026-10-07 review](./docs/audits/2026-10-07-ui-ux-review.md).
+  The nav labels hid with `display: none` under `lg`, which takes text out of the accessible name, so
+  below 1024px — which a person reaches by dragging the window edge, since the minimum is 800 — all
+  five destinations were icon-only links with no name; they are `sr-only lg:not-sr-only` now, so the
+  label names the link at every width and still collapses where there is no room for it. The card was
+  an `<article role="button">` wrapping real buttons, which is invalid: a button role cannot have
+  interactive descendants, so the favourite star, the port chips and the launcher row were flattened
+  or skipped. The card is a container now and its title is the named control, with Enter and Space
+  coming from the element rather than a hand-rolled `onKeyDown`.
+- measure those two in the running app rather than reading them off the source, in
+  `tests/e2e/accessibility.spec.ts`. It resizes the real window to 900px and reads the names, the
+  roles and the nested buttons back out of the browser's accessibility tree, on `/` and again on
+  `/graph`, which render through different shells; putting either fix back
+  the way it was turns it red, which is how the assertions were checked rather than assumed.
+- fit the two routes that were taller than their window, and name the two controls that were unnamed. Four
+  items from the [2026-10-07 review](./docs/audits/2026-10-07-ui-ux-review.md), all of them measured in the
+  running app. The catalog shell was 48px taller than the window it renders in and `/graph` 64px taller: the
+  first clipped the end of the grid behind `overflow-hidden`, the second pushed a bottom-anchored legend and
+  control bar below the fold on first paint. The catalog root now fits the shell that owns the page height and
+  the map fits its parent, and `tests/e2e/viewport-fit.spec.ts` resizes the real window to the 1280x800 the
+  review measured at and asserts the page is no taller than the window — before the fix that measurement read
+  848 against a window of 800. A table row was a counterfeit tab stop: `tabIndex` on a `<tr>`, no role, no name,
+  and Space doing nothing. The row is a container whose click is a pointer convenience now, and the project
+  name is a real button. And no node on the map could be reached from the keyboard at all, because cytoscape
+  paints into untitled canvas elements, which left the inspector able to describe only a node the mouse had
+  already selected: every node is also a button in a visually hidden list with a roving `tabindex`, one tab
+  stop for the whole map with the arrows to move and Enter to select, driving the same selection the canvas
+  rings. `tests/e2e/accessibility.spec.ts` grew a test for each, in table view and on `/graph`, and putting any
+  of the four fixes back turns it red.
+- let the native ABI flip work on a machine that cannot compile. `scripts/ensure-native-abi.mjs` asked one
+  runtime whether the natives loaded and, when they did not, called the answer "electron" — so a tree left at a
+  third Node ABI was reported as already correct and skipped, and the app then died on launch with the
+  `NODE_MODULE_VERSION` error the flip had just called fine. It now probes both the host and Electron, and
+  reports a module neither can load as `broken` rather than as Electron. Matching the ABI is also not the same
+  question as the tree being complete: `find-git-repositories` publishes a binary per ABI, but its `main` is a
+  `node-gyp` output, so on a machine whose Command Line Tools cannot link the module was missing while the
+  right binary sat unused beside it. `scripts/install-native-prebuilds.mjs` copies that binary into the path
+  its loader uses, and the flip runs it on both exits, including the one with nothing to rebuild. A module that
+  stays missing is named loudly and does not fail the flip: the Electron scan spec is where a genuinely missing
+  scanner belongs. A flip that cannot finish also no longer leaves the tree worse than it found it: `node-gyp
+  rebuild` deletes the addon before building a replacement, so a link failure used to leave none at all, and a
+  tree that worked under one runtime stopped loading under both — which is what running the same flip under an
+  un-pinned Node (26, for which `better-sqlite3` publishes no prebuild) did to this repository while this fix
+  was being verified. The addon is copied out of the tree before the rebuild and put back when the rebuild
+  leaves nothing loadable, and a failure now names the cause when the running Node is not the one `.nvmrc`
+  pins.
 - stop the documents praising their own honesty. Three of them described their status as an
   "honest" list and one labelled its own gaps as "stated plainly rather than glossed", while the
   evidence was already in each document.

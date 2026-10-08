@@ -11,6 +11,8 @@ import { ArrowLeft } from "lucide-react";
 
 import { SettingsForm } from "@renderer/components/settings-form";
 import { Button } from "@renderer/components/ui/button";
+import { ErrorState } from "@renderer/components/ui/error-state";
+import { Skeleton } from "@renderer/components/ui/skeleton";
 import { useSettings } from "@renderer/hooks/use-settings";
 import { Route as RootRoute } from "./__root";
 
@@ -43,18 +45,23 @@ function SettingsPage() {
       </div>
 
       {settingsQuery.isLoading ? (
-        <p className="font-mono text-sm text-muted-foreground">
-          Loading settings…
-        </p>
-      ) : settingsQuery.error ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-base font-medium text-destructive">
-            Failed to load settings
-          </p>
-          <pre className="overflow-x-auto rounded bg-muted p-3 font-mono text-xs text-muted-foreground">
-            {settingsQuery.error.message}
-          </pre>
+        // Label-and-field rows, the shape the form itself renders, so the
+        // page does not restructure when the values land (ATR-064).
+        <div aria-busy="true" aria-live="polite" className="flex flex-col gap-6">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-9 w-full max-w-md" />
+            </div>
+          ))}
         </div>
+      ) : settingsQuery.error ? (
+        <ErrorState
+          title="Failed to load settings"
+          message={settingsQuery.error.message}
+          onRetry={() => void settingsQuery.refetch()}
+          retrying={settingsQuery.isFetching}
+        />
       ) : settingsQuery.data ? (
         <SettingsForm initialSettings={settingsQuery.data} />
       ) : null}

@@ -8,6 +8,12 @@
  * Sorting is column-driven with `aria-sort` so the current order is
  * announced, and every row keeps the same marks as the card views so
  * the two modes stay legible against each other.
+ *
+ * One structural rule, the same one the grid card follows: the row is a
+ * *container*, not a control. A `<tr>` is announced as a row — no name to
+ * press and no role to press it with — while the favourite star inside it is a
+ * real button, so the row's own click is a convenience for a pointer and the
+ * named, keyboard-reachable control is the project name.
  */
 
 import * as React from "react";
@@ -174,31 +180,41 @@ export function RepoTable({
           );
           const isChecked = checkedSlugs.has(repo.slug);
 
+          /** The row's click, for a pointer: anywhere on the row selects it. */
+          const handleRowClick = (event: React.MouseEvent<HTMLElement>) => {
+            if (event.metaKey || event.ctrlKey) {
+              onToggleChecked(repo.slug, true);
+              return;
+            }
+            if (event.shiftKey) {
+              onOpenEditor(repo.slug);
+              return;
+            }
+            onSelect(repo.slug);
+          };
+
+          /**
+           * The name's click, answered exactly once.
+           *
+           * Without the stop the same event would also reach the row's handler
+           * and run the action twice — which for a Cmd-click means selecting and
+           * immediately un-selecting, a no-op that reads as a dead control.
+           */
+          const handleNameClick = (
+            event: React.MouseEvent<HTMLButtonElement>,
+          ) => {
+            event.stopPropagation();
+            handleRowClick(event);
+          };
+
           return (
             <tr
               key={repo.slug}
               data-repo-slug={repo.slug}
               data-selected={selectedSlug === repo.slug ? "true" : "false"}
-              tabIndex={0}
               draggable
               onDragStart={(event) => onDragStart?.(repo.slug, event)}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey) {
-                  onToggleChecked(repo.slug, true);
-                  return;
-                }
-                if (event.shiftKey) {
-                  onOpenEditor(repo.slug);
-                  return;
-                }
-                onSelect(repo.slug);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onSelect(repo.slug);
-                }
-              }}
+              onClick={handleRowClick}
               className={cn(
                 "cursor-pointer border-b border-border/60 transition-colors duration-150",
                 "hover:bg-surface-raised",
@@ -222,9 +238,16 @@ export function RepoTable({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="atr-truncate font-mono text-[13px] font-medium text-foreground">
+                      <button
+                        type="button"
+                        onClick={handleNameClick}
+                        aria-pressed={
+                          selectedSlug === repo.slug ? "true" : "false"
+                        }
+                        className="atr-truncate cursor-pointer text-left font-mono text-[13px] font-medium text-foreground"
+                      >
                         {repo.name}
-                      </span>
+                      </button>
                       {repo.missing ? <MissingMark compact /> : null}
                       {repo.isDirty ? <DirtyMark compact /> : null}
                     </div>

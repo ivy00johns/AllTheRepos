@@ -50,6 +50,12 @@ interface CatalogViewState {
   expandedDirs: string[];
   /** Selected directory subtree, or `null` for the whole catalog. */
   selectedDir: string | null;
+  /**
+   * Whether `selectedDir` means "exactly this folder" or "this folder and
+   * everything under it". False for a folder selection, true for the
+   * rail's "directly in this folder" row.
+   */
+  selectedDirExact: boolean;
   /** Ownership facet; empty means no ownership restriction. */
   ownershipFilter: Ownership[];
   /**
@@ -68,7 +74,7 @@ interface CatalogViewState {
   setSort(sort: SortKey, order?: "asc" | "desc"): void;
   toggleDir(path: string): void;
   expandDirs(paths: string[]): void;
-  setSelectedDir(path: string | null): void;
+  setSelectedDir(path: string | null, exact?: boolean): void;
   toggleOwnership(kind: Ownership): void;
   clearOwnership(): void;
   setIncludeArchived(include: boolean): void;
@@ -89,6 +95,7 @@ export const useCatalogView = create<CatalogViewState>()(
       order: "desc",
       expandedDirs: [],
       selectedDir: null,
+      selectedDirExact: false,
       ownershipFilter: [],
       includeArchived: false,
       favoritesOnly: false,
@@ -122,7 +129,8 @@ export const useCatalogView = create<CatalogViewState>()(
         set((s) => ({
           expandedDirs: [...new Set([...s.expandedDirs, ...paths])],
         })),
-      setSelectedDir: (path) => set({ selectedDir: path, selection: [] }),
+      setSelectedDir: (path, exact = false) =>
+        set({ selectedDir: path, selectedDirExact: exact, selection: [] }),
       toggleOwnership: (kind) =>
         set((s) => ({
           ownershipFilter: s.ownershipFilter.includes(kind)
@@ -165,6 +173,7 @@ export const useCatalogView = create<CatalogViewState>()(
         order: state.order,
         expandedDirs: state.expandedDirs,
         selectedDir: state.selectedDir,
+        selectedDirExact: state.selectedDirExact,
         ownershipFilter: state.ownershipFilter,
         includeArchived: state.includeArchived,
         favoritesOnly: state.favoritesOnly,

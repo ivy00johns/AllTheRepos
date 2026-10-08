@@ -439,9 +439,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function ScanRootRow({
   node,
   selectedDir,
+  selectedDirExact,
   expanded,
   onToggle,
   onSelect,
+  onSelectExact,
   onDropRepos,
   onDropFolder,
   onRequestFolderOp,
@@ -450,9 +452,11 @@ function ScanRootRow({
 }: {
   node: TreeNode;
   selectedDir: string | null;
+  selectedDirExact: boolean;
   expanded: Set<string>;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
+  onSelectExact: (path: string) => void;
   onDropRepos?: (slugs: string[], targetDir: string) => void;
   onDropFolder?: (fromPath: string, targetParent: string) => void;
   onRequestFolderOp?: (request: FolderDialogRequest) => void;
@@ -612,12 +616,24 @@ function ScanRootRow({
             {node.repos.length > 0 ? (
               <li>
                 {/*
-                  Informational, not actionable — these repos are already
-                  included when the root itself is selected. Rendered as a
-                  plain row rather than a disabled button, which reads as
-                  something broken rather than something to read.
+                  Selecting the root shows its whole subtree, which buries
+                  the repos sitting at its top level among everything below
+                  them. This row narrows the catalog to exactly those — the
+                  repos whose parent IS this folder — so the count in the
+                  badge is a set you can open rather than a number you have
+                  to find by hand.
                 */}
-                <div className="atr-rail-row cursor-default pl-4 hover:bg-transparent">
+                <button
+                  type="button"
+                  onClick={() => onSelectExact(node.path)}
+                  title={`Show the ${node.repos.length} repos directly in ${tildify(node.path)}`}
+                  className="atr-rail-row pl-4"
+                  data-selected={
+                    selectedDir === node.path && selectedDirExact
+                      ? "true"
+                      : "false"
+                  }
+                >
                   <Folder
                     className="ml-6 h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
                     aria-hidden
@@ -626,7 +642,7 @@ function ScanRootRow({
                     directly in this folder
                   </span>
                   <CountBadge count={node.repos.length} />
-                </div>
+                </button>
               </li>
             ) : null}
           </ul>
@@ -653,6 +669,7 @@ export function DirRail({
   addingScanPath,
 }: DirRailProps) {
   const selectedDir = useCatalogView((s) => s.selectedDir);
+  const selectedDirExact = useCatalogView((s) => s.selectedDirExact);
   const setSelectedDir = useCatalogView((s) => s.setSelectedDir);
   const expandedDirs = useCatalogView((s) => s.expandedDirs);
   const toggleDir = useCatalogView((s) => s.toggleDir);
@@ -836,11 +853,16 @@ export function DirRail({
             key={root.path}
             node={root}
             selectedDir={selectedDir}
+            selectedDirExact={selectedDirExact}
             expanded={expanded}
             onToggle={toggleDir}
             onSelect={(path) =>
               setSelectedDir(selectedDir === path ? null : path)
             }
+            onSelectExact={(path) => {
+              const already = selectedDir === path && selectedDirExact;
+              setSelectedDir(already ? null : path, true);
+            }}
             onDropRepos={onDropRepos}
             onDropFolder={onDropFolder}
             onRequestFolderOp={onRequestFolderOp}
