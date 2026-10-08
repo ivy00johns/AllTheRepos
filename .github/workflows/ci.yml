@@ -10,8 +10,8 @@
 # that**: `typecheck`, `lint`, the prose gate, the document and architecture
 # checks and the unit suite are host-Node work, and all three native modules the
 # suite loads have a Linux answer — `better-sqlite3` and
-# `find-git-repositories` compile from source, and `@lancedb/lancedb` publishes
-# a Linux binary. It runs on `ubuntu-latest` for that reason, and because macOS
+# `find-git-repositories` compile from source, and `sqlite-vec` publishes a
+# Linux binary. It runs on `ubuntu-latest` for that reason, and because macOS
 # minutes bill at ten times the Linux rate on a private repository, which is the
 # budget this pipeline actually spends. Moving the whole job back to one runner
 # is the tidy-up that costs the most, so `tests/unit/workflows/ci.spec.ts` holds
@@ -133,13 +133,15 @@ jobs:
       # Every architecture in `electron-builder.yml` has to have a binary for
       # every native module inside the bundle, and "macOS on Apple silicon" is a
       # fact about that file while the reasons for it live in the dependency
-      # tree — `@lancedb/lancedb` ships prebuilt binaries with no darwin-x64
-      # among them, while `better-sqlite3` and `find-git-repositories` compile
-      # from source and cover anything. Adding `x64` to the dmg/zip targets
-      # packages fine and then loses semantic search on an Intel Mac, because
-      # `services/lance.ts` fails soft on purpose — so no gate would go red and
-      # this is the gate that has to. It also prints which platforms *would*
-      # build, which is the answer to "can we expand?". Pure Node, no network.
+      # tree — `better-sqlite3` and `find-git-repositories` compile from source
+      # and cover anything, and `sqlite-vec` ships prebuilt binaries with
+      # `darwin-x64` among them, which is why `x64` left the parked list: adding
+      # it to the dmg/zip targets now packages a build that keeps semantic
+      # search. This stays the gate that has to notice when that changes, because
+      # a store that cannot load fails soft on purpose — `services/vector-store.ts`
+      # reports the reason and search answers with keywords — so no other gate
+      # would go red. It also prints which platforms *would* build, which is the
+      # answer to "can we expand?". Pure Node, no network.
       - name: The architectures, and the binaries each one needs
         run: pnpm platforms:check
       # The unit suite drives the real `lsof` and `ps`: two end-to-end tests bind
@@ -186,19 +188,22 @@ jobs:
   # is a one-line change that packages and uploads an Intel build, and whether
   # that build is worth shipping is what this leg is for.
   #
-  # The loss that comes with it is unglamorous and easy to miss: no darwin-x64
-  # binary means no vector store, `services/lance.ts` fails soft on purpose, and
-  # semantic search quietly degrades to FTS. Two gates cover that pair.
-  # `pnpm platforms:check` asserts the missing binary from package metadata, on
-  # the fast job. `tests/e2e/vector-store.spec.ts` measures it here — it asks the
-  # app's own runtime whether the binding loads, and then drives a real search
-  # with an embedding provider arranged on the runner, which is what puts
-  # `lance.ts`'s own `catch` under test rather than one of the two around it.
-  # Delete that catch and this leg goes red, the only place in this repository
-  # that would notice. `tests/e2e/semantic-search.spec.ts` is the other side of
-  # the same seam: it scans the seeded repos with a provider on the runner and
-  # asserts a search comes back with a vector contribution, which is the only
-  # test where a stored embedding and a query meet.
+  # The vector store is the piece with a soft failure in it: when the extension
+  # will not load, `services/vector-store.ts` reports the reason and search
+  # answers with keywords instead of throwing, so no gate goes red on its own.
+  # Two gates cover that pair. `pnpm platforms:check` asserts from package
+  # metadata that every declared architecture has a binary, on the fast job.
+  # `tests/e2e/vector-store.spec.ts` measures the machine instead — it resolves
+  # the extension, loads it through the same `better-sqlite3` the app uses, and
+  # runs a real KNN query in a throwaway database, then requires a search with no
+  # provider to say so out loud rather than quietly returning fewer kinds of
+  # match. `tests/e2e/semantic-search.spec.ts` is the other side of the same
+  # seam: it scans the seeded repos with a provider on the runner and asserts a
+  # search comes back with a vector contribution, which is the only test where a
+  # stored embedding and a query meet. The failure path itself — an extension
+  # that will not load — cannot be arranged on a runner whose real machine is
+  # what is under test, so it is covered where it can be:
+  # `tests/unit/main/services/vector-store-unavailable.spec.ts`.
   #
   # `macos-13` was the Intel label this leg was first asked for, and it no longer
   # exists: GitHub retired the macOS 13 images on 2025-12-04 (the last x86_64

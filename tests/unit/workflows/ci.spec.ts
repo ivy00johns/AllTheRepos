@@ -173,7 +173,7 @@ describe("the jobs that were already here", () => {
     // The cheap runner is the point. Nothing in the fast job launches the app or
     // packages it, and the three native modules its suite loads all have a Linux
     // answer (`better-sqlite3` and `find-git-repositories` compile from source,
-    // `@lancedb/lancedb` publishes a Linux binary) — while macOS minutes bill at
+    // `sqlite-vec` publishes a Linux binary) — while macOS minutes bill at
     // ten times the Linux rate on a private repository. The jobs that *do* launch
     // a window cannot follow it there: the bundle is arm64 and the specs drive a
     // real app. Asserted here because the tempting tidy-up — every job back on

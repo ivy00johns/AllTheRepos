@@ -345,7 +345,25 @@ afterEach(() => {
 function git(cwd: string, args: string[]): string {
   const result = spawnSync(
     "git",
-    ["-c", "user.email=e2e@example.com", "-c", "user.name=E2E", ...args],
+    [
+      "-c",
+      "user.email=e2e@example.com",
+      "-c",
+      "user.name=E2E",
+      // Signing is the developer's setting, not the fixture's, for the same
+      // reason the identity above is: a global `commit.gpgsign = true` (an SSH
+      // agent, 1Password here) sends every wiring commit through an agent that
+      // has nothing to do with this test, and a prompt it cannot answer fails
+      // the fixture instead of the script. `next-release.mjs` disables signing
+      // for its own commit and tag for the same reason (ATR-025); what the
+      // scaffold does is not what is under test, so it must not depend on a
+      // machine that can sign.
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "tag.gpgsign=false",
+      ...args,
+    ],
     { cwd, encoding: "utf8" },
   );
   expect(result.status, `git ${args.join(" ")}: ${result.stderr}`).toBe(0);
