@@ -13,6 +13,18 @@ source of truth for the current version.
 
 ### Added
 
+- keep the macOS bill from creeping back, in `scripts/check-ci-cost.mjs`. macOS runner minutes bill at
+  ten times the Linux rate on a private repository, which makes where a job runs a spending decision
+  rather than a style one — and nothing was keeping count, which is how a two-leg Electron matrix came
+  to run on every push for a build nobody can download. `pnpm ci-cost:check` on the fast job reads
+  `.github/workflows/` and compares it with `MACOS_BUDGET`: every job allowed on a Mac, with its
+  runner, how often it starts and the reason it has to be one, plus `PER_PUSH_LIMIT` — the number that
+  actually spent this account's Actions allowance. It fails an undeclared macOS job, a declared one
+  that grew a second leg, a runner label this repository has retired, a job that lost the `if:`
+  keeping it off every push, a budget entry left behind by a job that no longer exists, and a third
+  job arriving on every push. It reads triggers and runners rather than durations, so it knows the
+  shape of the spend and not its size. Proved able to fail four ways against a copy of these
+  workflows, with the control run green; 23 unit tests.
 - gate the outward prose, with the house style kept in a config. `pnpm lint:prose` runs a vendored
   prose checker over the tree on the fast CI job, beside `pnpm lint`, and `.prose-guard.json` is
   where this project's decisions live: em dashes are deliberate, so that rule is a warning rather

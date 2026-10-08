@@ -209,6 +209,16 @@ describe("the jobs that were already here", () => {
     expect(commands(jobBlock("check"))).toMatch(/apt-get install[^\n]*lsof/);
   });
 
+  test("runs the cost guard, in the job that would notice a new macOS job", () => {
+    // A budget nobody reads is not a guard. `scripts/check-ci-cost.mjs` holds
+    // the macOS spend to what this repository declared, and this is the step
+    // that makes it a gate rather than a comment. It runs on the fast job — a
+    // guard that itself needed a Mac would be its own counterexample — and
+    // `tests/unit/scripts/check-ci-cost.spec.ts` is where the budget, the
+    // verdicts and the ways it can fail are covered.
+    expect(commands(jobBlock("check"))).toContain("pnpm ci-cost:check");
+  });
+
   test("the comment that said there was no linter is gone", () => {
     // It read "there is no linter in the repo today, so the workflow does not
     // pretend to run one", which was true and is not any more — a stale excuse is

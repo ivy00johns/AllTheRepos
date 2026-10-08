@@ -33,6 +33,7 @@
     "links:check": "node scripts/check-doc-links.mjs",
     "versions:check": "node scripts/check-doc-versions.mjs",
     "platforms:check": "node scripts/check-platforms.mjs",
+    "ci-cost:check": "node scripts/check-ci-cost.mjs",
     "first-launch:write": "node scripts/first-launch.mjs --write",
     "first-launch:check": "node scripts/first-launch.mjs --check && node scripts/check-first-launch-advice.mjs",
     "badges": "pnpm test:report && node scripts/make-test-badge.mjs .vitest-results.json",
