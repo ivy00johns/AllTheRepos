@@ -56,7 +56,6 @@ export interface RepoCardProps {
   onToggleChecked?: (slug: string, additive: boolean) => void;
   onOpenEditor?: (slug: string) => void;
   onDragStart?: (slug: string, event: React.DragEvent) => void;
-  tabIndex?: number;
 }
 
 /** Tags worth showing: distinctive ones first, ubiquitous ones dropped. */
@@ -85,7 +84,6 @@ export function RepoCard({
   onToggleChecked,
   onOpenEditor,
   onDragStart,
-  tabIndex = 0,
 }: RepoCardProps) {
   const { processes } = useProcessesForRepo(repo.slug);
   const gallery = variant === "gallery";
@@ -119,25 +117,35 @@ export function RepoCard({
     onSelect?.(repo.slug);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onSelect?.(repo.slug);
-    }
+  /**
+   * The name is the control, and the card around it is a container.
+   *
+   * It used to be the other way round: `role="button"` on the `<article>`, with
+   * the port chips, the favourite star and five launcher buttons rendered inside
+   * it. Interactive descendants of a button role are invalid — assistive tech
+   * flattens or skips them, so the nested controls became unreachable or
+   * ambiguous (ATR-060, and axe's `nested-interactive`).
+   *
+   * So the selection affordance moved to where it can have a name and a
+   * keyboard home of its own, and the card stopped being a tab stop. The mouse
+   * behaviour is unchanged: the card still selects on click, and the name
+   * forwards the same modifiers (cmd for multi-select, shift to open the
+   * editor) before stopping propagation so the click is not handled twice.
+   */
+  const handleNameClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    handleClick(event);
   };
+
+  const cardLabel = `${repo.name}, ${ownership.label}, in ${folderLabel}, last touched ${activity.relative}${repo.isDirty ? ", uncommitted changes" : ""}`;
 
   return (
     <article
-      role="button"
-      tabIndex={tabIndex}
-      aria-pressed={selected ? "true" : "false"}
-      aria-label={`${repo.name}, ${ownership.label}, in ${folderLabel}, last touched ${activity.relative}${repo.isDirty ? ", uncommitted changes" : ""}`}
       data-repo-slug={repo.slug}
       data-selected={selected ? "true" : "false"}
       draggable
       onDragStart={(event) => onDragStart?.(repo.slug, event)}
       onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
         "atr-surface group relative flex overflow-hidden rounded-lg shadow-card",
         gallery ? "h-[268px] flex-col" : "h-[128px] flex-row gap-3 p-3",
@@ -171,7 +179,15 @@ export function RepoCard({
       >
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <h3 className="atr-truncate font-mono text-sm font-semibold text-foreground">
-            {repo.name}
+            <button
+              type="button"
+              aria-pressed={selected ? "true" : "false"}
+              aria-label={cardLabel}
+              onClick={handleNameClick}
+              className="block max-w-full cursor-pointer truncate text-left"
+            >
+              {repo.name}
+            </button>
           </h3>
           <PortChipsForRepo processes={processes} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">

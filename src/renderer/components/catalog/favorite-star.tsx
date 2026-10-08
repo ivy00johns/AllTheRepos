@@ -38,7 +38,7 @@ export function FavoriteStar({
       aria-label={isFavorite ? `Unpin ${name}` : `Pin ${name}`}
       title={isFavorite ? "Remove from favourites" : "Add to favourites"}
       onClick={(event) => {
-        // The card behind this is a button too; a star click must not
+        // The card around this selects on click, so a star click must not
         // also select or open the repo.
         event.stopPropagation();
         toggle.mutate({ slug, favorite: !isFavorite });
