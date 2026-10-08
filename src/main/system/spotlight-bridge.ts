@@ -1,71 +1,38 @@
 /**
- * Thin runtime bridge to the backend-windows-owned spotlight window.
+ * Thin bridge to the spotlight window.
  *
- * `backend-windows` ships `src/main/window/spotlight.ts` exporting:
- *   ```
- *   export const spotlightWindow: {
- *     toggle(): void;
- *     show(): void;
- *     hide(): void;
- *   };
- *   ```
+ * `src/main/window/spotlight.ts` exports `spotlightWindow`; this module is the
+ * main process's one way to reach it, so `hotkey.ts` and the `app:showSpotlight`
+ * IPC handler do not import a window factory directly.
  *
- * Dynamic `require` so the build succeeds before backend-windows merges
- * (see `tray-popover-bridge.ts` for the same rationale).
+ * **It is a static import on purpose, and that is a bug fix.** It used to be a
+ * `require("@main/window/spotlight")` inside a try/catch, so that the build would
+ * succeed while the window factory was still being written alongside it. But
+ * `@main` is a *build-time* alias (see `electron.vite.config.ts`): the bundler
+ * rewrites `import` specifiers and does not touch a `require` left in the output.
+ * `out/main/index.js` therefore shipped with the literal
+ * `require("@main/window/spotlight")` and without a single line of the window
+ * factory — so `loadSpotlight()` threw, the bridge logged its warning, and the
+ * spotlight could not open in any built app. The same was true of the tray
+ * popover's bridge. Both factories are in the tree now, so both are imported
+ * statically and both are bundled; `tests/e2e/type-scale.spec.ts` opens and audits
+ * each of them on the built app, which is the check that would have caught it.
  */
 
-type SpotlightApi = {
-  toggle(): void;
-  show(): void;
-  hide(): void;
-};
+import { spotlightWindow } from "@main/window/spotlight";
 
-let cached: SpotlightApi | null = null;
-let attempted = false;
-
-function loadSpotlight(): SpotlightApi | null {
-  if (cached) return cached;
-  if (attempted) return null;
-  attempted = true;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- a module that may not be in the tree yet; see the header
-    const mod = require("@main/window/spotlight") as
-      | { spotlightWindow?: SpotlightApi }
-      | undefined;
-    if (mod && typeof mod.spotlightWindow === "object") {
-      cached = mod.spotlightWindow;
-      return cached;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
+/** Show the spotlight window, creating it if this is its first appearance. */
 export function showSpotlightWindow(): void {
-  const api = loadSpotlight();
-  if (!api) {
-    console.warn(
-      "[spotlight] spotlight window not available (backend-windows not loaded)",
-    );
-    return;
-  }
-  api.show();
+  spotlightWindow.show();
 }
 
+/** Hide it. Safe when it has never been shown — main hides a window it owns and
+ * the window factory treats a missing window as nothing to hide. */
 export function hideSpotlightWindow(): void {
-  const api = loadSpotlight();
-  if (!api) return;
-  api.hide();
+  spotlightWindow.hide();
 }
 
+/** What the global accelerator runs: show if hidden, hide if already up. */
 export function toggleSpotlightWindow(): void {
-  const api = loadSpotlight();
-  if (!api) {
-    console.warn(
-      "[spotlight] spotlight window not available (backend-windows not loaded)",
-    );
-    return;
-  }
-  api.toggle();
+  spotlightWindow.toggle();
 }

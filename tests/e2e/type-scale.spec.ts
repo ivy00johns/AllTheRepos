@@ -11,6 +11,10 @@
  *     be silently immune to a rule about every screen.
  *   - The catalog's view modes are read off the running toolbar, so a fourth view
  *     is audited the day it is added.
+ *   - The satellite windows are read out of the factories that create them, so the
+ *     spotlight and the tray popover are audited too. They are separate renderer
+ *     roots over this same bundle, and the popover has no door from a renderer at
+ *     all — see `SATELLITES` for how each one is opened.
  *
  * Each screen is then held to the same three things, on the built renderer:
  *
@@ -27,22 +31,25 @@
  * Findings are collected across the whole sweep and asserted once, so a run names
  * every screen that is wrong instead of stopping at the first.
  *
- * Not on the list, and said here rather than left implied: the spotlight and tray
- * popover windows render from this same bundle but nothing in the suite opens
- * them, so their classes are covered by the source walk and not by this sweep.
- *
  * Owner: qe-agent (2026-10-08 UI/UX pass).
  */
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type ElectronApplication,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import { launchApp } from "./_launch-app";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const ROUTES_DIR = join(REPO_ROOT, "src", "renderer", "routes");
+const WINDOW_DIR = join(REPO_ROOT, "src", "main", "window");
 
 /** The size each named step claims. The unit guard pins the CSS; this reads what painted. */
 const TIER_PX: Record<string, number> = {
@@ -104,7 +111,9 @@ function audit(win: Page): Promise<Audit> {
       raw,
       tiers,
       underFloor,
-      painted: (document.querySelector("main")?.innerText ?? "").trim().length,
+      // `body`, not `main`: the satellite windows are the same bundle without a
+      // `<main>` — a root component of their own — and this is a liveness check.
+      painted: (document.body?.innerText ?? "").trim().length,
     };
   }, Object.keys(TIER_PX));
 }
@@ -127,6 +136,28 @@ function declaredRoutePaths(): string[] {
       }
       return path;
     })
+    .sort();
+}
+
+/**
+ * Every satellite window the main process creates, read from the factories that
+ * create them.
+ *
+ * Each loads this same renderer bundle with a `#window=<kind>` hash, which is what
+ * `src/renderer/main.tsx` reads to choose the root component — so the hash constant
+ * in the factory is the app's own statement that the window exists. The main
+ * window carries no hash and is covered by the route sweep instead.
+ */
+function declaredWindowKinds(): string[] {
+  return readdirSync(WINDOW_DIR)
+    .filter((name) => name.endsWith(".ts"))
+    .flatMap((name) => {
+      const source = readFileSync(join(WINDOW_DIR, name), "utf8");
+      return [...source.matchAll(/_HASH\s*=\s*"window=([a-z-]+)"/g)].map(
+        (match) => match[1] ?? "",
+      );
+    })
+    .filter(Boolean)
     .sort();
 }
 
@@ -187,6 +218,85 @@ async function toRepoPage(win: Page): Promise<void> {
   });
 }
 
+/**
+ * The satellite windows, each opened the way it can be opened.
+ *
+ * The spotlight has a door that works in every build — the command palette's
+ * `app.open-spotlight` action, which is the same code path the global accelerator
+ * runs — so it is opened like any other destination. The tray popover has none:
+ * main's tray click is the only path to it, so the sweep calls the handler main
+ * publishes on `globalThis` for an `ATR_E2E` run. That is the one seam this spec
+ * needs, and it is the app's real path rather than a second factory.
+ */
+const SATELLITES: Array<{
+  kind: string;
+  open: (ctx: { app: ElectronApplication; win: Page }) => Promise<void>;
+  marker: (page: Page) => Locator;
+}> = [
+  {
+    kind: "spotlight",
+    open: async ({ win }) => {
+      await win.keyboard.press("Meta+K");
+      const palette = win.getByRole("dialog", { name: /command palette/i });
+      await expect(palette).toBeVisible({ timeout: 15_000 });
+      await palette.getByPlaceholder(/run a command/i).fill("open spotlight");
+      await expect(
+        palette.getByText(/^open spotlight$/i).first(),
+        "the palette no longer carries the door to the spotlight — the window is now unreachable from the app",
+      ).toBeVisible({ timeout: 5_000 });
+      await win.keyboard.press("Enter");
+      await expect(palette).toBeHidden({ timeout: 5_000 });
+    },
+    marker: (page) => page.getByLabel("Spotlight search"),
+  },
+  {
+    kind: "tray-popover",
+    open: async ({ app }) => {
+      await app.evaluate(() => {
+        (
+          globalThis as { __atrE2EOpenTrayPopover?: () => void }
+        ).__atrE2EOpenTrayPopover?.();
+      });
+    },
+    marker: (page) => page.getByRole("button", { name: /^open spotlight/i }),
+  },
+];
+
+/**
+ * The Page behind a satellite window, once it exists and paints.
+ *
+ * The windows appear asynchronously — the spotlight is created lazily on its
+ * first `show()`, and the popover on its first `showAt()` — so this polls the
+ * app's own window list for the one whose URL carries the kind's hash.
+ */
+async function satellitePage(
+  app: ElectronApplication,
+  kind: string,
+  marker: (page: Page) => Locator,
+): Promise<Page> {
+  let found: Page | undefined;
+  await expect
+    .poll(
+      () => {
+        found = app
+          .windows()
+          .find((page) => page.url().includes(`#window=${kind}`));
+        return found !== undefined;
+      },
+      {
+        timeout: 20_000,
+        message: `the ${kind} window never opened`,
+      },
+    )
+    .toBe(true);
+
+  const page = found as Page;
+  await page.waitForLoadState("domcontentloaded");
+  // Its own control, so the audit reads a painted screen rather than a blank one.
+  await expect(marker(page)).toBeVisible({ timeout: 15_000 });
+  return page;
+}
+
 /** The rest of the routes, each reached the way a person reaches it. */
 const PLAN: Array<{ route: string; reach: (win: Page) => Promise<void> }> = [
   {
@@ -221,6 +331,23 @@ const PLAN: Array<{ route: string; reach: (win: Page) => Promise<void> }> = [
   { route: "/repos/$slug", reach: toRepoPage },
 ];
 
+/**
+ * Dismiss the satellite windows before the app is asked to quit.
+ *
+ * Both of them hide instead of closing — an `event.preventDefault()` on `close`,
+ * which is what makes re-summoning them instant — so a graceful quit is left
+ * waiting on windows that are never going to close, and the worker times out with
+ * the app still up. `destroy()` is the only way past a handler that refuses, and
+ * it is the test's business to do it: no other spec opens these windows.
+ */
+async function dismissSatellites(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.webContents.getURL().includes("#window=")) window.destroy();
+    }
+  });
+}
+
 test.describe("type scale, on every screen", () => {
   test.setTimeout(240_000);
 
@@ -239,6 +366,27 @@ test.describe("type scale, on every screen", () => {
     expect(
       planned.filter((route) => !declared.includes(route)),
       "the plan visits a route the router does not compose",
+    ).toEqual([]);
+  });
+
+  test("every satellite window main creates is opened and audited", () => {
+    const kinds = declaredWindowKinds();
+    expect(
+      kinds.length,
+      "no satellite windows were found — this walk is reading the wrong directory",
+    ).toBeGreaterThan(1);
+
+    // The same two-way agreement as the routes: a window added later cannot be
+    // immune to a rule about every screen, and the sweep cannot open a window
+    // that no longer exists.
+    const opened = SATELLITES.map((satellite) => satellite.kind);
+    expect(
+      kinds.filter((kind) => !opened.includes(kind)),
+      "main creates a window this sweep never opens — add it to SATELLITES",
+    ).toEqual([]);
+    expect(
+      opened.filter((kind) => !kinds.includes(kind)),
+      "the sweep opens a window kind main does not create",
     ).toEqual([]);
   });
 
@@ -261,9 +409,12 @@ test.describe("type scale, on every screen", () => {
        * The rule, read off whatever is on screen and collected rather than thrown:
        * one run reports every screen that is wrong.
        */
-      const auditScreen = async (screen: string): Promise<void> => {
+      const auditScreen = async (
+        screen: string,
+        page: Page = win,
+      ): Promise<void> => {
         audited.push(screen);
-        const result = await audit(win);
+        const result = await audit(page);
 
         // An empty screen would satisfy every assertion below, so prove it painted.
         expect(
@@ -327,6 +478,14 @@ test.describe("type scale, on every screen", () => {
         await auditScreen(`${CATALOG} — ${mode} view`);
       }
 
+      // ----- The satellite windows: separate renderer roots, so separate screens
+      // with their own type. -----
+      for (const satellite of SATELLITES) {
+        await satellite.open({ app, win });
+        const page = await satellitePage(app, satellite.kind, satellite.marker);
+        await auditScreen(`#window=${satellite.kind}`, page);
+      }
+
       // A loop that never ran would pass every assertion above on nothing, so the
       // screens that were audited are compared with the plan they were meant to
       // follow — and that plan is itself held to the router by the test above.
@@ -337,6 +496,7 @@ test.describe("type scale, on every screen", () => {
         CATALOG,
         ...PLAN.map((screen) => screen.route),
         ...modes.map((mode) => `${CATALOG} — ${mode} view`),
+        ...SATELLITES.map((satellite) => `#window=${satellite.kind}`),
       ]);
 
       expect(
@@ -352,6 +512,7 @@ test.describe("type scale, on every screen", () => {
         "a named step is defined but drawn on no screen of the app",
       ).toEqual([]);
     } finally {
+      await dismissSatellites(app);
       await close();
     }
   });

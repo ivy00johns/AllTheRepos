@@ -25,6 +25,7 @@ import {
   type IpcMainEvent,
   type MenuItemConstructorOptions,
 } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { IPC } from "@shared/ipc";
@@ -63,17 +64,44 @@ let tray: Tray | null = null;
 let forwarderWired = false;
 
 /**
- * Resolve the tray template asset path. In the bundled build the asset
- * lives under the app's `resources/` directory; in dev it lives at the
- * repo root. We resolve relative to `app.getAppPath()` which is correct
- * for both.
+ * Resolve the tray template asset path.
+ *
+ * A packaged app carries the asset under its own `resources/`, and
+ * `app.getAppPath()` finds it there. That is *not* true of the two layouts this
+ * app is otherwise run in, and the difference matters: `app.getAppPath()` answers
+ * with the directory holding the entry point, so an `out/` build (`electron-vite
+ * preview`, and the whole Electron E2E suite, which launches `out/main/index.js`)
+ * looks for `out/main/resources/tray/…`, which is not a place anything ever puts
+ * an asset. The tray then took its documented hard-failure path — a loud warning
+ * and no tray icon at all — which is how the popover came to have no reachable
+ * door from the suite.
+ *
+ * So: the app path first, and for an un-packaged run the repository's copy, which
+ * is where the asset lives for dev, preview and the E2E alike.
  *
  * `tray-Template.png` is the @1x asset; macOS automatically picks up
  * `tray-Template@2x.png` on Retina displays via the `@2x` suffix
  * convention (see `resources/tray/tray-README.md`).
  */
 function resolveTrayIconPath(): string {
-  return join(app.getAppPath(), "resources", "tray", "tray-Template.png");
+  const fromAppPath = join(
+    app.getAppPath(),
+    "resources",
+    "tray",
+    "tray-Template.png",
+  );
+  if (existsSync(fromAppPath)) return fromAppPath;
+
+  // `out/main/index.js` → the repository root.
+  const fromRepo = join(
+    __dirname,
+    "..",
+    "..",
+    "resources",
+    "tray",
+    "tray-Template.png",
+  );
+  return existsSync(fromRepo) ? fromRepo : fromAppPath;
 }
 
 /**
@@ -219,7 +247,14 @@ export function createTray(): Tray | null {
   tray = new Tray(image);
   tray.setToolTip("AllTheRepos");
 
-  tray.on("click", () => {
+  /**
+   * The tray's left-click path: the popover next to the icon, or the fallback
+   * menu when the popover is unavailable.
+   *
+   * Named rather than inlined because the E2E suite needs to reach exactly this
+   * path — see the `ATR_E2E` block below.
+   */
+  const openTrayPopover = (): void => {
     if (!tray) return;
     const bounds = tray.getBounds();
     try {
@@ -233,7 +268,24 @@ export function createTray(): Tray | null {
       );
       if (tray) tray.popUpContextMenu(buildContextMenu());
     }
-  });
+  };
+
+  tray.on("click", openTrayPopover);
+
+  //
+  // Under E2E (`ATR_E2E=1`, set by playwright.electron.config.ts, the same
+  // variable that hides the dock icon and shows the window inactive) publish
+  // that handler on `globalThis`. The popover is the one screen of this app with
+  // no door from a renderer — the spotlight is opened by an action and every
+  // route by the top bar — so a spec that wants to look at it can only reach it
+  // from the main process. This hands over the real path (the icon's own
+  // bounds), rather than a second factory that would drift from this one.
+  //
+  if (process.env.ATR_E2E === "1") {
+    (
+      globalThis as { __atrE2EOpenTrayPopover?: () => void }
+    ).__atrE2EOpenTrayPopover = openTrayPopover;
+  }
 
   tray.on("right-click", () => {
     if (!tray) return;
