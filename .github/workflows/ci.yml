@@ -266,6 +266,20 @@ jobs:
           name: playwright-traces
           path: test-results/
           if-no-files-found: ignore
+      # TEMPORARY (remove before merge): render this runner's catalog baselines
+      # and upload them, so the `darwin23` set can be committed. `pnpm
+      # visual:baselines` is the permanent tool; this step only exists to run it
+      # on the runner once.
+      - name: Render catalog baselines for this runner (temporary)
+        if: always()
+        run: pnpm visual:baselines
+      - name: Upload catalog baselines (temporary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-visual-snapshots
+          path: tests/e2e/catalog-visual.spec.ts-snapshots/
+          if-no-files-found: ignore
 
   # The packaged update check, run against a GitHub that refuses to answer.
   #
