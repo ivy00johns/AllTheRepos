@@ -9,9 +9,9 @@
  *
  *   1. App launches and the catalog route renders without crashing.
  *   2. Layout chrome (top bar + search input + nav links) is visible.
- *   3. Settings route is reachable via in-app navigation. Note that
- *      because the renderer uses TanStack Router's memory history we
- *      navigate by clicking the in-app link, not by URL.
+ *   3. Settings route is reachable via in-app navigation. The router keeps
+ *      its route in the URL hash, so `#/settings` resolves, but the link is
+ *      what a person clicks.
  *   4. No red console errors during catalog load + nav. Yellow / info
  *      messages are tolerated.
  *

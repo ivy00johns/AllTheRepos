@@ -210,7 +210,7 @@ async function expectCatalog(win: Page): Promise<void> {
   });
 }
 
-/** Click a top-bar destination the way a person does — memory history has no URL. */
+/** Click a top-bar destination the way a person does. */
 async function goTo(win: Page, label: RegExp): Promise<void> {
   await win.getByRole("banner").getByRole("link", { name: label }).click();
 }
@@ -218,8 +218,8 @@ async function goTo(win: Page, label: RegExp): Promise<void> {
 /**
  * Reach `/repos/$slug` through the app's own deep link.
  *
- * The router uses TanStack Router's memory history, so there is no URL to type;
- * the detail panel's "open the full page" link only exists once the repo it
+ * The route is a page inside the app rather than an address to type; the
+ * detail panel's "open the full page" link only exists once the repo it
  * would open has loaded — which is exactly the state under test; and the tray
  * and Claude tables only link to repos they can match. `alltherepos://repo/<slug>`
  * is the one route onto that page that does not depend on the read, and it is

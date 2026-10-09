@@ -419,8 +419,8 @@ async function launchPackagedApp<T = undefined>(
 
   const page = await app.firstWindow({ timeout: 180_000 });
 
-  // Settings is the only place the check can be triggered from; the router uses
-  // memory history, so there is no URL to navigate to.
+  // Settings is the only place the check can be triggered from, so this walks
+  // the in-app link rather than the address.
   await page.getByRole("banner").getByRole("link", { name: /^settings$/i }).click();
   await page.getByRole("heading", { name: /^settings$/i }).waitFor({ timeout: 120_000 });
 
