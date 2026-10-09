@@ -86,7 +86,7 @@ export function SearchBar({
         aria-label="Search repos"
         className="h-11 w-full pl-9 pr-28 text-sm"
       />
-      <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-[10px] text-muted-foreground">
+      <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 atr-micro text-muted-foreground">
         {loading ? (
           <span className="font-mono">searching…</span>
         ) : value ? (

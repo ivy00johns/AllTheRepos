@@ -24,6 +24,7 @@ import {
 
 import type { GraphCluster, GraphSignal } from "@shared/types";
 
+import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
 import { MoveDialog } from "@renderer/components/catalog/move-dialog";
 import { RelatedRepos } from "@renderer/components/catalog/related-repos";
 import { Button } from "@renderer/components/ui/button";
@@ -35,21 +36,6 @@ import { countEdgesBySignal } from "@renderer/lib/graph-signals";
 import { tildify } from "@renderer/lib/repo-tree";
 
 import { Route as RootRoute } from "./__root";
-
-/*
- * The map is cytoscape plus the fcose layout, together the single
- * heaviest thing the renderer ships — and it is only ever needed on this
- * route. Loading it on demand keeps all of it out of the bundle the
- * shell parses before its first paint, which is the cost that was left
- * after the launch reorder. The `Suspense` below is local, so a pending
- * chunk shows a placeholder in the map pane rather than blanking the
- * route and its inspector.
- */
-const GraphCanvas = React.lazy(() =>
-  import("@renderer/components/graph/graph-canvas").then((m) => ({
-    default: m.GraphCanvas,
-  })),
-);
 
 export const Route = createRoute({
   getParentRoute: () => RootRoute,
@@ -88,7 +74,12 @@ const OVERVIEW_EDGE_CAP = 320;
 
 function GraphPage() {
   const graph = useGraph();
-  const reposQuery = useRepos({ limit: 500 });
+  /*
+   * The move dialog's repo list, at the contract's page ceiling (see
+   * `ListReposInputSchema`). The 500 this used to ask for was rejected before the
+   * query ran, so the dialog listed no repos to move.
+   */
+  const reposQuery = useRepos({ limit: 200 });
   const settingsQuery = useSettings();
 
   const [enabled, setEnabled] = React.useState<Set<GraphSignal>>(
@@ -101,6 +92,15 @@ function GraphPage() {
   const [moveSlugs, setMoveSlugs] = React.useState<string[]>([]);
   const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
   const [moveOpen, setMoveOpen] = React.useState(false);
+  /*
+   * ATR-069: cytoscape paints the map into untitled `<canvas>` elements, so
+   * none of the nodes can be focused and the inspector could only describe the
+   * node that was already selected. These back the keyboard path over the same
+   * selection — one tab stop, arrows inside it (`role="listbox"` over the
+   * nodes currently drawn).
+   */
+  const nodeOptionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const [rovingIndex, setRovingIndex] = React.useState(0);
 
   const data = graph.data;
 
@@ -188,17 +188,74 @@ function GraphPage() {
   const nameOf = (slug: string) =>
     data?.nodes.find((n) => n.slug === slug)?.name ?? slug;
 
+  /**
+   * Where the list's single tab stop sits. Clamped rather than trusted: the
+   * node set shrinks when a cluster is isolated or the filter changes, and an
+   * index past the end would leave the list with nothing tabbable at all.
+   */
+  const rovingOption =
+    visibleNodes.length === 0
+      ? -1
+      : Math.min(rovingIndex, visibleNodes.length - 1);
+
+  /*
+   * Follow the map: selecting a node there (or in the link list below) moves
+   * the tab stop to match. Focus is never taken — only which option is
+   * tabbable — so this cannot fight the mouse.
+   */
+  React.useEffect(() => {
+    if (!selectedSlug) return;
+    const index = visibleNodes.findIndex((node) => node.slug === selectedSlug);
+    if (index >= 0) setRovingIndex(index);
+  }, [selectedSlug, visibleNodes]);
+
+  /** Move the tab stop, focus it, and select — the keyboard's tap. */
+  const selectNodeOption = (index: number) => {
+    const node = visibleNodes[index];
+    if (!node) return;
+    setRovingIndex(index);
+    setSelectedSlug(node.slug);
+    nodeOptionRefs.current[index]?.focus();
+  };
+
+  const handleNodeOptionKeyDown = (
+    event: React.KeyboardEvent,
+    index: number,
+  ) => {
+    const last = visibleNodes.length - 1;
+    let target: number | null = null;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      target = index >= last ? 0 : index + 1;
+    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      target = index <= 0 ? last : index - 1;
+    } else if (event.key === "Home") {
+      target = 0;
+    } else if (event.key === "End") {
+      target = last;
+    }
+    if (target === null || target < 0) return;
+    event.preventDefault();
+    selectNodeOption(target);
+  };
+
+  /*
+   * `h-full`, not a viewport sum: this route is in the shell's full-height
+   * set (`__root.tsx`), so the parent already decided the height. It used to
+   * size itself `calc(100dvh - 3rem)` — the top bar's 48px — which is exactly
+   * the arithmetic that made it 64px taller than the window, because the
+   * route was in fact rendering inside `SimpleShell`'s 32px of vertical
+   * padding on top (ATR-062).
+   *
+   * Above the `return`, not inside it. JSX children are verbatim text, so a
+   * comment written without braces is how code-looking prose ends up on screen
+   * — and, as a text child of this flex column, it is also an anonymous flex
+   * item that takes its own height out of the map's box. Two guards hold this:
+   * `tests/unit/renderer/jsx-text.spec.ts` fails on the comment forms that
+   * render, and `layout-overflow.spec.ts` asserts the shell holds only elements
+   * before it measures a height.
+   */
   return (
-    /*
-      `flex-1 min-h-0`, not `h-[calc(100dvh-3rem)]`. The map renders inside
-      `SimpleShell`, which adds its own padding, so subtracting only the 48px
-      top bar made the page 64px taller than the window and pushed the
-      bottom-anchored legend and control bar below the fold on first paint
-      (ATR-062, measured at 1280x800: 864px against an 800px window). Asking
-      the shell for the space that is actually left cannot drift when the
-      shell's padding changes.
-    */
-    <div className="flex min-h-0 w-full flex-1 overflow-hidden bg-background">
+    <div className="flex h-full w-full overflow-hidden bg-background">
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
           Two rows, not one. The map lives in the max-w-5xl shell beside a
@@ -211,9 +268,9 @@ function GraphPage() {
         <div className="shrink-0 border-b border-border">
           <div className="flex h-11 items-center gap-3 px-4">
             <Network className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            <h1 className="atr-label font-mono uppercase tracking-wider text-muted-foreground">
               Relationships
-            </span>
+            </h1>
 
             <div className="ml-auto flex items-center gap-2">
               {selectedCluster !== null ? (
@@ -278,7 +335,7 @@ function GraphPage() {
                     }
                   >
                     <span>{SIGNAL_LABELS[signal]}</span>
-                    <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                    <span className="atr-micro font-mono tabular-nums text-muted-foreground">
                       {count}
                     </span>
                   </button>
@@ -324,39 +381,87 @@ function GraphPage() {
               </Button>
             </div>
           ) : (
-            <React.Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
-                  Laying out the map…
-                </div>
-              }
-            >
-              <GraphCanvas
-                nodes={visibleNodes}
-                edges={visibleEdges}
-                selectedSlug={selectedSlug}
-                highlightSlugs={highlight}
-                onSelect={setSelectedSlug}
-                onOpen={(slug) => setSelectedSlug(slug)}
-              />
-            </React.Suspense>
+            <GraphCanvas
+              nodes={visibleNodes}
+              edges={visibleEdges}
+              selectedSlug={selectedSlug}
+              highlightSlugs={highlight}
+              onSelect={setSelectedSlug}
+              onOpen={(slug) => setSelectedSlug(slug)}
+            />
           )}
         </div>
       </div>
 
       <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+        {/*
+          The keyboard equivalent of tapping a dot. Kept above the selection
+          detail so it is there in the default state, when nothing is selected
+          and there is otherwise no way to select anything.
+        */}
+        <section className="border-b border-border p-4">
+          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
+            Repositories
+          </h2>
+          <p className="atr-label mt-1 leading-snug text-muted-foreground">
+            The map is painted on a canvas, so no dot on it can take focus. Pick
+            one here instead — arrow keys move through the list, and Enter or
+            Space selects the same node.
+          </p>
+
+          <div
+            role="listbox"
+            aria-label="Repositories on the map"
+            className="mt-3 flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+          >
+            {visibleNodes.map((node, index) => (
+              <button
+                key={node.slug}
+                type="button"
+                role="option"
+                aria-selected={node.slug === selectedSlug}
+                tabIndex={index === rovingOption ? 0 : -1}
+                ref={(element) => {
+                  nodeOptionRefs.current[index] = element;
+                }}
+                onKeyDown={(event) => handleNodeOptionKeyDown(event, index)}
+                onClick={() => {
+                  setRovingIndex(index);
+                  setSelectedSlug(node.slug);
+                }}
+                className="atr-rail-row px-2 py-1"
+              >
+                <span className="atr-truncate font-mono atr-label text-foreground">
+                  {node.name}
+                </span>
+                <span className="atr-meta ml-auto shrink-0 tabular-nums">
+                  {node.degree}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {visibleNodes.length === 0 ? (
+            <p className="atr-label mt-2 text-muted-foreground">
+              {graph.isPending
+                ? "Reading the catalog…"
+                : "No repositories to show."}
+            </p>
+          ) : null}
+        </section>
+
         {selectedNode ? (
           <section className="border-b border-border p-4">
             <h2 className="font-mono text-sm font-semibold text-foreground">
               {selectedNode.name}
             </h2>
             <p className="atr-meta mt-0.5">{tildify(selectedNode.folder)}</p>
-            <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="atr-label mt-2 font-mono uppercase tracking-wider text-muted-foreground">
               Strongest links
             </p>
             <ul className="mt-1 flex flex-col gap-1">
               {selectedEdges.length === 0 ? (
-                <li className="text-[11px] text-muted-foreground">
+                <li className="atr-label text-muted-foreground">
                   Nothing connects to this one.
                 </li>
               ) : (
@@ -370,11 +475,11 @@ function GraphPage() {
                         onClick={() => setSelectedSlug(other)}
                         className="w-full cursor-pointer rounded px-1 py-0.5 text-left transition-colors duration-150 hover:bg-surface-raised"
                       >
-                        <span className="atr-truncate block font-mono text-[11px] text-foreground">
+                        <span className="atr-truncate block font-mono atr-label text-foreground">
                           {nameOf(other)}
                         </span>
                         {edge.curated?.length ? (
-                          <span className="atr-truncate block text-[10px] text-accent">
+                          <span className="atr-truncate block atr-label text-accent">
                             {edge.curated
                               .map((c) =>
                                 c.from === selectedSlug
@@ -384,7 +489,7 @@ function GraphPage() {
                               .join(", ")}
                           </span>
                         ) : null}
-                        <span className="atr-truncate block text-[10px] text-muted-foreground">
+                        <span className="atr-truncate block atr-label text-muted-foreground">
                           {edge.why.join(", ") || edge.signals.join(", ")}
                         </span>
                       </button>
@@ -408,17 +513,17 @@ function GraphPage() {
         ) : null}
 
         <section className="p-4">
-          <h2 className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
             Scattered clusters
           </h2>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <p className="atr-label mt-1 leading-snug text-muted-foreground">
             Groups whose members are related but live in different folders. The
             number is how many sit outside the group&apos;s main home.
           </p>
 
           <ul className="mt-3 flex flex-col gap-1">
             {scattered.length === 0 ? (
-              <li className="text-[11px] text-muted-foreground">
+              <li className="atr-label text-muted-foreground">
                 {graph.isPending ? "…" : "Nothing scattered — tidy machine."}
               </li>
             ) : (
@@ -437,10 +542,10 @@ function GraphPage() {
                     className="atr-rail-row flex-col items-start gap-0.5 px-2 py-1.5"
                   >
                     <span className="flex w-full items-center gap-1.5">
-                      <span className="atr-truncate font-mono text-[11px] text-foreground">
+                      <span className="atr-truncate font-mono atr-label text-foreground">
                         {cluster.label}
                       </span>
-                      <span className="ml-auto shrink-0 rounded bg-warning/15 px-1 font-mono text-[10px] text-warning">
+                      <span className="atr-micro ml-auto shrink-0 rounded bg-warning/15 px-1 font-mono text-warning">
                         {cluster.strays.length}
                       </span>
                     </span>
@@ -458,7 +563,7 @@ function GraphPage() {
                         {cluster.strays.slice(0, 8).map((slug) => (
                           <li
                             key={slug}
-                            className="atr-truncate font-mono text-[10px] text-muted-foreground"
+                            className="atr-truncate font-mono atr-label text-muted-foreground"
                           >
                             {nameOf(slug)}
                           </li>

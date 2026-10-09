@@ -102,8 +102,15 @@ test.describe("Phase 1 catalog flow", () => {
       // Scope to the top-bar <header> banner so the group-sidebar's
       // duplicate Settings link doesn't trip strict-mode matching.
       const topBar = win.getByRole("banner");
-      const debugLink = topBar.getByRole("link", { name: /^debug$/i });
-      await expect(debugLink).toBeVisible();
+      // `/debug` is deliberately not a destination (ATR-074). The dev-only door to
+      // it does exist in an unpackaged run, beside the nav rather than in it — so
+      // the claim here is the one that matters: no destination is Debug. The other
+      // half (a packaged build draws no affordance anywhere) is asserted in
+      // `workstream-c.spec.ts`.
+      await expect(
+        win.locator("header nav").getByRole("link", { name: /^debug/i }),
+        "Debug is a destination again",
+      ).toHaveCount(0);
       const settingsLink = topBar.getByRole("link", { name: /^settings$/i });
       await expect(settingsLink).toBeVisible();
       const toggleSidebar = topBar.getByRole("button", {

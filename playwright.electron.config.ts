@@ -31,22 +31,11 @@ export default defineConfig({
   // Phase 3b: claude-flow.spec.ts (Claude tab on repo detail);
   // curated links: curate-link-flow.spec.ts — builds its own profile and
   // seeds its own git repos, because it needs to drive git-backed reads.
-  // accessibility.spec.ts — the shell blockers from the 2026-10-07 UI/UX
-  // review (ATR-059, ATR-060, ATR-066, ATR-069, ATR-065): it resizes the real
-  // window to 900px and reads the names and roles back out of the real
-  // accessibility tree, and presses the keys on the controls that promised to
-  // answer them.
-  // viewport-fit.spec.ts — the other two P1s from that review (ATR-061,
-  // ATR-062): it resizes the window to the 1280x800 the review measured at and
-  // asserts the catalog and the map both fit it.
-  // retry-and-loading.spec.ts — the review's error-state and loading-state
-  // items (ATR-063, ATR-064): it starts the app with the IPC fault switch
-  // (`src/main/ipc/_faults.ts`) naming a channel to fail or to delay, so the
-  // error screen and its retry, and the skeleton, are reached for real.
-  // detail-readme.spec.ts — the repo detail panel's README and folder rail:
-  // it seeds a repo with markdown and a script list, then reads the computed
-  // style back off the rendered README, the Tasks section's default state and
-  // the rail's "directly in this folder" control.
+  // layout-overflow.spec.ts — measures the window/document height contract on
+  // `/` and `/graph`; builds its own profile because the template's three
+  // repos cannot overflow a 1280x800 catalog.
+  // nav-card-a11y.spec.ts — the top bar's destinations named at the window's
+  // 800px minimum, and the repo card's controls as separate tab stops.
   // vector-store.spec.ts — the sqlite-vec extension and what the app does
   // without one: it loads the real library the app ships and drives a search
   // through it, so it measures the machine rather than the metadata.
@@ -60,8 +49,36 @@ export default defineConfig({
   // The release rehearsal runs that same script with
   // ATR_PACKAGED_UPDATE_BEHIND_BUNDLE set to its own scratch build, whose
   // version is below the feed by construction.
+  // workstream-b.spec.ts — the seven P2 findings (ATR-063…069): the two
+  // states a first paint never reaches are forced from the main process, since
+  // `contextBridge` freezes the renderer's copy of the bridge.
+  // workstream-c.spec.ts — the five P3 findings (ATR-070…074): a heading
+  // level, the first Tab stop, the hue of the live-status dot, and the absence
+  // of Debug from the navigation — read off the running app rather than the
+  // source.
+  // type-scale.spec.ts — the type-scale rule (ATR-072) on *every* screen: the
+  // routes come from `src/renderer/routes/` and the view modes from the running
+  // toolbar, so a screen added later cannot go unaudited. It is the spec that
+  // would have caught the raw 13px size living on a route the sweep never opened.
+  // catalog-visual.spec.ts — the catalog as pictures, in every view mode it
+  // offers. The type sweep asks whether a class names a size; this one asks
+  // whether the screen moved, which no class list can answer. Its baselines are
+  // committed, and it reads its modes off the toolbar for the same reason the
+  // sweep does.
+  // accessibility.spec.ts — the five click-and-keyboard blockers the 2026-10-07
+  // review filed (ATR-059, 060, 065, 066, 069), measured on the rendered result:
+  // an accessible name is not something a source read can settle.
+  // detail-readme.spec.ts — the detail panel's README and folder rail: the
+  // markdown's computed style, a Tasks section that no longer opens itself, and
+  // the rail's "directly in this folder" row as the control it is.
+  // retry-and-loading.spec.ts — the failure and in-flight states (ATR-063, 064)
+  // on `repos.$slug`, `/settings` and `/processes`, forced from the test rather
+  // than waited for: a healthy machine never reaches either.
+  // viewport-fit.spec.ts — the two routes that were taller than the window they
+  // render in, at 1280x800, measured as `documentElement.scrollHeight` against
+  // `innerHeight`.
   testMatch:
-    /(accessibility|viewport-fit|retry-and-loading|detail-readme|electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
@@ -75,6 +92,26 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
+  // Screenshot comparison, for `catalog-visual.spec.ts`. Everything the
+  // comparison needs is Playwright's default and is stated here so it cannot be
+  // changed by accident: animations are disabled and the caret are hidden (both a
+  // property of the clock, not of this layout).
+  expect: {
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      scale: "css",
+    },
+  },
+  // One baseline per **rasterizer**, not per platform. Playwright appends
+  // `-{platform}` by default, but the OS version is part of the render on macOS
+  // (CoreText and the compositor anti-alias differently on every major release),
+  // and the spec already names the environment into `{arg}` for that reason — so
+  // the default suffix would only produce `…-darwin27-darwin.png`, a platform
+  // named twice. The spec is the sole author of the name, which is what keeps
+  // `catalog-<mode>-darwin27.png` and `catalog-<mode>-darwin23.png` apart.
+  snapshotPathTemplate:
+    "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
   // No `projects` and no `webServer` — Electron is launched per-test via
   // `_electron.launch`. CI / humans should run `pnpm electron:build` (or
   // the convenience wrapper at `scripts/run-electron-e2e.mjs`) first so

@@ -31,6 +31,13 @@
 
 **Color Notes:** Code dark + run green
 
+**Live-status hue (2026-10-08, ATR-073):** `--color-status-live` `#4ADE80`.
+The "is this up right now" mark — the port chip on a repo card, the port column in
+the process table — is painted with this token and **not** with `--color-accent`.
+The accent is the brand and the primary-action colour, so a status drawn in it
+reads as an affordance, and a re-brand would repaint every live dot along with
+the buttons. The two are never the same colour on the same screen.
+
 ### Typography
 
 - **Heading Font:** JetBrains Mono
@@ -42,6 +49,44 @@
 ```css
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 ```
+
+### Type Scale (decided 2026-10-08, ATR-072)
+
+The 2026-10-07 review measured **127** sub-12px usages across 20+ files and found
+one role written three ways: 9px, 10px and 11px were each used for uppercase
+section labels and control captions as well as for metadata. That question is
+closed. Every size names a step, and **no component states a raw font size at any
+value** — `tests/unit/renderer/type-scale.spec.ts` fails on one, in `px`, `rem`
+or `em` alike, and `tests/e2e/type-scale.spec.ts` reads the built renderer to
+confirm none reaches the screen on **any** of them: it takes its routes from
+`src/renderer/routes/` and its view modes from the running toolbar, and fails if a
+screen the router composes is not in its visit plan.
+
+| Class       | Size                | Use                                                                                                                                                              |
+| ----------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.atr-label` | 12px (`text-xs`)    | Every label, caption, section heading, tab and column header — the floor. Size and leading only, so the site keeps its own weight, tracking, case and colour.     |
+| `.atr-micro` | 10px                | The one sanctioned sub-12px tier: a number, unit or badge word read as data. Never a label, a heading or a sentence.                                              |
+| `.atr-meta`  | 11px mono muted     | Timestamps, counts and paths sitting inside running text. It sets its own colour and family, which is why it is a metadata tier and not a size to reach for.      |
+| `text-body`  | 13px (`--text-body`) | The dense-content step: the text a row is *about* — a rail row's own label, the repo name in the table view, a legend glyph standing beside its caption. A theme token rather than a component class, because `.atr-rail-row` is itself a component class and one of the places this step is needed (Tailwind 4 cannot `@apply` one), so the size has to be a real utility before both can name it. No line-height of its own: it stands exactly where `text-[13px]` stood. |
+
+A fifth size is not a matter of taste to settle per screen: if a screen seems to
+need one, the scale is wrong, or the element is not what it looks like.
+
+**Canvas type.** The map's labels are painted into a canvas by cytoscape, which
+takes a number and knows nothing about classes, so no tier can reach them. Those
+steps are named too — `CANVAS_TYPE` in `graph-canvas.tsx`: node 10px, edge 9px, the
+focused node 12px, each with the rendered size its label is dropped below, since
+canvas type scales with zoom and is texture rather than reading at the default
+framing. They are deliberately smaller than the tiers. It is the only place in the
+renderer where a font size may be stated as a number, and the guard reports that
+form as well as the class-list one.
+
+The guard began as a floor — below 12px, the band the review measured — and the
+four `13px` runs were carved out as above it. That carve-out did not survive its
+own reasoning: a floor has an edge, so the same escape hatch written one pixel
+higher was invisible, and the on-screen half of the check read only `/`, which
+never drew the table view that used it. Both halves now cover the whole band and
+the screens that carry it.
 
 ### Spacing Variables
 

@@ -74,9 +74,11 @@ at `x 959…989`, and `elementFromPoint` at its centre returned the *detail pane
 on screen, outside its column, and impossible to press. At 1024px the repo count (`271 repos`) was cut
 off the same way; the bar has zero slack even at 1280 once the panel is open.
 
-Fixed: `flex-wrap` with `min-h-11` and `py-1`. A single row is still exactly the 44px it has always been;
-a second row appears only when the controls genuinely do not fit, which keeps every control visible and
-pressable instead of clipping the last three.
+Fixed: `flex-wrap` with `min-h-11` and a half step of vertical padding (`py-0.5`) for the wrapped case.
+A single row is still exactly the 44px it has always been — the tallest control is 36px, so a full step
+(`py-1`) measured 45 and moved every pixel below the bar, while a half step leaves `36 + 4 + 1 = 41`
+under the 44px floor. A second row appears only when the controls genuinely do not fit, which keeps every
+control visible and pressable instead of clipping the last three.
 
 ### U3 (MEDIUM, measured) — a leaf folder's chevron was an unnamed, disabled button
 
@@ -321,6 +323,18 @@ the same systemic sizing question, and worth deciding once with them.
 Heading outlines read back from the rendered page: `/settings`, `/claude`, `/processes` and a repo detail
 page each open with an `h1`; the catalog begins at `h2` (one per group, then `h3` per card) and the map at
 `h3` then `h2`. This is the same finding the 2026-10-07 review filed as G1, still open.
+
+### F2 (LOW, measured) — the catalog's picture baseline caught a running process
+
+`tests/e2e/catalog-visual.spec.ts` compares the catalog against a committed picture, and one thing in that
+picture is not the layout: the count badge on the `Running` destination, which is drawn only while the
+process sweep has something to count. The committed Table baseline had recorded a run with a dev server
+up, so the same screen failed on a machine with nothing listening — **167 pixels at `x 934…953`,
+`y 5…21`**, the badge and nothing else, which was the whole of that failure. The baseline is re-rendered
+here without a listener, because the picture is about the layout. It wants a mask instead, the way the
+cover art and the machine paths are already masked, so a badge saying something true about the machine
+cannot decide the result; that in turn needs `visual-baselines.yml` re-run on the runner, which is a build
+of its own rather than the last step of this one.
 
 ## What was already right
 

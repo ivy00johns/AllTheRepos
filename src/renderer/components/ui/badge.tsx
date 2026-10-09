@@ -21,7 +21,7 @@ const badgeVariants = cva(
           "border-transparent bg-warning/15 text-warning",
         outline: "border-border text-foreground",
         tag:
-          "border-border-strong bg-card text-foreground font-mono text-[11px]",
+          "border-border-strong bg-card text-foreground font-mono atr-micro",
       },
     },
     defaultVariants: {

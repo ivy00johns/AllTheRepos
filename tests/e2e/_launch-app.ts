@@ -93,13 +93,13 @@ export interface LaunchedApp {
 
 export interface LaunchOptions {
   /**
-   * Extra environment for this launch only, merged over the inherited one.
+   * Extra environment for this one app process.
    *
-   * For switches the app reads at boot and cannot change afterwards — the
-   * fault injection in `src/main/ipc/_faults.ts` is the reason it exists: an
-   * error state and a loading state are only reachable if a real call is made
-   * to fail or to be slow, and both have to be arranged before the process
-   * starts.
+   * Per launch rather than by assigning to `process.env`, which would leak the
+   * setting into every later spec in the same worker. The specs that need this
+   * are the ones driving a branch a normal launch cannot reach — `ATR_FORCE_PACKAGED`
+   * (main's documented override, see `src/main/build-info.ts`) is the first, and it
+   * has to apply to a single launch or the whole suite would run as a release.
    */
   env?: Record<string, string>;
 }

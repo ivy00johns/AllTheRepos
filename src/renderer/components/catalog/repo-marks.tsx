@@ -114,7 +114,7 @@ export function OwnershipMark({
         <span className="sr-only">{description}</span>
       ) : (
         <span
-          className="atr-truncate font-mono text-[11px] leading-none"
+          className="atr-truncate atr-label font-mono leading-none"
           style={{ color }}
         >
           {ownership.label}
@@ -138,7 +138,7 @@ export function DirtyMark({ compact }: { compact?: boolean }) {
       {compact ? (
         <span className="sr-only">Uncommitted changes</span>
       ) : (
-        <span className="font-mono text-[11px] leading-none">uncommitted</span>
+        <span className="atr-micro font-mono leading-none">uncommitted</span>
       )}
     </span>
   );
@@ -152,7 +152,7 @@ export function BranchMark({ branch }: { branch: string }) {
       title={`On branch ${branch}`}
     >
       <GitBranch className="h-3 w-3 shrink-0" aria-hidden />
-      <span className="atr-truncate font-mono text-[11px] leading-none">
+      <span className="atr-truncate atr-micro font-mono leading-none">
         {branch}
       </span>
     </span>
@@ -169,7 +169,7 @@ export function MissingMark({ compact }: { compact?: boolean }) {
       className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
       title="This path no longer exists on disk"
     >
-      <span className="font-mono text-[10px] font-semibold uppercase leading-none">
+      <span className="atr-micro font-mono font-semibold uppercase leading-none">
         {compact ? "!" : "missing"}
       </span>
       {compact ? <span className="sr-only">Missing from disk</span> : null}

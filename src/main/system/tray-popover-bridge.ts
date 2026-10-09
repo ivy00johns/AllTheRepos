@@ -1,76 +1,40 @@
 /**
- * Thin runtime bridge to the backend-windows-owned tray popover.
+ * Thin bridge to the tray popover window.
  *
- * `backend-windows` ships `src/main/window/tray-popover.ts` exporting:
- *   ```
- *   export const trayPopover: {
- *     showAt(bounds: Rectangle): void;
- *     hide(): void;
- *     isVisible(): boolean;
- *   };
- *   ```
+ * `src/main/window/tray-popover.ts` exports `trayPopover`; this module is the main
+ * process's one way to reach it, so `tray.ts`'s click handler does not import a
+ * window factory directly.
  *
- * We do NOT static-import that module here for two reasons:
- *   1. The two agents ship in parallel — a hard import would break the
- *      tsc + electron-vite build before backend-windows merges.
- *   2. The popover is opt-in: a packaging that doesn't bundle the
- *      window factory should still boot the app cleanly.
- *
- * The dynamic `require` is wrapped in a try/catch so the worst case is
- * a logged warning + a no-op. `backend-system`'s tray click handler
- * already has a fallback context menu for this scenario.
+ * **The static import is a bug fix.** This used to be a
+ * `require("@main/window/tray-popover")` in a try/catch, for two reasons that
+ * have both expired: the window factory was being written in parallel, and the
+ * popover was meant to be optional. But `@main` is a *build-time* alias
+ * (`electron.vite.config.ts`): the bundler rewrites `import` specifiers and leaves
+ * a `require` in the output alone, so `out/main/index.js` shipped with
+ * `require("@main/window/tray-popover")` and none of the popover's code. Every
+ * click on the tray icon took the fallback path — `throw` → the right-click menu
+ * — which is why the popover was never seen in a built app. It is bundled now:
+ * `tests/e2e/type-scale.spec.ts` opens and audits it, and that is the check that
+ * would have caught this. The click handler keeps its context-menu fallback for a
+ * genuine failure to show (a display that has gone away, a window already
+ * destroyed), not for a module that was missing.
  */
 
 import type { Rectangle } from "electron";
 
-type TrayPopoverApi = {
-  showAt(bounds: Rectangle): void;
-  hide(): void;
-  isVisible(): boolean;
-};
+import { trayPopover } from "@main/window/tray-popover";
 
-let cached: TrayPopoverApi | null = null;
-let attempted = false;
-
-function loadTrayPopover(): TrayPopoverApi | null {
-  if (cached) return cached;
-  if (attempted) return null;
-  attempted = true;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- a module that may not be in the tree yet; see the header
-    const mod = require("@main/window/tray-popover") as
-      | { trayPopover?: TrayPopoverApi }
-      | undefined;
-    if (mod && typeof mod.trayPopover === "object") {
-      cached = mod.trayPopover;
-      return cached;
-    }
-    return null;
-  } catch {
-    // backend-windows hasn't shipped yet — totally fine.
-    return null;
-  }
-}
-
-/** Ask the popover to show next to the tray's bounds. No-op if unavailable. */
+/** Show the popover anchored to the tray icon's bounds. */
 export function showTrayPopover(bounds: Rectangle): void {
-  const api = loadTrayPopover();
-  if (!api) {
-    throw new Error("tray-popover not available");
-  }
-  api.showAt(bounds);
+  trayPopover.showAt(bounds);
 }
 
-/** Hide the popover. No-op if unavailable. */
+/** Hide the popover. No-op when it has never been shown. */
 export function hideTrayPopover(): void {
-  const api = loadTrayPopover();
-  if (!api) return;
-  api.hide();
+  trayPopover.hide();
 }
 
-/** Visibility query. Returns false if the popover module hasn't shipped. */
+/** Whether the popover is currently on screen. */
 export function isTrayPopoverVisible(): boolean {
-  const api = loadTrayPopover();
-  if (!api) return false;
-  return api.isVisible();
+  return trayPopover.isVisible();
 }

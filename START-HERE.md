@@ -34,30 +34,38 @@ the item detail in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) — this
 state, not history.
 
 **Next:** the tail — scanner discovery (**ATR-033**), the silent 200-repo cap (**ATR-042**),
-group-membership UI (**ATR-043**), and the distribution items
-(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). New since Wave 5: ATR-056/057/058,
-and the 2026-10-07 UI/UX intake (**ATR-059…074**) — its **four P1s and five of its P2s are fixed and
-measured in a real window**, and **ATR-055** (cold start) with them. `tests/e2e/accessibility.spec.ts`
-carries the accessibility blockers (**ATR-059** unnamed nav below `lg`, **ATR-060** a button role
-wrapping buttons, **ATR-066** unnamed table rows, **ATR-069** keyboard-unreachable graph nodes,
-**ATR-065** a radiogroup that ignored the arrows), `tests/e2e/viewport-fit.spec.ts` the two
-viewport-height clipping bugs, and `tests/e2e/retry-and-loading.spec.ts` the dead-end error screens
-(**ATR-063**) and the bare-text loading states (**ATR-064**). **ATR-057** no longer blocks a flip: a
-source build is needed only for a module whose publisher ships no binary for the ABI in use, and none of
-the three here is that module.
+group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
+(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). Before any of that, unblock the
+build: **ATR-057** breaks native ABI flips on this machine. New since Wave 5: ATR-056/057/058,
+and the 2026-10-07 UI/UX intake — **fully applied 2026-10-08**: **ATR-059…069** (four P1s, seven
+P2s) closed first, **ATR-075** found and closed with them, then the last five P3s
+(**ATR-070…074**) proved on the running app by `tests/e2e/workstream-c.spec.ts`.
 
-**Build health (verified 2026-10-08, on the pinned Node 22 — see the gotcha below):** `pnpm typecheck` ✅
-**0 errors across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer` ·
-`pnpm lint` 0 · `pnpm lint:prose` 0 errors · `versions:check`, `platforms:check`, `ci-cost:check`,
-`first-launch:check`, `links:check` all green · `vitest` **1725 passed / 0 failed / 0 skipped**
-(88 files) · **Electron E2E 22 passed / 0 failed** (~2.0 min; the 5 packaged-update specs skip
-without a bundle). Fonts (IBM Plex Sans) load at runtime.
+**Build health (verified 2026-10-08, on the UI/UX pass):** `pnpm typecheck` ✅ **0 errors
+across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
+`pnpm lint` ✅ 0 · `vitest` **1708 passed / 0 failed** (87 files) · **Electron E2E 27 passed /
+5 skipped / 0 failed** (14 specs; the skips are the packaged-update ones, which need a
+packaged bundle). The suite also launches the app once with `ATR_FORCE_PACKAGED=1`
+(`src/main/build-info.ts`), so the branch a release takes — no dev-only affordance anywhere,
+no dev-only action in the palette — is tested rather than assumed. Fonts (IBM Plex Sans) load
+at runtime. Added later the same day:
+`tests/unit/renderer/jsx-text.spec.ts` (2 tests), `tests/unit/renderer/type-scale.spec.ts`
+(3, the guard that fails the build on a raw sub-12px size), `tests/unit/shared/build-info.spec.ts`
+(7, the packaged flag main states and the preload reads), and on the running app
+`workstream-b.spec.ts` (8 tests) and `workstream-c.spec.ts` (6), the last two reading the
+built renderer rather than the source.
 
-**Cold start (ATR-055, fixed 2026-10-08).** The window is created first and the process scan, the
-editor detection and the Claude index boot behind it, so the first paint no longer waits for any of
-them. Measured with `scripts/measure-cold-start.mjs` — three launches each, same machine, back to
-back — the window went **5381ms → 1345ms** and the shell **6619ms → 3156ms**; the fixed build has the
-whole shell on screen before the old one had a window at all.
+**Also verified 2026-10-08, by looking at the app rather than at the tests:** the catalog,
+`/graph`, `/claude`, `/processes`, `/settings` and `/debug` were each screenshotted and
+read back from the DOM, in three builds — this branch's bundle, `electron-vite dev`, and
+the `main` checkout's own build — and every one of them paints the top bar and nothing
+else: no comment prose, no stray text node in the shell, no text injected by the graph's
+palette probe. The A/B behind that claim (the bare block comment restored on purpose, then
+removed again) is written up in **ATR-075**'s row in
+[`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
+
+> ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
+> finishes booting. Filed as ATR-055; expect a slow first paint until it lands.
 
 ## Run it
 
@@ -71,20 +79,17 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
 
 ## Gotchas (this machine)
 
-- **Source builds are broken (ATR-057), flips are not.** The **2026-09-22** Command Line Tools
-  update installed SDK 27.0 (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21
-  rejects (`tapi error: malformed file`), so anything `node-gyp` compiles fails to link. Every test
-  script runs `scripts/ensure-native-abi.mjs` first and rebuilds only on a real mismatch; the two
-  modules that matter are restored from the binaries their publishers ship for the ABI in use (the
-  scanner via `scripts/install-native-prebuilds.mjs`), and a flip that cannot finish puts the tree
-  back the way it found it rather than leaving nothing loadable. Reach for `SDKROOT` only if a new
-  module has no prebuild for the ABI in use.
+- **Native rebuilds are broken (ATR-057).** The **2026-09-22** Command Line Tools update
+  installed SDK 27.0 (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21
+  rejects (`tapi error: malformed file`). Any `node-gyp` rebuild fails, so an **ABI flip dies**
+  and `pnpm test` / `test:full` fail unless the tree already matches. Workaround:
+  `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`.
 
-- **Run the suites on the pinned Node 22** (`.nvmrc`; `~/.nvm/versions/node/v22.22.3/bin`), not the
-  Homebrew `node` (26) that comes first on `PATH` — `better-sqlite3` publishes no prebuild for 26's
-  ABI, and this machine cannot compile one. The flip detects that now and says so, then leaves the
-  addon it found in place, so the mistake costs one confusing run instead of a hand repair. `pnpm test`
-  also needs host-ABI natives, which the same flip arranges (ATR-016) — so the suites run in any order.
+- ~~**`pnpm test` needs host-ABI natives.**~~ **Automated (ATR-016)** — though the flip
+  itself is what ATR-057 breaks, so the suites can be run in any order only while the tree
+  already matches. Every test script now runs `scripts/ensure-native-abi.mjs` first and
+  rebuilds only on a real mismatch. Only `better-sqlite3` actually flips —
+  `find-git-repositories` ships per-ABI builds and works under both runtimes.
 - **Bare `node`/`npx`/`npm` recurse** (broken nvm wrapper in the dotfiles). Use `~/.nvm/versions/node/v22.22.3/bin/node`, or fix the dotfile (ATR-024).
 - **Commits don't sign non-interactively** — 1Password SSH-agent signing fails headless; this session's commits used `--no-gpg-sign` (ATR-025).
 

@@ -9,11 +9,12 @@
  * announced, and every row keeps the same marks as the card views so
  * the two modes stay legible against each other.
  *
- * One structural rule, the same one the grid card follows: the row is a
- * *container*, not a control. A `<tr>` is announced as a row — no name to
- * press and no role to press it with — while the favourite star inside it is a
- * real button, so the row's own click is a convenience for a pointer and the
- * named, keyboard-reachable control is the project name.
+ * The project name is the control, and the row is a container (ATR-066).
+ * The row used to carry `tabIndex={0}`, an `onClick` and an Enter-only
+ * `onKeyDown` while being announced as a plain row: no role, no name, and
+ * Space did nothing. Both keyboard stops now live on a real `<button>`
+ * around the name, which is also the row's only accessible name. The row
+ * keeps its click handler so the mouse target is unchanged.
  */
 
 import * as React from "react";
@@ -110,7 +111,7 @@ function HeaderCell({ column }: { column: ColumnDef }) {
         isActive ? (order === "asc" ? "ascending" : "descending") : "none"
       }
       className={cn(
-        "sticky top-0 z-10 border-b border-border bg-background px-3 py-2 font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground",
+        "sticky top-0 z-10 border-b border-border bg-background px-3 py-2 font-mono atr-label font-medium uppercase tracking-wider text-muted-foreground",
         column.numeric ? "text-right" : "text-left",
         column.className,
       )}
@@ -180,8 +181,14 @@ export function RepoTable({
           );
           const isChecked = checkedSlugs.has(repo.slug);
 
-          /** The row's click, for a pointer: anywhere on the row selects it. */
-          const handleRowClick = (event: React.MouseEvent<HTMLElement>) => {
+          /**
+           * One behaviour, two callers — the row (mouse) and the name
+           * button (mouse and keyboard) — so the modifiers cannot drift
+           * apart the way a duplicated handler would let them.
+           */
+          const activate = (
+            event: React.MouseEvent<HTMLElement> | React.KeyboardEvent,
+          ) => {
             if (event.metaKey || event.ctrlKey) {
               onToggleChecked(repo.slug, true);
               return;
@@ -193,20 +200,6 @@ export function RepoTable({
             onSelect(repo.slug);
           };
 
-          /**
-           * The name's click, answered exactly once.
-           *
-           * Without the stop the same event would also reach the row's handler
-           * and run the action twice — which for a Cmd-click means selecting and
-           * immediately un-selecting, a no-op that reads as a dead control.
-           */
-          const handleNameClick = (
-            event: React.MouseEvent<HTMLButtonElement>,
-          ) => {
-            event.stopPropagation();
-            handleRowClick(event);
-          };
-
           return (
             <tr
               key={repo.slug}
@@ -214,7 +207,7 @@ export function RepoTable({
               data-selected={selectedSlug === repo.slug ? "true" : "false"}
               draggable
               onDragStart={(event) => onDragStart?.(repo.slug, event)}
-              onClick={handleRowClick}
+              onClick={activate}
               className={cn(
                 "cursor-pointer border-b border-border/60 transition-colors duration-150",
                 "hover:bg-surface-raised",
@@ -240,18 +233,25 @@ export function RepoTable({
                     <div className="flex min-w-0 items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={handleNameClick}
-                        aria-pressed={
-                          selectedSlug === repo.slug ? "true" : "false"
-                        }
-                        className="atr-truncate cursor-pointer text-left font-mono text-[13px] font-medium text-foreground"
+                        // Selection is announced the way the card's title button
+                        // announces it: the row's own control reports the state,
+                        // so a screen reader hears which project is selected in
+                        // the table as well as in the grid.
+                        aria-pressed={selectedSlug === repo.slug ? "true" : "false"}
+                        onClick={(event) => {
+                          // The row would otherwise handle the same click
+                          // twice.
+                          event.stopPropagation();
+                          activate(event);
+                        }}
+                        className="atr-truncate cursor-pointer text-left font-mono text-body font-medium text-foreground"
                       >
                         {repo.name}
                       </button>
                       {repo.missing ? <MissingMark compact /> : null}
                       {repo.isDirty ? <DirtyMark compact /> : null}
                     </div>
-                    <span className="atr-truncate block text-[11px] text-muted-foreground">
+                    <span className="atr-truncate block atr-label text-muted-foreground">
                       {description ?? "—"}
                     </span>
                   </div>

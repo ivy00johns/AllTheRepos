@@ -14,6 +14,7 @@ import { FolderSearch } from "lucide-react";
 
 import type { Repo } from "@shared/types";
 
+import { Skeleton } from "@renderer/components/ui/skeleton";
 import { cn } from "@renderer/lib/cn";
 import {
   ACTIVITY_LABELS,
@@ -150,7 +151,7 @@ function groupRepos(
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-baseline gap-2 border-b border-border/60 bg-background/95 px-4 py-1.5 backdrop-blur-sm">
-      <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-foreground">
+      <h2 className="atr-label font-mono font-semibold uppercase tracking-wider text-foreground">
         {label}
       </h2>
       <span className="atr-meta tabular-nums">{count}</span>
@@ -166,10 +167,10 @@ function GridSkeleton({ gallery }: { gallery: boolean }) {
       className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
     >
       {Array.from({ length: gallery ? 8 : 9 }).map((_, index) => (
-        <div
+        <Skeleton
           key={index}
           className={cn(
-            "animate-pulse rounded-lg border border-border bg-card",
+            "rounded-lg border border-border bg-card",
             gallery ? "h-64" : "h-[124px]",
           )}
         />

@@ -558,7 +558,7 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+      <span className="atr-label uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
       <span

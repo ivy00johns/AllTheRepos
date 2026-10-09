@@ -98,6 +98,26 @@ function boxes(win: Page) {
   return win.locator('[aria-busy="true"] .animate-pulse');
 }
 
+/**
+ * The wait is announced, not printed.
+ *
+ * Both pending screens name themselves through an `sr-only` label inside their
+ * `aria-busy` region (`components/ui/skeleton.tsx`), so that text is in the DOM
+ * on purpose. What ATR-064 filed was a *visible* sentence where the page's shape
+ * should be, and a label clipped to a pixel is not one — so this measures the
+ * rendered box rather than the string's presence, which Playwright would count
+ * either way (a 1px clipped element has a bounding box).
+ */
+async function announcedNotShown(win: Page, text: RegExp): Promise<void> {
+  const label = win.getByText(text);
+  await expect(label, `${text} should be announced`).toHaveCount(1);
+  const box = await label.boundingBox();
+  expect(
+    Math.max(box?.width ?? 0, box?.height ?? 0),
+    `${text} should not be a visible sentence`,
+  ).toBeLessThanOrEqual(2);
+}
+
 /** The settings form's own submit control — its marker that the values landed. */
 function saveSettings(win: Page) {
   return win.getByRole("button", { name: /save settings/i });
@@ -243,7 +263,7 @@ test.describe("error states and loading states", () => {
       // the meta line and the two content blocks.
       await expect(boxes(win).first()).toBeVisible({ timeout: 10_000 });
       expect(await boxes(win).count()).toBeGreaterThan(3);
-      await expect(win.getByText(/Loading repo/)).toHaveCount(0);
+      await announcedNotShown(win, /Loading repo/);
 
       // The read the outage was holding is released, and the page fills in.
       slow.end();
@@ -275,7 +295,7 @@ test.describe("error states and loading states", () => {
 
       await expect(boxes(win).first()).toBeVisible({ timeout: 10_000 });
       expect(await boxes(win).count()).toBeGreaterThan(6);
-      await expect(win.getByText(/Loading settings/)).toHaveCount(0);
+      await announcedNotShown(win, /Loading settings/);
 
       slow.end();
       await expect(saveSettings(win)).toBeVisible({ timeout: 20_000 });

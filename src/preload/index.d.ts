@@ -11,6 +11,9 @@
  * human-readable index, not a second source of truth — keep it in
  * step with `./api.ts` when namespaces change.
  *
+ * Build facts (synchronous, no IPC — see `@shared/build-info`):
+ *   - `window.atr.build.packaged`
+ *
  * Phase 0/1/2:
  *   - `window.atr.system.ping`
  *   - `window.atr.catalog.{list,get,search,rescan,setTags,delete,smartFilter}`

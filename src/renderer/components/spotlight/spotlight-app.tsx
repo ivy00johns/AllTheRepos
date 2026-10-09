@@ -5,11 +5,11 @@
  * `#window=spotlight`. Selected from `main.tsx` BEFORE React mounts so
  * the spotlight surface never loads the full catalog router/shell —
  * it's a single search box + virtual-ish list (no actual virtualisation
- * library; the result set is capped at 1000 repos).
+ * library; the result set is one page of the catalog, 200 repos).
  *
  * Two modes share the same input:
  *
- *   1. Default mode: fuzzy repo search over `useRepos({ limit: 1000 })`
+ *   1. Default mode: fuzzy repo search over `useRepos({ limit: 200 })`
  *      via @leeoniya/uFuzzy. Enter on a result hides the spotlight and
  *      fires a deep-link to the main window so it navigates to the
  *      repo. Cmd+Enter copies the repo path to the clipboard.
@@ -209,7 +209,13 @@ function substringScore(haystack: string, needle: string): number {
 }
 
 export function SpotlightApp() {
-  const reposQuery = useRepos({ limit: 1000 });
+  /*
+   * The contract's page ceiling, which `ListReposInputSchema` enforces: a limit
+   * over 200 is rejected before the query runs. This asked for 1000, so the read
+   * never happened and the window searched an empty list while looking perfectly
+   * healthy - an input, a footer and "Start typing to search." over no repos.
+   */
+  const reposQuery = useRepos({ limit: 200 });
   const [query, setQuery] = React.useState("");
   const [activeIdx, setActiveIdx] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -431,14 +437,14 @@ export function SpotlightApp() {
                   </span>
                 ) : null}
               </div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span className="atr-label uppercase tracking-wider text-muted-foreground">
                 {row.type}
               </span>
             </div>
           ))
         )}
       </div>
-      <div className="border-t border-border px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="border-t border-border px-4 py-1.5 atr-label uppercase tracking-wider text-muted-foreground">
         <span>↵ open</span>
         <span className="ml-3">⌘↵ copy path</span>
         <span className="ml-3">{isActionMode ? "esc back" : "› actions"}</span>

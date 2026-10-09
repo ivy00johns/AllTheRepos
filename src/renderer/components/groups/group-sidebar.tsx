@@ -135,7 +135,7 @@ export function GroupSidebar({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+    <div className="mt-3 px-3 pb-1 atr-label font-semibold uppercase tracking-widest text-muted-foreground">
       {children}
     </div>
   );
@@ -193,7 +193,7 @@ function SidebarItem({
             </span>
             <span
               className={cn(
-                "shrink-0 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground",
+                "shrink-0 rounded-sm bg-muted px-1.5 py-0.5 font-mono atr-micro text-muted-foreground",
                 // When manage affordances are present, hide the count on
                 // hover/focus so the action buttons can take its place.
                 group

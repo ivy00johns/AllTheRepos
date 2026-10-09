@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { isUrlAllowed } from "../security/allowlist";
+import { rendererAdditionalArguments } from "../build-info";
 
 const SPOTLIGHT_WIDTH = 720;
 const SPOTLIGHT_HEIGHT = 440;
@@ -85,6 +86,9 @@ function create(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      // Same build fact as the main window, so no window has to guess. See
+      // `@shared/build-info`.
+      additionalArguments: rendererAdditionalArguments(),
       preload: join(__dirname, "../preload/index.cjs"),
     },
   });

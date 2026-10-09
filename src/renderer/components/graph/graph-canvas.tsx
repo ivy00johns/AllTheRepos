@@ -273,6 +273,33 @@ function fcoseOptions(
 const MONO_STACK = "JetBrains Mono, ui-monospace, SFMono-Regular, monospace";
 
 /**
+ * The map's type steps — the canvas-half of the type scale.
+ *
+ * Labels on this screen are painted into a canvas by cytoscape, which takes a
+ * number and knows nothing about classes, so the CSS tiers cannot reach them.
+ * They are named here for the same reason the tiers exist: a size that a reader
+ * has to see should be a decision with a name rather than a number inside a
+ * style object, and this is the only place in the renderer where a font size
+ * may be stated as a number — `tests/unit/renderer/type-scale.spec.ts` fails on
+ * a bare numeric one in a component, and on a raw class-list size anywhere.
+ *
+ * These steps are smaller than the CSS tiers on purpose. Canvas type scales
+ * with zoom, so at the default framing it is texture rather than reading; the
+ * `min` pair is cytoscape's own density answer, the rendered size below which a
+ * label is dropped entirely rather than smeared.
+ */
+const CANVAS_TYPE = {
+  /** Node names, and the size below which they are dropped. */
+  node: 10,
+  nodeMin: 7,
+  /** Edge labels, one step down: they annotate a link, not a repo. */
+  edge: 9,
+  edgeMin: 8,
+  /** The selected node, which is read rather than scanned. */
+  focus: 12,
+} as const;
+
+/**
  * Later blocks win, so this reads top-to-bottom as a priority list:
  * base → signal → focus → dim. `.dim` is last precisely so a dimmed
  * element can never claw back a label.
@@ -293,7 +320,7 @@ function buildStylesheet(p: Palette): cytoscape.StylesheetJsonBlock[] {
         label: "",
         color: p.foreground,
         "font-family": MONO_STACK,
-        "font-size": 10,
+        "font-size": CANVAS_TYPE.node,
         "text-valign": "bottom",
         "text-halign": "center",
         "text-margin-y": 4,
@@ -303,7 +330,7 @@ function buildStylesheet(p: Palette): cytoscape.StylesheetJsonBlock[] {
         "text-background-shape": "roundrectangle",
         // Cytoscape's own answer to label density: below this rendered
         // size the text is dropped entirely rather than smeared.
-        "min-zoomed-font-size": 7,
+        "min-zoomed-font-size": CANVAS_TYPE.nodeMin,
         "text-events": "no",
         "overlay-opacity": 0,
         "z-index": 10,
@@ -335,11 +362,11 @@ function buildStylesheet(p: Palette): cytoscape.StylesheetJsonBlock[] {
         label: "",
         color: p.muted,
         "font-family": MONO_STACK,
-        "font-size": 9,
+        "font-size": CANVAS_TYPE.edge,
         "text-background-color": p.background,
         "text-background-opacity": 0.8,
         "text-background-padding": "2px",
-        "min-zoomed-font-size": 8,
+        "min-zoomed-font-size": CANVAS_TYPE.edgeMin,
         "text-events": "no",
         "overlay-opacity": 0,
         "z-index": 1,
@@ -381,7 +408,11 @@ function buildStylesheet(p: Palette): cytoscape.StylesheetJsonBlock[] {
     },
     {
       selector: "node.focus",
-      style: { "font-size": 12, "z-index": 40, color: p.foreground },
+      style: {
+        "font-size": CANVAS_TYPE.focus,
+        "z-index": 40,
+        color: p.foreground,
+      },
     },
 
     // --- flags ----------------------------------------------------------
@@ -847,7 +878,7 @@ export function GraphCanvas({
 
       {layingOut ? (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-          <span className="rounded-md border border-border bg-popover px-2 py-1 font-mono text-[11px] text-muted-foreground shadow-overlay">
+          <span className="rounded-md border border-border bg-popover px-2 py-1 font-mono atr-label text-muted-foreground shadow-overlay">
             Arranging {nodes.length} repos…
           </span>
         </div>
@@ -907,7 +938,7 @@ export function GraphCanvas({
       */}
       <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1">
         <p className="atr-meta flex items-center gap-1.5">
-          <span aria-hidden className="text-[13px] leading-none text-accent">
+          <span aria-hidden className="text-body leading-none text-accent">
             →
           </span>
           curated link (asserted)
@@ -922,7 +953,7 @@ export function GraphCanvas({
         <p className="atr-meta flex items-center gap-1.5">
           <span
             aria-hidden
-            className="text-[13px] leading-none text-foreground"
+            className="text-body leading-none text-foreground"
           >
             ★
           </span>

@@ -135,8 +135,11 @@ sequence:
 
 1. Renderer mounts and constructs its registry from the action modules
    it knows about (Phase 2 starts with the baseline list below).
-2. Renderer calls `window.atr.app.registerActions({ actions })`. In
-   production it filters out `devOnly` actions first.
+2. Renderer calls `window.atr.app.registerActions({ actions })`. Before
+   sending, it filters out `devOnly` actions through one rule,
+   `isActionAvailable(action, packaged)`, where `packaged` is the run's own
+   `window.atr.build.packaged` — see the amendment below. The same rule gates
+   the in-app command palette, so the menu and the palette cannot disagree.
 3. Main `.parse()`s the input through `RegisterActionsInputSchema`,
    then rebuilds the Application menu and re-binds accelerators
    wholesale.
@@ -182,13 +185,32 @@ Behavioural notes per action:
   overlay in the current window. NOT the spotlight window.
 - **`app.open-settings`** — navigates the main window to `/settings`.
 - **`app.toggle-devtools`** — `devOnly: true`. The renderer MUST omit
-  this action from the array passed to `app:registerActions` when
-  `import.meta.env.PROD` (or equivalent). Main MUST NOT bind a
+  this action from the array passed to `app:registerActions` in a run that
+  is packaged (see the amendment below). Main MUST NOT bind a
   default DevTools accelerator from its own side; the renderer-pushed
   registry is the only source.
 - **`repo.copy-path`** — copies the absolute filesystem path of the
   current repo to the clipboard via `clipboard.writeText` (renderer
   side; the renderer reads `fullPath` from the cached `RepoDetail`).
+
+### Amendment (2026-10-08) — what "dev-only" is decided by
+
+The first version of this contract said "in production", and named
+`import.meta.env.PROD` as the mechanism. That is a *build mode*, and it answers
+the wrong question: `electron-vite build` produces a bundle that is unpackaged
+(the E2E suite, `electron-vite preview`), so a dev-only action disappeared from
+runs where the developer had no other way to reach it — while the palette,
+which filtered nothing, offered it in a release that the native menu had already
+stripped it from.
+
+A `devOnly` action is offered when the run is **not packaged**. The renderer
+learns that from `window.atr.build.packaged`: main states `app.isPackaged` once
+per window as `webPreferences.additionalArguments`, and the preload parses it off
+`process.argv` (see `src/shared/build-info.ts`), synchronously — the value has to
+be there at first paint, because it decides whether an action is offered at all.
+Absent reads as not packaged, which is what a harness without the flag is.
+`ATR_FORCE_PACKAGED=1` overrides main's answer so the packaged branch is
+exercised by the E2E suite rather than first seen by whoever installs the DMG.
 
 Additional actions any Phase 2 implementer MAY add (not required by
 this contract):

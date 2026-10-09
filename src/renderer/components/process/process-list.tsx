@@ -11,6 +11,11 @@
  * is updated either by the 5s poll or a push event from the
  * `process:on:update` channel — both routes through the same
  * TanStack Query cache.
+ *
+ * Kill asks through the shared `ConfirmDialog` (ATR-067) — it used to call
+ * `window.confirm`, which blocks the renderer and is announced differently
+ * from every other confirmation in the app. The loading and failed states
+ * are the catalog's own skeleton and the shared retry panel (ATR-063/064).
  */
 
 import * as React from "react";
@@ -20,8 +25,9 @@ import { Copy, Square } from "lucide-react";
 import type { ProcessInfo } from "@shared/types";
 
 import { Button } from "@renderer/components/ui/button";
+import { ConfirmDialog } from "@renderer/components/ui/confirm-dialog";
 import { ErrorState } from "@renderer/components/ui/error-state";
-import { Skeleton } from "@renderer/components/ui/skeleton";
+import { Skeleton, SkeletonRegion } from "@renderer/components/ui/skeleton";
 import { useKillProcess, useProcesses } from "@renderer/hooks/use-processes";
 import { cn } from "@renderer/lib/cn";
 
@@ -33,17 +39,23 @@ interface ProcessListProps {
 export function ProcessList({ className }: ProcessListProps) {
   const query = useProcesses();
   const kill = useKillProcess();
+  // Which row is being confirmed, if any. The dialog is a sibling of the
+  // table rather than a child of the row: the row unmounts the moment the
+  // process goes away, and a dialog inside it would go with it.
+  const [confirming, setConfirming] = React.useState<ProcessInfo | null>(null);
 
   const handleKill = React.useCallback(
     (p: ProcessInfo) => {
-      const ok = window.confirm(
-        `Kill PID ${p.pid} (${p.command}) on port ${p.port}?`,
-      );
-      if (!ok) return;
-      kill.mutate({ pid: p.pid });
+      setConfirming(p);
     },
-    [kill],
+    [],
   );
+
+  const confirmKill = React.useCallback(() => {
+    if (!confirming) return;
+    kill.mutate({ pid: confirming.pid });
+    setConfirming(null);
+  }, [confirming, kill]);
 
   const handleCopy = React.useCallback(async (p: ProcessInfo) => {
     try {
@@ -53,32 +65,24 @@ export function ProcessList({ className }: ProcessListProps) {
     }
   }, []);
 
-  // The rows the table is about to have: render order, port, PID, age and the
-  // action pair, at the widths those columns take (ATR-064).
   if (query.isLoading) {
     return (
-      <div
-        aria-busy="true"
-        aria-live="polite"
+      <SkeletonRegion
+        label="Loading processes…"
         className={cn(
-          "overflow-hidden rounded-lg border border-border bg-card",
+          "rounded-lg border border-border bg-card p-4",
           className,
         )}
       >
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div
-            key={index}
-            className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0"
-          >
-            <Skeleton className="h-3.5 w-28" />
-            <Skeleton className="h-3.5 flex-1" />
-            <Skeleton className="h-3.5 w-10" />
-            <Skeleton className="h-3.5 w-12" />
-            <Skeleton className="h-3.5 w-14" />
-            <Skeleton className="h-7 w-16" />
+        {Array.from({ length: 4 }, (_, row) => (
+          <div key={row} className="flex items-center gap-3">
+            <Skeleton className="h-3 w-1/4" />
+            <Skeleton className="h-3 w-1/3" />
+            <Skeleton className="ml-auto h-3 w-10" />
+            <Skeleton className="h-3 w-12" />
           </div>
         ))}
-      </div>
+      </SkeletonRegion>
     );
   }
 
@@ -86,7 +90,7 @@ export function ProcessList({ className }: ProcessListProps) {
     return (
       <ErrorState
         title="Failed to read process snapshot"
-        message={query.error.message}
+        error={query.error}
         onRetry={() => void query.refetch()}
         retrying={query.isFetching}
         className={className}
@@ -116,48 +120,76 @@ export function ProcessList({ className }: ProcessListProps) {
   }
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-lg border border-border bg-card",
-        className,
-      )}
-    >
-      <table role="table" className="w-full border-collapse text-left text-xs">
-        <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          <tr>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Repo
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Command
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Port
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              PID
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Age
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => (
-            <ProcessRow
-              key={`${p.pid}-${p.port}`}
-              process={p}
-              onCopy={() => handleCopy(p)}
-              onKill={() => handleKill(p)}
-              killing={kill.isPending && kill.variables?.pid === p.pid}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border border-border bg-card",
+          className,
+        )}
+      >
+        <table role="table" className="w-full border-collapse text-left text-xs">
+          <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
+            <tr>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Repo
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Command
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Port
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                PID
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Age
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => (
+              <ProcessRow
+                key={`${p.pid}-${p.port}`}
+                process={p}
+                onCopy={() => handleCopy(p)}
+                onKill={() => handleKill(p)}
+                killing={kill.isPending && kill.variables?.pid === p.pid}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/*
+        Outside the table on purpose: killing a row makes it disappear on
+        the next sweep, and a dialog nested inside it would disappear too.
+      */}
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={`Kill PID ${confirming?.pid ?? ""}?`}
+        description={
+          confirming ? (
+            <>
+              Sends <code className="font-mono">SIGINT</code> to{" "}
+              <code className="font-mono">{confirming.command}</code> on port{" "}
+              {confirming.port}, then escalates to SIGTERM and SIGKILL if it
+              does not exit. Nothing on disk is touched.
+            </>
+          ) : null
+        }
+        confirmLabel="Kill process"
+        destructive
+        pending={kill.isPending}
+        onConfirm={confirmKill}
+      />
+    </>
   );
 }
 
@@ -196,7 +228,9 @@ function ProcessRow({ process, onCopy, onKill, killing }: ProcessRowProps) {
       </td>
       <td className="px-3 py-2 font-mono">
         <span className="inline-flex items-center gap-1">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          {/* The same live-status token the port chip on a repo card uses —
+              status is one hue (ATR-073), wherever it is drawn. */}
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-status-live" />
           <span>{process.port}</span>
         </span>
       </td>

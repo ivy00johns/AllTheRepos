@@ -200,9 +200,15 @@ test.describe("shell accessibility", () => {
       // The card's one control is its title, and it is a real button carrying
       // the repo's name — the keyboard path the article used to fake with
       // `onKeyDown`, with Enter and Space supplied by the element instead.
+      //
+      // The match is a prefix rather than the whole name, because the shipped
+      // button labels itself with the card's context as well (`<name>, <owned
+      // by>, in <folder>, last touched <when>`). Requiring the name it shows to
+      // *lead* its accessible name is the property that matters — WCAG 2.5.3,
+      // label in name — and the count below still demands exactly one.
       const repoName = (await card.locator("h3").innerText()).trim();
       const title = card.getByRole("button", {
-        name: new RegExp(`^${escapeRegExp(repoName)}$`),
+        name: new RegExp(`^${escapeRegExp(repoName)}\\b`),
       });
       await expect(title).toHaveCount(1);
 

@@ -98,7 +98,7 @@ function RecentRow({ repo, onClick }: RecentRowProps) {
     >
       <div className="flex min-w-0 flex-col">
         <span className="truncate font-medium">{repo.name}</span>
-        <span className="truncate font-mono text-[10px] text-muted-foreground">
+        <span className="truncate font-mono atr-micro text-muted-foreground">
           {repo.fullPath}
         </span>
       </div>
@@ -115,7 +115,7 @@ export function TrayPopoverApp() {
 
   return (
     <div className="flex h-screen w-full flex-col gap-2 overflow-hidden bg-popover p-3 text-popover-foreground">
-      <header className="px-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <header className="atr-label px-1 uppercase tracking-wider text-muted-foreground">
         Recent repos
       </header>
       <section className="flex flex-col gap-0.5">
@@ -147,14 +147,14 @@ export function TrayPopoverApp() {
         )}
       >
         <span>Open Spotlight…</span>
-        <kbd className="font-mono text-[10px] text-muted-foreground">
+        <kbd className="font-mono atr-micro text-muted-foreground">
           ⌘⇧Space
         </kbd>
       </button>
 
       <div className="my-1 h-px w-full bg-border" aria-hidden="true" />
 
-      <header className="px-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <header className="atr-label px-1 uppercase tracking-wider text-muted-foreground">
         Running dev servers
       </header>
       <p className="px-2 py-1.5 text-xs text-muted-foreground">

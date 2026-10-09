@@ -178,17 +178,18 @@ describe("installBrowserBridge", () => {
 
   it("keeps a catalog write in localStorage, so it survives a reload", async () => {
     const saved = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => saved.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        saved.set(key, value);
-      },
-      removeItem: (key: string) => {
-        saved.delete(key);
-      },
-    });
+    stubStorage(saved);
+    /*
+     * Imported after the stub, like the two view tests above and for the same
+     * reason: the demo store captures `localStorage` when the module is created,
+     * so an instance from before the stub writes into whatever the runtime
+     * provides instead (Node 25 has a global `localStorage`; Node 22, which CI
+     * runs, does not). Without this the assertion below read the host.
+     */
+    vi.resetModules();
+    const { installBrowserBridge: install } = await import("@renderer/lib/browser-bridge");
     globals.window = {};
-    expect(installBrowserBridge()).toBe(true);
+    expect(install()).toBe(true);
 
     const bridge = globals.window.atr as unknown as WritableBridge;
     // Read the slug off the catalog rather than guessing it from a repo name.

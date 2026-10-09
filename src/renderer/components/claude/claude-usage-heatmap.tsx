@@ -71,7 +71,7 @@ export function ClaudeUsageHeatmap({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center justify-between atr-label font-mono uppercase tracking-widest text-muted-foreground">
         <span>{weeks}-week activity</span>
         <span className="flex items-center gap-1.5">
           less

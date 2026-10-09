@@ -4,7 +4,14 @@
  * Lives above every route. Provides:
  *   - app title + sidebar collapse toggle,
  *   - the global search bar (single source of truth — see below),
- *   - navigation affordances to /settings and /debug (Phase 1 only).
+ *   - the primary destinations (`NAV_ITEMS`).
+ *
+ * `/debug` is deliberately NOT one of them (ATR-074). It is a Phase 0
+ * bridge smoke test, and it sat in the primary navigation beside Running,
+ * Map, Claude and Settings in every build — including a packaged release.
+ * The developer reaches it two ways now: this file's dev-only affordance
+ * (drawn only when the bundle was built in development mode) and the
+ * command palette's `app.open-debug` action.
  *
  * Visual treatment is deliberately minimal — the frontend-components
  * agent will skin this with the real design language in a follow-up
@@ -26,6 +33,7 @@ import {
 
 import { Button } from "@renderer/components/ui/button";
 import { SearchBar } from "@renderer/components/search/search-bar";
+import { isPackagedBuild } from "@renderer/lib/atr";
 import { useProcessCount } from "@renderer/hooks/use-processes";
 import { cn } from "@renderer/lib/cn";
 import { useUiStore } from "@renderer/stores/ui";
@@ -58,13 +66,14 @@ const NAV_ITEMS = [
   { to: "/graph", label: "Map", Icon: Network, badge: null },
   { to: "/claude", label: "Claude", Icon: Brain, badge: null },
   { to: "/settings", label: "Settings", Icon: SettingsIcon, badge: null },
-  { to: "/debug", label: "Debug", Icon: Terminal, badge: null },
 ] as const;
 
 export function TopBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const update = useUpdate();
   const processCount = useProcessCount();
+  // Stable for the life of the process — main states it once per window.
+  const packaged = React.useMemo(() => isPackagedBuild(), []);
 
   // ATR-012-search: ONE search source of truth. The catalog reads its
   // query from the TanStack Router `q` search param, so the global
@@ -212,20 +221,21 @@ export function TopBar() {
             <Link to={to}>
               <Icon className="h-4 w-4" aria-hidden />
               {/*
-                The label names the link at every width, so the collapsed
-                state has to hide it *visually* rather than with
-                `display: none` — which takes the text out of the accessible
-                name and leaves an `aria-hidden` icon as the link's entire
-                content. The window's minimum width is 800 and `lg` starts at
-                1024, so below that every one of these destinations was an
-                unnamed icon. `lg:not-sr-only` puts the label back in flow
-                where there is room for it.
+                Collapsed below `lg`, never absent: `hidden` is `display: none`,
+                which also removes the text from the accessible-name
+                computation, and the icon next to it is `aria-hidden` — so
+                `hidden lg:inline` left every destination as an unnamed icon-only
+                link at the window's 800px minimum width (ATR-059). `sr-only`
+                keeps the name while it is visually collapsed, the same way the
+                update chip does it.
               */}
-              <span className="sr-only text-xs lg:not-sr-only">{label}</span>
+              <span className="sr-only text-xs lg:not-sr-only lg:inline">
+                {label}
+              </span>
               {badge === "processes" && processCount > 0 ? (
                 <span
                   aria-hidden
-                  className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9px] font-semibold leading-none text-accent-foreground"
+                  className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-accent px-1 font-mono atr-micro font-semibold text-accent-foreground"
                 >
                   {processCount}
                 </span>
@@ -241,6 +251,35 @@ export function TopBar() {
           </Button>
         ))}
       </nav>
+
+      {/*
+        The dev-only door to `/debug` (ATR-074) — outside the `<nav>` on
+        purpose, so the primary navigation is exactly its four destinations and
+        this cannot be mistaken for a fifth. `isPackagedBuild()` is the runtime
+        answer main states per window (see `@shared/build-info`): every unpackaged
+        run draws this — the dev server, `electron-vite preview`, the E2E suite —
+        and a packaged release draws nothing, so a shipped build has no Debug
+        affordance anywhere in its chrome. It used to read the build-mode flag,
+        which put the affordance in `electron-vite dev` and nowhere else, and so
+        disagreed with the palette it sits beside.
+
+        The divider is what keeps it from reading as part of the destination
+        row; the `sr-only` suffix is what keeps its accessible name from being
+        just "Debug", which is what the old nav button was called.
+      */}
+      {packaged ? null : (
+        <>
+          <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+          <Link
+            to="/debug"
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-mono atr-micro text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground"
+          >
+            <Terminal className="h-3.5 w-3.5" aria-hidden />
+            <span className="sr-only lg:not-sr-only lg:inline">Debug</span>
+            <span className="sr-only"> (development build)</span>
+          </Link>
+        </>
+      )}
     </header>
   );
 }

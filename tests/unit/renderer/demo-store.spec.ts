@@ -59,6 +59,8 @@ const byName = (repos: Repo[], name: string): Repo => {
 
 beforeEach(() => {
   vi.resetModules();
+  // A stub one test installs must not be the environment the next one runs in.
+  vi.unstubAllGlobals();
 });
 
 describe("favourites", () => {
@@ -697,7 +699,11 @@ describe("saved edits", () => {
     store.setFavorite(repo.slug, true);
     expect(storage.map.size).toBe(0);
 
-    // And in a context with no localStorage (this one) it stays session-local.
+    // And in a context with no localStorage it stays session-local. The context
+    // is stated rather than inherited: Node 25 ships a global `localStorage`
+    // (Node 22, which CI runs, does not), and on a runtime that has one this
+    // would be asserting the machine instead of the store.
+    vi.stubGlobal("localStorage", undefined);
     expect(store.enablePersistence()).toBe(false);
     expect(store.persistenceEnabled()).toBe(false);
   });

@@ -1,23 +1,56 @@
-/**
- * Skeleton — the placeholder shape for content that is still arriving.
- *
- * The catalog grid has had one since it was built (`GridSkeleton` in
- * `catalog/repo-grid.tsx`), and the detail panel has had its own bars, while
- * three routes rendered a bare sentence for the same class of wait — which is
- * the worst place to put a sentence, because with a cold start the first paint
- * is exactly where it shows (ATR-064).
- *
- * One primitive rather than a component per screen: a skeleton is a box of the
- * right size that pulses, and every caller knows the right size. `aria-hidden`
- * is deliberate — the *container* announces the wait with `aria-busy` and a
- * live region, so a screen reader hears "loading" once instead of hearing a
- * dozen empty boxes.
- */
+import * as React from "react";
 
 import { cn } from "@renderer/lib/cn";
 
-export function Skeleton({ className }: { className?: string }) {
+/**
+ * Skeleton — one animated placeholder block.
+ *
+ * Five surfaces wait on the same class of read: the catalog grid, the detail
+ * panel, and the three route-level states on `/repos/$slug`, `/settings` and
+ * `/processes`. Each used to carry its own `animate-pulse` markup — the three
+ * routes did not, and showed a bare sentence instead, so a cold start looked
+ * like two different applications (ATR-064). The treatment lives here once;
+ * callers pass size and radius.
+ *
+ * Hidden from assistive tech on purpose: the region around it carries
+ * `aria-busy` and a visually-hidden sentence, so a screen reader hears
+ * "Loading settings…" rather than the decorative blocks.
+ */
+export function Skeleton({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div aria-hidden className={cn("animate-pulse rounded-md bg-muted", className)} />
+    <div
+      aria-hidden
+      className={cn("animate-pulse rounded bg-muted", className)}
+      {...props}
+    />
+  );
+}
+
+/**
+ * The labelled wrapper every skeleton state shares: an `aria-busy` region, a
+ * sentence only a screen reader reads, and the pulse blocks inside it.
+ */
+export function SkeletonRegion({
+  label,
+  className,
+  children,
+}: {
+  /** Announced instead of the placeholder blocks, e.g. "Loading settings…". */
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className={cn("flex flex-col gap-3", className)}
+    >
+      <span className="sr-only">{label}</span>
+      {children}
+    </div>
   );
 }

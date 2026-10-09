@@ -13,7 +13,7 @@ import { ArrowLeft } from "lucide-react";
 import { RepoDetailContent } from "@renderer/components/catalog/repo-detail-content";
 import { Button } from "@renderer/components/ui/button";
 import { ErrorState } from "@renderer/components/ui/error-state";
-import { Skeleton } from "@renderer/components/ui/skeleton";
+import { Skeleton, SkeletonRegion } from "@renderer/components/ui/skeleton";
 import { useRepo } from "@renderer/hooks/use-repo";
 import { Route as RootRoute } from "./__root";
 
@@ -27,20 +27,19 @@ function RepoPage() {
   const { slug } = Route.useParams();
   const repoQuery = useRepo(slug);
 
-  // The placeholders carry the page's own shape — the back affordance, the
-  // name, the meta line and the two content blocks — so the layout does not
-  // jump when the repo arrives (ATR-064).
   if (repoQuery.isLoading) {
+    /*
+     * The detail panel's own shape, at page width — a sentence here would be
+     * the same wait the panel already shows as pulse blocks (ATR-064).
+     */
     return (
-      <div aria-busy="true" aria-live="polite" className="flex flex-col gap-4">
+      <SkeletonRegion label="Loading repo…" className="gap-4">
         <Skeleton className="h-8 w-32" />
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-6 w-56" />
-          <Skeleton className="h-4 w-80" />
-        </div>
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-40 w-full" />
-      </div>
+        <Skeleton className="h-6 w-2/3" />
+        <Skeleton className="h-4 w-1/3" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </SkeletonRegion>
     );
   }
 
@@ -48,7 +47,7 @@ function RepoPage() {
     return (
       <ErrorState
         title="Failed to load repo"
-        message={repoQuery.error.message}
+        error={repoQuery.error}
         onRetry={() => void repoQuery.refetch()}
         retrying={repoQuery.isFetching}
       />

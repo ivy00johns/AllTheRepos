@@ -4,6 +4,7 @@ import type { RepoDetail } from "@shared/types";
 
 import type { TaskRunState } from "@renderer/hooks/use-actions";
 
+import { Skeleton, SkeletonRegion } from "@renderer/components/ui/skeleton";
 import { cn } from "@renderer/lib/cn";
 
 import { RepoDetailContent } from "./repo-detail-content";
@@ -55,12 +56,15 @@ export function DetailPanel({
       )}
     >
       {loading ? (
-        <div className="flex h-full flex-col gap-4 border-l border-border bg-card p-4">
-          <div className="h-6 w-40 animate-pulse rounded bg-muted" />
-          <div className="h-4 w-64 animate-pulse rounded bg-muted" />
-          <div className="h-24 w-full animate-pulse rounded bg-muted" />
-          <div className="h-24 w-full animate-pulse rounded bg-muted" />
-        </div>
+        <SkeletonRegion
+          label="Loading repo…"
+          className="h-full gap-4 border-l border-border bg-card p-4"
+        >
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </SkeletonRegion>
       ) : repo ? (
         <RepoDetailContent
           repo={repo}

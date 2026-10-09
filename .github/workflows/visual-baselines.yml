@@ -1,0 +1,50 @@
+# Visual baselines — regenerate the catalog screenshots for *this* rasterizer.
+#
+# `catalog-visual.spec.ts` compares the catalog against a committed baseline, and
+# a baseline is only a test on the machine that rendered it: macOS anti-aliases
+# text differently on every major release, so the spec keys its baseline by the
+# render environment (`darwin27` on a developer's macOS 27, `darwin23` here on
+# the `macos-14` runner the `e2e` job uses). Measured on 2026-10-08, comparing a
+# macOS 27 baseline on this runner differs over ~1% of pixels — more than the
+# `gap-3`→`gap-4` nudge the test exists to catch — so a tolerance cannot separate
+# them and the environment has to be part of the key.
+#
+# Adding an environment (a new macOS on the runner, or a Linux leg) means
+# generating its baseline here and committing the result, which is what this
+# workflow does. It is asked for by hand — a baseline changes when the OS or a
+# screen changes, not on every push — and it is declared in the macOS budget in
+# `scripts/check-ci-cost.mjs` like every other job that needs a Mac.
+#
+# Run it:   gh workflow run visual-baselines.yml
+# Then download `catalog-visual-snapshots` from the run and commit the files.
+name: Visual baselines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-baselines-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baselines:
+    name: regenerate visual baselines
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `pnpm visual:baselines` builds the app (its global setup flips the native
+      # ABI and bundles `out/`), then runs the one spec with `--update-snapshots`.
+      - run: pnpm visual:baselines
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-visual-snapshots
+          path: tests/e2e/catalog-visual.spec.ts-snapshots/

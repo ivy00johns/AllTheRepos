@@ -118,7 +118,7 @@ export function MoveDialog({
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="move-target"
-                className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+                className="font-mono atr-label uppercase tracking-wider text-muted-foreground"
               >
                 Destination folder
               </label>
@@ -136,7 +136,7 @@ export function MoveDialog({
                   <option key={folder} value={folder} />
                 ))}
               </datalist>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="atr-label text-muted-foreground">
                 Pick an existing folder or type a new one inside your scan
                 roots. It will be created if it doesn&apos;t exist.
               </p>
@@ -178,7 +178,7 @@ export function MoveDialog({
                           {entry.name}
                         </p>
                         {entry.ok ? (
-                          <p className="flex min-w-0 items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                          <p className="flex min-w-0 items-center gap-1 font-mono atr-micro text-muted-foreground">
                             <span className="truncate">
                               {shortPath(entry.fromPath)}
                             </span>
@@ -191,7 +191,7 @@ export function MoveDialog({
                             </span>
                           </p>
                         ) : (
-                          <p className="text-[11px] text-warning">
+                          <p className="atr-label text-warning">
                             {describeBlockers(entry.blockers)}
                           </p>
                         )}
@@ -286,7 +286,7 @@ function MoveOutcome({
           {failures.map((entry) => (
             <li key={entry.slug} className="px-3 py-2">
               <p className="font-mono text-xs text-foreground">{entry.slug}</p>
-              <p className="text-[11px] text-warning">{entry.error}</p>
+              <p className="atr-label text-warning">{entry.error}</p>
             </li>
           ))}
         </ul>

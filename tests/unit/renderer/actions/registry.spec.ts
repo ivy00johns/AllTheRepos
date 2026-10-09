@@ -1,12 +1,14 @@
 /**
  * Phase 2 Unit Test — renderer action registry.
  *
- * Three pure functions under test:
+ * The pure functions under test:
  *   - `findAction(id)`        — lookup by id; undefined on miss.
  *   - `dispatchAction(id, c)` — invokes the registered handler or
  *                              logs a dev-warning and no-ops on miss.
- *   - `serializeActionsForIpc(isProd?)` — strips the `handler` field
- *                              and filters `devOnly` in prod.
+ *   - `isActionAvailable(a, packaged)` — the one dev-only rule, shared by the
+ *                              native menu and the in-app command palette.
+ *   - `serializeActionsForIpc(packaged?)` — strips the `handler` field
+ *                              and filters `devOnly` in a packaged build.
  *
  * The registry is a plain module — no React, no DOM. We mock the two
  * renderer-only imports (`@renderer/lib/query-client`, `@renderer/lib/atr`)
@@ -28,6 +30,10 @@ vi.mock("@renderer/lib/query-client", () => ({
 
 vi.mock("@renderer/lib/atr", () => ({
   getAtr: vi.fn(() => null),
+  // The registry reads this for `serializeActionsForIpc()`'s default argument.
+  // Mocked as an unpackaged run — the unit suite is not a release — and flipped
+  // per-test below for the packaged branch.
+  isPackagedBuild: vi.fn(() => false),
 }));
 
 import {
@@ -35,12 +41,13 @@ import {
   dispatchAction,
   findAction,
   focusedSlugFromLocation,
+  isActionAvailable,
   resolveFocusedRepo,
   serializeActionsForIpc,
   type ActionContext,
   type RegisteredAction,
 } from "@renderer/actions/registry";
-import { getAtr } from "@renderer/lib/atr";
+import { getAtr, isPackagedBuild } from "@renderer/lib/atr";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -227,6 +234,39 @@ describe("dispatchAction", () => {
 // serializeActionsForIpc
 // ---------------------------------------------------------------------------
 
+describe("isActionAvailable — the dev-only rule", () => {
+  const devOnly = { devOnly: true };
+  const normal = { devOnly: false };
+
+  it("drops a devOnly action in a packaged build", () => {
+    expect(isActionAvailable(devOnly, true)).toBe(false);
+  });
+
+  it("keeps a devOnly action in an unpackaged run", () => {
+    expect(isActionAvailable(devOnly, false)).toBe(true);
+  });
+
+  it("keeps ordinary actions in both", () => {
+    expect(isActionAvailable(normal, true)).toBe(true);
+    expect(isActionAvailable(normal, false)).toBe(true);
+  });
+
+  it("treats an action with no devOnly field as ordinary", () => {
+    expect(isActionAvailable({}, true)).toBe(true);
+  });
+
+  it("covers every devOnly action in the registry, not just the known ones", () => {
+    // The rule is applied by id-agnostic callers, so a new devOnly action is
+    // covered the day it is added rather than the day somebody remembers.
+    const flagged = actions.filter((a) => a.devOnly).map((a) => a.id);
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const id of flagged) {
+      expect(serializeActionsForIpc(true).map((a) => a.id)).not.toContain(id);
+      expect(serializeActionsForIpc(false).map((a) => a.id)).toContain(id);
+    }
+  });
+});
+
 describe("serializeActionsForIpc", () => {
   it("strips the handler field from every action", () => {
     const out = serializeActionsForIpc(false);
@@ -235,16 +275,35 @@ describe("serializeActionsForIpc", () => {
     }
   });
 
-  it("filters devOnly actions when isProd=true", () => {
+  it("filters devOnly actions when packaged", () => {
     const prodOut = serializeActionsForIpc(true);
     const ids = prodOut.map((a) => a.id);
     expect(ids).not.toContain("app.toggle-devtools");
+    expect(ids).not.toContain("app.open-debug");
   });
 
-  it("includes devOnly actions when isProd=false", () => {
+  it("includes devOnly actions when unpackaged", () => {
     const devOut = serializeActionsForIpc(false);
     const ids = devOut.map((a) => a.id);
     expect(ids).toContain("app.toggle-devtools");
+    expect(ids).toContain("app.open-debug");
+  });
+
+  it("defaults to what the running build actually is", () => {
+    // The regression this exists for: the default used to be the *build mode*,
+    // so a built-but-unpackaged run (the E2E suite, `electron-vite preview`) sent
+    // main a menu with its dev-only entries stripped.
+    vi.mocked(isPackagedBuild).mockReturnValue(true);
+    expect(serializeActionsForIpc().map((a) => a.id)).not.toContain(
+      "app.open-debug",
+    );
+
+    vi.mocked(isPackagedBuild).mockReturnValue(false);
+    expect(serializeActionsForIpc().map((a) => a.id)).toContain(
+      "app.open-debug",
+    );
+
+    vi.mocked(isPackagedBuild).mockReturnValue(false);
   });
 
   it("preserves the same array length (minus devOnly in prod)", () => {

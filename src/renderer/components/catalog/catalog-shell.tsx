@@ -619,15 +619,22 @@ export function CatalogShell({
       : tildify(selectedDir)
     : null;
 
+  /*
+   * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root
+   * layout has already sized to the window minus the top bar. Asking for a
+   * second full viewport stacked 48px of catalog past the bottom of the
+   * window, and `overflow-hidden` here turned that overflow into an
+   * unreachable tail of the grid rather than a scroll (ATR-061).
+   *
+   * Above the `return`, not inside it. JSX children are verbatim text, so a
+   * comment written without braces is how code-looking prose ends up on screen
+   * — and, as a text child of this flex column, it is also an anonymous flex
+   * item that takes its own height out of the catalog's box. Two guards hold
+   * this: `tests/unit/renderer/jsx-text.spec.ts` fails on the comment forms
+   * that render, and `layout-overflow.spec.ts` asserts the shell holds only
+   * elements before it measures a height.
+   */
   return (
-    /*
-      `h-full`, not `h-[100dvh]`. The shell lives inside `main.flex-1`, which
-      already sits under the 48px top bar, so sizing the shell to the whole
-      viewport made it exactly 48px taller than the space it had — and because
-      it is `overflow-hidden`, the tail of the grid was clipped instead of
-      scrollable (ATR-061, measured at 1280x800: a 848px page in an 800px
-      window). `main` already knows how tall it is; this takes that answer.
-    */
     <div className="flex h-full w-full overflow-hidden bg-background">
       <DirRail
         repos={initialRepos}
@@ -649,6 +656,15 @@ export function CatalogShell({
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/*
+         * The route's `h1` (ATR-070). The visible captions on this screen are
+         * mono labels, not headings, so the name a screen reader hears first
+         * is carried here rather than invented as a banner above the grid.
+         */}
+        <h1 className="sr-only">
+          {scopeLabel ? `Catalog — ${scopeLabel}` : "Catalog"}
+        </h1>
+
         <CatalogToolbar
           shownCount={displayedRepos.length}
           totalCount={totalCount || initialRepos.length}
@@ -671,7 +687,7 @@ export function CatalogShell({
             <button
               type="button"
               onClick={() => setSyncNotice(null)}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -685,13 +701,13 @@ export function CatalogShell({
             className="flex shrink-0 items-center gap-2 border-b border-border bg-accent/10 px-4 py-1.5"
           >
             <RefreshCw className="h-3 w-3 shrink-0 text-accent" aria-hidden />
-            <span className="text-[11px] text-accent">
+            <span className="atr-label text-accent">
               {catalogLive.notice}
             </span>
             <button
               type="button"
               onClick={catalogLive.dismiss}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -705,7 +721,7 @@ export function CatalogShell({
             className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-warning/10 px-4 py-1.5"
           >
             <span
-              className="text-[11px] text-warning"
+              className="atr-label text-warning"
               title={
                 searchQuery.data?.semantic.state === "off"
                   ? (searchQuery.data.semantic.detail ?? undefined)
@@ -716,7 +732,7 @@ export function CatalogShell({
             </span>
             <Link
               to="/settings"
-              className="cursor-pointer font-mono text-[11px] text-accent underline-offset-2 hover:underline"
+              className="cursor-pointer font-mono atr-label text-accent underline-offset-2 hover:underline"
             >
               Set up
             </Link>
@@ -728,11 +744,11 @@ export function CatalogShell({
             role="status"
             className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-1.5"
           >
-            <span className="text-[11px] text-warning">{rootNotice}</span>
+            <span className="atr-label text-warning">{rootNotice}</span>
             <button
               type="button"
               onClick={() => setRootNotice(null)}
-              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -746,7 +762,7 @@ export function CatalogShell({
               type="button"
               onClick={() => undoMove.mutate(undefined)}
               disabled={undoMove.isPending}
-              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
+              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
             >
               <Undo2 className="h-3 w-3" aria-hidden />
               Undo

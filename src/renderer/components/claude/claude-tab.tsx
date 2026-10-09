@@ -143,14 +143,14 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
           <Edit className="h-4 w-4" aria-hidden />
           {openingMd ? "Opening…" : "Edit CLAUDE.md"}
         </Button>
-        <span className="ml-auto font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        <span className="ml-auto font-mono atr-label uppercase tracking-widest text-muted-foreground">
           {tokens} tokens · {state.sessions.length} session
           {state.sessions.length === 1 ? "" : "s"}
         </span>
       </div>
 
       {launchError ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono text-[11px] text-destructive">
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono atr-label text-destructive">
           {launchError}
         </p>
       ) : null}
@@ -271,7 +271,7 @@ function SectionHeading({ id, icon, children }: SectionHeadingProps) {
   return (
     <h3
       id={id}
-      className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+      className="mb-2 flex items-center gap-1.5 atr-label font-semibold uppercase tracking-widest text-muted-foreground"
     >
       {icon}
       {children}
@@ -281,7 +281,7 @@ function SectionHeading({ id, icon, children }: SectionHeadingProps) {
 
 function CountBadge({ n }: { n: number }) {
   return (
-    <span className="ml-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-sm bg-muted px-1 font-mono text-[10px] font-semibold text-foreground">
+    <span className="ml-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-sm bg-muted px-1 font-mono atr-micro font-semibold text-foreground">
       {n}
     </span>
   );

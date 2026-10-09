@@ -214,7 +214,7 @@ export function RepoDetailContent({
               {description}
             </p>
           ) : null}
-          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/80">
+          <p className="atr-micro mt-1 truncate font-mono text-muted-foreground/80">
             {repo.fullPath}
           </p>
         </div>
@@ -317,7 +317,7 @@ export function RepoDetailContent({
           aria-selected={activeTab === "details"}
           onClick={() => setActiveTab("details")}
           className={cn(
-            "rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",
+            "atr-label rounded-sm px-3 py-1 font-mono uppercase tracking-widest transition-colors",
             activeTab === "details"
               ? "bg-accent/15 text-accent"
               : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -331,7 +331,7 @@ export function RepoDetailContent({
           aria-selected={activeTab === "claude"}
           onClick={() => setActiveTab("claude")}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",
+            "atr-label inline-flex items-center gap-1.5 rounded-sm px-3 py-1 font-mono uppercase tracking-widest transition-colors",
             activeTab === "claude"
               ? "bg-accent/15 text-accent"
               : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -386,11 +386,11 @@ export function RepoDetailContent({
             </div>
 
             <div>
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              <p className="atr-label mb-1.5 font-semibold uppercase tracking-widest text-muted-foreground">
                 Languages
               </p>
               <LanguageBar languages={repo.languages} />
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              <div className="atr-label mt-2 flex flex-wrap gap-2">
                 {repo.languages.map((l) => (
                   <span
                     key={l.name}
@@ -412,7 +412,7 @@ export function RepoDetailContent({
             <Separator />
 
             <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              <p className="atr-label mb-2 font-semibold uppercase tracking-widest text-muted-foreground">
                 Tags
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -423,7 +423,7 @@ export function RepoDetailContent({
                     onClick={() => removeTag(t)}
                     disabled={setRepoTags.isPending}
                     aria-label={`Remove tag ${t}`}
-                    className="group inline-flex items-center gap-1 rounded-md border border-border-strong bg-card px-2 py-0.5 font-mono text-[11px] hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    className="atr-micro group inline-flex items-center gap-1 rounded-md border border-border-strong bg-card px-2 py-0.5 font-mono hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                   >
                     {t}
                     <X
@@ -481,7 +481,7 @@ export function RepoDetailContent({
               <>
                 <Separator />
                 <div>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <p className="atr-label mb-2 font-semibold uppercase tracking-widest text-muted-foreground">
                     Groups
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -498,7 +498,7 @@ export function RepoDetailContent({
             <Separator />
 
             <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              <p className="atr-label mb-2 font-semibold uppercase tracking-widest text-muted-foreground">
                 README
               </p>
               {repo.readmeContent ? (
@@ -545,7 +545,7 @@ export function RepoDetailContent({
           <p
             role="status"
             aria-live="polite"
-            className="font-mono text-[10px] text-destructive"
+            className="atr-label font-mono text-destructive"
           >
             {openError}
           </p>
@@ -565,7 +565,7 @@ interface MetaProps {
 function Meta({ icon, label, value, mono }: MetaProps) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+      <div className="atr-label flex items-center gap-1.5 uppercase tracking-widest text-muted-foreground">
         {icon}
         <span>{label}</span>
       </div>

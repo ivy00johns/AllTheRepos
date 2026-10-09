@@ -61,58 +61,10 @@ const RANGE_OPTIONS: { key: RangeKey; label: string; days: number | null }[] = [
 function ClaudePage() {
   const bridgeAvailable = typeof window !== "undefined" && Boolean(getAtr());
   const [range, setRange] = React.useState<RangeKey>("30d");
-
-  /**
-   * The range selector is a real radio group, not a row of toggles with radio
-   * roles pasted on. The roles were already right — a range is one of N with a
-   * persistent choice — but the pattern behind them was missing: every option
-   * was a tab stop and the arrow keys did nothing. Native radios answer arrows,
-   * and the choice follows the focus, so the JSX below gives the group one tab
-   * stop (the checked option) and lets the arrows both move and select, which
-   * is also what the panel underneath reads.
-   */
-  const rangeButtonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
-
-  /** Focus and select the option at `next`, wrapping at both ends. */
-  const moveRange = React.useCallback((next: number) => {
-    const index = (next + RANGE_OPTIONS.length) % RANGE_OPTIONS.length;
-    const option = RANGE_OPTIONS[index];
-    if (!option) return;
-    setRange(option.key);
-    rangeButtonsRef.current[index]?.focus();
-  }, []);
-
-  /**
-   * Arrows move and select; Home/End jump. Enter and Space are left to the
-   * `<button>`, so there is no hand-rolled activation to drift from it.
-   */
-  const handleRangeKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-      switch (event.key) {
-        case "ArrowRight":
-        case "ArrowDown":
-          event.preventDefault();
-          moveRange(index + 1);
-          break;
-        case "ArrowLeft":
-        case "ArrowUp":
-          event.preventDefault();
-          moveRange(index - 1);
-          break;
-        case "Home":
-          event.preventDefault();
-          moveRange(0);
-          break;
-        case "End":
-          event.preventDefault();
-          moveRange(RANGE_OPTIONS.length - 1);
-          break;
-        default:
-          break;
-      }
-    },
-    [moveRange],
-  );
+  // Roving tabindex for the range radios. The group is one tab stop and the
+  // arrows move inside it, so we need a handle on each button to hand focus
+  // over when a key selects a different one.
+  const rangeButtons = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   const filter = React.useMemo<ClaudeGlobalUsageInput>(() => {
     const opt = RANGE_OPTIONS.find((o) => o.key === range);
@@ -128,6 +80,34 @@ function ClaudePage() {
 
   const usageQuery = useClaudeGlobalUsage(filter);
   const projectsQuery = useClaudeProjects();
+
+  /**
+   * Radios are a roving-tabindex group: exactly one sits in the tab order,
+   * ArrowLeft/Right (and Up/Down) move between them, Home/End jump to the
+   * ends, and moving focus selects. The control declared `role="radio"` and
+   * `aria-checked` while implementing none of it, so all four were tab stops
+   * and the keys a radio is expected to answer did nothing (ATR-065).
+   */
+  const selectRange = (index: number) => {
+    const next = RANGE_OPTIONS[index];
+    if (!next) return;
+    setRange(next.key);
+    rangeButtons.current[index]?.focus();
+  };
+
+  const handleRangeKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const last = RANGE_OPTIONS.length - 1;
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    let target: number | null = null;
+    if (forward) target = (index + 1) % RANGE_OPTIONS.length;
+    else if (backward) target = (index + last) % RANGE_OPTIONS.length;
+    else if (event.key === "Home") target = 0;
+    else if (event.key === "End") target = last;
+    if (target === null) return;
+    event.preventDefault();
+    selectRange(target);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -175,20 +155,17 @@ function ClaudePage() {
               return (
                 <button
                   key={opt.key}
-                  ref={(element) => {
-                    rangeButtonsRef.current[index] = element;
-                  }}
                   type="button"
                   role="radio"
                   aria-checked={active}
-                  // One tab stop for the group: the checked option carries it,
-                  // the arrows move it. Before this, all four were tab stops
-                  // and the keys a radio group answers did nothing (ATR-065).
                   tabIndex={active ? 0 : -1}
-                  onClick={() => setRange(opt.key)}
+                  ref={(element) => {
+                    rangeButtons.current[index] = element;
+                  }}
                   onKeyDown={(event) => handleRangeKeyDown(event, index)}
+                  onClick={() => setRange(opt.key)}
                   className={cn(
-                    "rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition-colors",
+                    "rounded-sm px-3 py-1 font-mono atr-label uppercase tracking-widest transition-colors",
                     active
                       ? "bg-accent/15 text-accent"
                       : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -227,7 +204,7 @@ function ClaudePage() {
           <section aria-labelledby="claude-projects-heading">
             <h2
               id="claude-projects-heading"
-              className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="mb-2 flex items-center gap-1.5 atr-label font-semibold uppercase tracking-widest text-muted-foreground"
             >
               <FolderGit2 className="h-3.5 w-3.5" aria-hidden />
               Projects
@@ -296,7 +273,7 @@ interface StatCardProps {
 function StatCard({ label, value, loading }: StatCardProps) {
   return (
     <Card className="p-4">
-      <CardDescription className="text-[10px] uppercase tracking-widest">
+      <CardDescription className="atr-label uppercase tracking-widest">
         {label}
       </CardDescription>
       <CardContent className="p-0 pt-1">
@@ -355,7 +332,7 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <table className="w-full border-collapse text-left text-xs">
-        <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
           <tr>
             <th scope="col" className="w-6 px-2 py-2" aria-label="Expand" />
             <th scope="col" className="px-3 py-2 font-medium">
@@ -482,14 +459,14 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
 
   if (repoStateQuery.isLoading) {
     return (
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="font-mono atr-label text-muted-foreground">
         Loading sessions…
       </p>
     );
   }
   if (repoStateQuery.isError) {
     return (
-      <p className="font-mono text-[11px] text-destructive">
+      <p className="font-mono atr-label text-destructive">
         Couldn’t load sessions for {slug}.
       </p>
     );
@@ -498,7 +475,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
   const sessions: ClaudeSession[] = repoStateQuery.data?.sessions ?? [];
   if (sessions.length === 0) {
     return (
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="font-mono atr-label text-muted-foreground">
         No sessions recorded for this project.
       </p>
     );
@@ -506,7 +483,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="mb-1 atr-label font-semibold uppercase tracking-widest text-muted-foreground">
         Sessions
       </p>
       {sessions.map((session) => {
@@ -518,7 +495,7 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
               aria-expanded={open}
               onClick={() => setOpenSessionId(open ? null : session.id)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
+                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono atr-label transition-colors",
                 open ? "bg-muted/40" : "hover:bg-muted/30",
               )}
             >
@@ -576,21 +553,21 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
 
   if (transcript.isLoading) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
         Loading transcript…
       </div>
     );
   }
   if (transcript.isError) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-destructive">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-destructive">
         Couldn’t load this transcript.
       </div>
     );
   }
   if (events.length === 0) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
         This session has no transcript events.
       </div>
     );
@@ -607,7 +584,7 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
         ))}
       </ol>
       <div className="mt-2 flex items-center justify-between">
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono atr-micro text-muted-foreground">
           {events.length.toLocaleString()} event
           {events.length === 1 ? "" : "s"} loaded
         </span>
@@ -622,7 +599,7 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
             {transcript.isFetchingNextPage ? "Loading…" : "Load more"}
           </Button>
         ) : (
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono atr-label text-muted-foreground">
             End of transcript
           </span>
         )}
@@ -646,14 +623,14 @@ function TranscriptEventRow({ event }: TranscriptEventRowProps) {
     typeof event.timestamp === "string" ? event.timestamp : null;
   return (
     <li className="rounded border border-border/40 bg-card/60 px-2 py-1.5">
-      <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 font-mono atr-label uppercase tracking-widest text-muted-foreground">
         <span className="text-accent">{event.type || "event"}</span>
         {timestamp ? (
           <span>{new Date(timestamp).toLocaleTimeString()}</span>
         ) : null}
       </div>
       {preview ? (
-        <p className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+        <p className="mt-1 whitespace-pre-wrap break-words font-mono atr-label text-foreground">
           {preview}
         </p>
       ) : null}

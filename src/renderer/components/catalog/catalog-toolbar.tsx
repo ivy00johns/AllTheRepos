@@ -94,7 +94,7 @@ function ToolbarSelect<T extends string>({
     <div className="flex items-center gap-1.5">
       <label
         htmlFor={id}
-        className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+        className="flex items-center gap-1 font-mono atr-label uppercase tracking-wider text-muted-foreground"
       >
         {icon}
         {label}
@@ -103,7 +103,7 @@ function ToolbarSelect<T extends string>({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="h-7 cursor-pointer rounded border border-border bg-input px-1.5 text-xs text-foreground transition-colors duration-150 hover:border-border-strong"
+        className="h-8 cursor-pointer rounded border border-border bg-input px-1.5 text-xs text-foreground transition-colors duration-150 hover:border-border-strong"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -162,11 +162,16 @@ export function CatalogToolbar({
       the column they live in is 544px at the window's 800px minimum and
       644px at 1280 with the detail panel open, and an ancestor clips the
       overflow — so Fetch, Pull and the repo count sat outside the clip and
-      could not be clicked at all. `min-h-11` keeps a single row exactly the
-      44px it has always been; a second row only appears when the controls
-      genuinely do not fit.
+      could not be clicked at all.
+
+      `min-h-11` keeps a single row exactly the 44px it has always been, and
+      the vertical padding is a half step for the wrapped case only: the
+      tallest control is 36px, so `py-1` would have pushed the unwrapped bar
+      to 45 and moved every pixel below it. `py-0.5` leaves `36 + 4 + 1 = 41`
+      under the 44px floor — measured, not assumed — and still separates the
+      two rows when the controls genuinely do not fit.
     */
-    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-background px-4 py-1">
+    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-background px-4 py-0.5">
       <div
         role="group"
         aria-label="View mode"
@@ -268,7 +273,7 @@ export function CatalogToolbar({
           <button
             type="button"
             onClick={onClearScope}
-            className="flex cursor-pointer items-center gap-1 rounded bg-secondary px-2 py-1 font-mono text-[11px] text-foreground transition-colors duration-150 hover:bg-surface-raised"
+            className="flex cursor-pointer items-center gap-1 rounded bg-secondary px-2 py-1 font-mono atr-label text-foreground transition-colors duration-150 hover:bg-surface-raised"
             aria-label={`Clear scope ${scopeLabel}`}
           >
             <span className="max-w-[220px] truncate">{scopeLabel}</span>
@@ -282,7 +287,7 @@ export function CatalogToolbar({
             <button
               type="button"
               onClick={onMoveSelection}
-              className="flex h-7 cursor-pointer items-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
             >
               <FolderInput className="h-3.5 w-3.5" aria-hidden />
               Move…

@@ -12,7 +12,7 @@ import { ArrowLeft } from "lucide-react";
 import { SettingsForm } from "@renderer/components/settings-form";
 import { Button } from "@renderer/components/ui/button";
 import { ErrorState } from "@renderer/components/ui/error-state";
-import { Skeleton } from "@renderer/components/ui/skeleton";
+import { Skeleton, SkeletonRegion } from "@renderer/components/ui/skeleton";
 import { useSettings } from "@renderer/hooks/use-settings";
 import { Route as RootRoute } from "./__root";
 
@@ -45,20 +45,28 @@ function SettingsPage() {
       </div>
 
       {settingsQuery.isLoading ? (
-        // Label-and-field rows, the shape the form itself renders, so the
-        // page does not restructure when the values land (ATR-064).
-        <div aria-busy="true" aria-live="polite" className="flex flex-col gap-6">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="flex flex-col gap-2">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-9 w-full max-w-md" />
+        /*
+         * The catalog's own skeleton, not a sentence. Settings is read at
+         * boot by the shell, so this is the shape the first paint takes on
+         * a cold start — where a bare "Loading settings…" next to pulsing
+         * cards read as two different applications (ATR-064).
+         */
+        <SkeletonRegion label="Loading settings…">
+          {Array.from({ length: 3 }, (_, section) => (
+            <div
+              key={section}
+              className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4"
+            >
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-3 w-2/3" />
             </div>
           ))}
-        </div>
+        </SkeletonRegion>
       ) : settingsQuery.error ? (
         <ErrorState
           title="Failed to load settings"
-          message={settingsQuery.error.message}
+          error={settingsQuery.error}
           onRetry={() => void settingsQuery.refetch()}
           retrying={settingsQuery.isFetching}
         />

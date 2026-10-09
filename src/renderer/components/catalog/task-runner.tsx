@@ -88,14 +88,14 @@ function TaskRow({
           </span>
           <span
             className={cn(
-              "shrink-0 font-mono text-[9px] uppercase tracking-wide",
+              "shrink-0 font-mono atr-micro uppercase tracking-wide",
               SOURCE_TONE[task.source] ?? "text-muted-foreground/60",
             )}
           >
             {task.source}
           </span>
         </div>
-        <p className="atr-truncate font-mono text-[10px] text-muted-foreground">
+        <p className="atr-truncate font-mono atr-micro text-muted-foreground">
           {task.detail || task.command}
         </p>
       </div>
@@ -152,7 +152,7 @@ function OutputPane({
       </div>
       <pre
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto bg-background px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground"
+        className="min-h-0 flex-1 overflow-auto bg-background px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
       >
         {run.lines.join("\n")}
       </pre>
@@ -219,7 +219,7 @@ export function TaskRunner({ slug, runs, onClearRun }: TaskRunnerProps) {
           )}
           aria-hidden
         />
-        <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
           Tasks
         </span>
         <span className="atr-meta">{tasks.length}</span>
@@ -243,7 +243,7 @@ export function TaskRunner({ slug, runs, onClearRun }: TaskRunnerProps) {
           </div>
 
           {notice ? (
-            <p role="alert" className="px-4 pb-2 text-[11px] text-warning">
+            <p role="alert" className="px-4 pb-2 text-xs text-warning">
               {notice}
             </p>
           ) : null}

@@ -25,6 +25,7 @@
 
 import { ipcRenderer, type IpcRendererEvent } from "electron";
 
+import { parsePackagedFlag } from "@shared/build-info";
 import { IPC } from "@shared/ipc";
 import type {
   CancelScanInput,
@@ -156,7 +157,33 @@ import type {
   UpdateSettingsResult,
 } from "@shared/types";
 
+/**
+ * Whether this run is a packaged build, read off the argument main appends via
+ * `webPreferences.additionalArguments`.
+ *
+ * Synchronous on purpose, and the reason the fact travels through the argv rather
+ * than an IPC channel: the renderer uses it to decide whether a dev-only action is
+ * offered at all, and a value that arrives later would offer it for a frame and
+ * then take it away. Absent or unreadable reads as "not packaged" — a window that
+ * never got the flag is a harness, where the page those actions open is
+ * unreachable anyway; the bundle that ships always has it. See
+ * `@shared/build-info` for the whole argument.
+ */
+const PACKAGED: boolean =
+  typeof process !== "undefined" && Array.isArray(process.argv)
+    ? parsePackagedFlag(process.argv) === true
+    : false;
+
 export const api = {
+  /**
+   * Facts about the running build that are not behind an `await`. Keep this the
+   * only synchronous namespace: everything else here is a promise because it
+   * crosses to main.
+   */
+  build: {
+    packaged: PACKAGED,
+  },
+
   system: {
     /**
      * Round-trip smoke test. Returns the main-process PID and a

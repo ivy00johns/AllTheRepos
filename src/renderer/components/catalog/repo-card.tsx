@@ -15,14 +15,6 @@
  *    passes down which tags are too common to be worth the space.
  *  - Cover first. It's the fastest path to recognising a project you
  *    haven't opened in months.
- *
- * One structural rule, because it is easy to undo: this card is a
- * *container*, not a button. It holds real buttons — the favourite star, the
- * port chips, the launcher row — and giving the `<article>` `role="button"`
- * (which is what it used to do) makes assistive tech flatten or skip those
- * descendants, so they stop being reachable at all. The card-level click is
- * kept as a convenience for a pointer; the named, keyboard-reachable control
- * is the title.
  */
 
 import * as React from "react";
@@ -126,16 +118,26 @@ export function RepoCard({
   };
 
   /**
-   * The title's click, answered exactly once.
+   * The name is the control, and the card around it is a container.
    *
-   * Without the stop the same event would also reach the article's handler
-   * and run the action twice — which for a Cmd-click means selecting and
-   * immediately un-selecting, a no-op that reads as a dead control.
+   * It used to be the other way round: `role="button"` on the `<article>`, with
+   * the port chips, the favourite star and five launcher buttons rendered inside
+   * it. Interactive descendants of a button role are invalid — assistive tech
+   * flattens or skips them, so the nested controls became unreachable or
+   * ambiguous (ATR-060, and axe's `nested-interactive`).
+   *
+   * So the selection affordance moved to where it can have a name and a
+   * keyboard home of its own, and the card stopped being a tab stop. The mouse
+   * behaviour is unchanged: the card still selects on click, and the name
+   * forwards the same modifiers (cmd for multi-select, shift to open the
+   * editor) before stopping propagation so the click is not handled twice.
    */
-  const handleTitleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleNameClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     handleClick(event);
   };
+
+  const cardLabel = `${repo.name}, ${ownership.label}, in ${folderLabel}, last touched ${activity.relative}${repo.isDirty ? ", uncommitted changes" : ""}`;
 
   return (
     <article
@@ -179,9 +181,10 @@ export function RepoCard({
           <h3 className="atr-truncate font-mono text-sm font-semibold text-foreground">
             <button
               type="button"
-              onClick={handleTitleClick}
               aria-pressed={selected ? "true" : "false"}
-              className="max-w-full cursor-pointer truncate text-left"
+              aria-label={cardLabel}
+              onClick={handleNameClick}
+              className="block max-w-full cursor-pointer truncate text-left"
             >
               {repo.name}
             </button>
@@ -250,7 +253,7 @@ export function RepoCard({
             {tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground"
+                className="rounded bg-muted px-1.5 py-0.5 font-mono atr-micro text-muted-foreground"
               >
                 {tag}
               </span>

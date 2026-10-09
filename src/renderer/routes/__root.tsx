@@ -19,28 +19,17 @@
  */
 
 import { Outlet, createRootRoute, useLocation } from "@tanstack/react-router";
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
 
 import { useActionRegistration } from "@renderer/actions/use-action-registration";
 import { useDeepLinkBus } from "@renderer/actions/use-deep-link-bus";
 import { useMenuCommandBus } from "@renderer/actions/use-menu-command-bus";
 import { useTrayOpenRepoBus } from "@renderer/actions/use-tray-open-repo-bus";
+import { CommandPalette } from "@renderer/components/command-palette/command-palette";
 import { ActionNotice } from "@renderer/components/layout/action-notice";
 import { AdHocBuildNotice } from "@renderer/components/layout/adhoc-build-notice";
 import { ScanStatusBar } from "@renderer/components/layout/scan-status-bar";
 import { TopBar } from "@renderer/components/layout/top-bar";
-
-/*
- * The palette (cmdk + a Radix dialog) is not on the first-paint path — it
- * only appears on Cmd+K — so it is split into its own chunk. `defaultPreload`
- * does not cover it, but the first open reads the chunk off local disk, which
- * is the same trade the shell already makes for every route it does not paint.
- */
-const CommandPalette = lazy(() =>
-  import("@renderer/components/command-palette/command-palette").then((m) => ({
-    default: m.CommandPalette,
-  })),
-);
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -56,30 +45,60 @@ function RootLayout() {
   useTrayOpenRepoBus();
 
   const location = useLocation();
-  // Routes that don't want the three-column shell (settings, debug,
-  // repo detail page) get a single-column layout. The index route keeps
-  // the full shell so the catalog grid + detail panel render side by
-  // side.
-  const isFullShell = location.pathname === "/";
+  // Routes that own their own scrolling get the full-height shell: the catalog
+  // (rail + grid + detail panel side by side) and the map, which wants the
+  // viewport rather than the shell's prose measure. Everything else — settings,
+  // claude, processes, a standalone repo page — renders inside `SimpleShell`,
+  // the padded column that scrolls.
+  //
+  // `SimpleShell` scrolls rather than grows, so a route that is not listed here
+  // still has to fit the window (see the height contract below).
+  const isFullShell =
+    location.pathname === "/" || location.pathname === "/graph";
 
+  /*
+   * The height contract, learned the hard way in the 2026-10-07 UI/UX review
+   * (ATR-061/ATR-062): this column is exactly the window and `main` is the
+   * only thing that flexes. Rooting it at `min-h-screen` instead let the
+   * document grow to content height, so the window itself scrolled — which
+   * clipped the catalog's own scroll region behind `main`'s
+   * `overflow-hidden` (its `h-[100dvh]` then ran 48px past the bottom) and
+   * pushed the map's bottom-anchored legend and control bar below the fold.
+   * Both are asserted as numbers in `tests/e2e/layout-overflow.spec.ts`, so a
+   * regression fails as "848 against 800" rather than as a screenshot nobody
+   * looks at.
+   *
+   * Written here, above the `return`, on purpose: JSX children are verbatim
+   * text, so a comment left *between* two elements is how code-looking prose
+   * ends up on screen — and as a text child of this flex column it is also an
+   * anonymous flex item, taking its own height out of `main`.
+   * `tests/unit/renderer/jsx-text.spec.ts` fails on the forms that render, and
+   * `layout-overflow.spec.ts` asserts the shell holds only elements before it
+   * measures a height.
+   */
   return (
-    /*
-      `h-screen` + `min-h-0`, not `min-h-screen`.
-
-      The column has to be the height of the window and no more, or `main`
-      never becomes the space that is actually left: with `min-height` the
-      column is content-sized, so a tall page (a full catalog grid) grows
-      `main` past the window and the body scrolls — and a short one leaves the
-      column at its content height, which is what collapsed `/graph`'s map pane
-      to a ribbon while the rest of the window sat empty below it. `min-h-0` on
-      `main` is the other half: a flex item will not shrink below its content
-      by default, so without it a tall page still pushes the column open.
-
-      Both `/graph` and the catalog asked for `h-full` and were told the truth
-      only sometimes, which is why this is fixed here rather than in either of
-      them.
-    */
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/*
+        ATR-071 — the skip link. Before it, the first thing the keyboard met on
+        every route was the top bar's sidebar toggle, and the only way into
+        `main` was to tab through four destinations, the search field, up to
+        three update affordances and the whole notice stack (a scan bar, an
+        ad-hoc build notice, an action notice) — and the notice stack is not a
+        fixed size, so the number of stops depended on what the app was doing.
+        Now the first Tab reaches this, and Enter moves focus into `main`
+        itself rather than to its first control, because the target carries
+        `tabIndex={-1}` (a skip link that lands a person on a random button is
+        a different bug). It is `sr-only` until it is focused, so it takes no
+        space in the shell's flex column and nothing on screen moves —
+        `layout-overflow.spec.ts` asserts this column holds only elements and
+        fits the window exactly.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-3 focus:py-1.5 focus:text-xs focus:text-foreground focus:shadow-overlay"
+      >
+        Skip to content
+      </a>
       <TopBar />
       <ScanStatusBar />
       {/*
@@ -89,7 +108,28 @@ function RootLayout() {
       */}
       <AdHocBuildNotice />
       <ActionNotice />
-      <main className="min-h-0 flex-1 overflow-hidden">
+      {/*
+        `grid`, not `block`, and that is load-bearing: a route asks for
+        `h-full`, and a percentage height only resolves against a *definite*
+        parent height. `main` gets its height from `flex-1` — a resolved used
+        height, but its `height` property is still `auto` — so as a block
+        container it handed every route `auto` instead, and each one grew to
+        content and pushed the window. A single `minmax(0, 1fr)` track makes
+        the area definite, so `h-full` means the window and the route's own
+        `overflow-y-auto` becomes the thing that scrolls.
+
+        The braces are not decoration. Written as a bare block comment between
+        two elements, this text is JSX *content*: it rendered — on every route —
+        as a literal block of CSS-looking prose above the page, while explaining
+        nothing to anybody. It also became an anonymous flex item with
+        `min-height: auto`, so it could not shrink and it took its height out of
+        `main`.
+      */}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden outline-none"
+      >
         <Suspense fallback={<RouteFallback />}>
           {isFullShell ? (
             <Outlet />
@@ -100,33 +140,24 @@ function RootLayout() {
           )}
         </Suspense>
       </main>
-      <Suspense fallback={null}>
-        <CommandPalette />
-      </Suspense>
+      <CommandPalette />
     </div>
   );
 }
 
-/**
- * The single-column shell for every route that is not the catalog.
- *
- * `h-full` + a flex column is what lets a route fill the space rather than
- * guess at it. `main` is `flex-1` and therefore already knows its height, so a
- * child asking for `h-full` gets the truth — which is how `/graph` stopped
- * sizing itself to `100dvh` and coming out 64px taller than the window
- * (ATR-062).
- *
- * `overflow-y-auto` is what keeps that from turning into a new problem. `main`
- * clips, so a shell pinned to its height would have cut off any route whose
- * content is taller than the window — settings, a repo detail, the process
- * list — with no way to scroll to the rest. The shell is the scroll container
- * for those instead: content that fits stays put, content that does not can be
- * reached. `tests/e2e/viewport-fit.spec.ts` asserts both halves.
- */
 function SimpleShell({ children }: { children: React.ReactNode }) {
+  /*
+   * A scrolling column *inside* the window, not a page that grows: the outer
+   * div is the scroll container, so the scrollbar sits at the window edge and
+   * the inner one keeps the prose measure. `min-h-0` is what lets a child of
+   * the flex column be shorter than its content instead of stretching the
+   * document.
+   */
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-y-auto px-6 py-8">
-      {children}
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto min-h-0 w-full max-w-5xl px-6 py-8">
+        {children}
+      </div>
     </div>
   );
 }

@@ -61,13 +61,13 @@ export function ClaudeSessionsTable({
   return (
     <div className="space-y-2">
       {error ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono text-[11px] text-destructive">
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono atr-label text-destructive">
           {error}
         </p>
       ) : null}
       <div className="overflow-hidden rounded-md border border-border bg-card">
         <table className="w-full border-collapse text-left text-xs">
-          <thead className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2 font-medium">
                 Started
