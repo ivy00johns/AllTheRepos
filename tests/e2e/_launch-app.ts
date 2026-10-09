@@ -93,6 +93,22 @@ export interface LaunchedApp {
 
 export interface LaunchOptions {
   /**
+   * Run against this profile instead of a fresh one.
+   *
+   * For a spec that launches twice and needs the second launch to read what the
+   * first one wrote — main remembers the window's route in the profile, so "does
+   * the app come back where it was" is only answerable across two starts of the
+   * same directory. A reused directory is never re-seeded from the template: the
+   * first launch's database is the one under test, and copying the template over
+   * it is exactly the state the second launch is supposed to inherit.
+   */
+  profileDir?: string;
+  /**
+   * Leave the profile on disk when the app closes. The spec that named the
+   * directory removes it; nothing else does.
+   */
+  keepProfile?: boolean;
+  /**
    * Extra environment for this one app process.
    *
    * Per launch rather than by assigning to `process.env`, which would leak the
@@ -107,8 +123,10 @@ export interface LaunchOptions {
 export async function launchApp(
   options: LaunchOptions = {},
 ): Promise<LaunchedApp> {
-  const profileDir = mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
-  inheritSeededProfile(profileDir);
+  const ownsProfile = options.profileDir === undefined;
+  const profileDir =
+    options.profileDir ?? mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
+  if (ownsProfile) inheritSeededProfile(profileDir);
 
   let app: ElectronApplication;
   try {
@@ -123,8 +141,9 @@ export async function launchApp(
       },
     });
   } catch (error) {
-    // A launch that never produced an app should not leave its profile behind.
-    rmSync(profileDir, { recursive: true, force: true });
+    // A launch that never produced an app should not leave *its own* profile
+    // behind. One it was handed belongs to whoever asked for it.
+    if (ownsProfile) rmSync(profileDir, { recursive: true, force: true });
     throw error;
   }
 
@@ -134,7 +153,9 @@ export async function launchApp(
       try {
         await app.close();
       } finally {
-        rmSync(profileDir, { recursive: true, force: true });
+        if (ownsProfile && options.keepProfile !== true) {
+          rmSync(profileDir, { recursive: true, force: true });
+        }
       }
     },
   };

@@ -12,11 +12,17 @@
  * server) and falls back to `out/renderer/index.html` in production.
  */
 
-import { BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
 
 import { isUrlAllowed } from "../security/allowlist";
 import { rendererAdditionalArguments } from "../build-info";
+import {
+  readLastRoute,
+  rememberRoute,
+  rendererTarget,
+  restorableRoute,
+} from "./route-memory";
 
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
@@ -115,15 +121,60 @@ export function createMainWindow(): BrowserWindow {
     }
   });
 
+  /*
+   * Open where the window was left rather than on the catalog every time.
+   *
+   * The renderer's route lives in the address, and main is the only thing that
+   * knows it at launch — so the fragment is read back here and appended to the
+   * load URL. `route-memory` takes the profile directory rather than reaching
+   * for `app` itself, so the decision is testable without Electron. A first
+   * launch, or a memory that no longer names a route, gives `null` and this is
+   * exactly the load it always was.
+   */
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (rendererUrl && rendererUrl.length > 0) {
-    void window.loadURL(rendererUrl);
+  const isDev = typeof rendererUrl === "string" && rendererUrl.length > 0;
+  void window.loadURL(
+    rendererTarget({
+      rendererUrl: isDev ? rendererUrl : undefined,
+      indexPath: join(__dirname, "../renderer/index.html"),
+      route: readLastRoute(app.getPath("userData")),
+    }),
+  );
+  if (isDev) {
     // Dev: open DevTools so renderer errors are visible immediately.
     window.webContents.openDevTools({ mode: "right" });
-  } else {
-    // Production: load the bundled HTML. Path is relative to out/main/index.js.
-    void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  /*
+   * Write the fragment down as it changes, so the next launch opens on it.
+   *
+   * `did-navigate-in-page` is the hash change itself; `did-navigate` catches
+   * the first load, so a window that was never moved still remembers where it
+   * opened — which is what makes a launch that restores nothing (no memory,
+   * or a fragment that is not a route) settle on the catalog instead of
+   * keeping a stale map address forever.
+   */
+  const rememberFragment = (url: string): void => {
+    const route = restorableRoute(new URL(url).hash);
+    if (route !== null) rememberRoute(app.getPath("userData"), route);
+  };
+  window.webContents.on("did-navigate", (_event, url) => {
+    rememberFragment(url);
+  });
+  window.webContents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
+    // The renderer's route changes in the top frame; anything below it is a
+    // frame's business, not the window's.
+    if (isMainFrame) rememberFragment(url);
+  });
+  // And once as the window closes. The two events above are the browser's to
+  // fire and this is the state that actually has to survive, so the last
+  // address is read from the page rather than assumed to have arrived by
+  // event — a belt worth wearing for a feature whose failure is silent.
+  window.on("close", () => {
+    if (!window.webContents.isDestroyed()) {
+      rememberFragment(window.webContents.getURL());
+    }
+  });
 
   // Surface load failures so a blank window isn't a silent mystery.
   window.webContents.on(

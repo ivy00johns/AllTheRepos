@@ -30,6 +30,19 @@
  * `docs/REMAINING-WORK.md` for the one that cost a session. The captured text
  * is handed to `native-rebuild-doctor.mjs`; the child's status is what this
  * process exits with either way, verdict or no verdict.
+ *
+ * Two steps ahead of that, both from ATR-057 and both in
+ * `native-toolchain.mjs`:
+ *
+ *   - The entry points are repaired before the probe. A failed link deletes
+ *     `find-git-repositories`'s artifact rather than leaving the old one, and
+ *     the probe only asks `better-sqlite3` — so without this the tree reports
+ *     itself healthy and every scan then dies with `Cannot find module`.
+ *   - The SDK is resolved before a rebuild and passed into the child. This
+ *     machine's compiler and its SDK come from two different installs, which
+ *     is the whole of ATR-057; the script now hands the build the SDK that
+ *     matches the compiler rather than failing the link and explaining it
+ *     afterwards.
  */
 
 import { spawnSync } from "node:child_process";
@@ -37,6 +50,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { diagnoseNativeBuild } from "./native-rebuild-doctor.mjs";
+import {
+  currentAbi,
+  resolveSdk,
+  restoreEntryPoints,
+  targetAbi,
+} from "./native-toolchain.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -52,34 +71,23 @@ if (target !== "host" && target !== "electron") {
 const REBUILD_MODULES = ["better-sqlite3", "find-git-repositories"];
 
 /**
- * The ABI probe.
+ * Ask the machine a question: no output to show, no status to inherit.
  *
- * Only `better-sqlite3` is authoritative. `find-git-repositories` ships
- * per-ABI builds side by side (`bin/darwin-<arch>-<abi>/` alongside
- * `build/Release/`) and picks the right one at runtime, so it loads under
- * BOTH Electron and host Node and can never indicate which ABI the tree is
- * currently set up for. Including it made every post-rebuild verification
- * report a bogus "mixed" state.
- *
- * The expression must exercise the addon, not merely require it:
- * better-sqlite3 defers `bindings()` until the first `new Database(...)`, so
- * a bare require succeeds even against a foreign ABI — reporting a false
- * "host" whose mismatch only surfaces later as ~30 confusing test failures.
+ * `process.env` is spread rather than replaced, so a runner can add to the
+ * environment (`SDKROOT`, `ELECTRON_RUN_AS_NODE`) without taking PATH away
+ * from the command it is about to run.
  */
-const ABI_PROBE = 'const D = require("better-sqlite3"); new D(":memory:").close();';
-
-function currentAbi() {
-  const result = spawnSync(process.execPath, ["-e", ABI_PROBE], {
+function ask(cmd, args, env = {}) {
+  const result = spawnSync(cmd, args, {
     cwd: repoRoot,
     encoding: "utf8",
+    env: { ...process.env, ...env },
   });
-  if (result.status === 0) return "host";
-  const message = `${result.stderr ?? ""}${result.stdout ?? ""}`;
-  // A foreign NODE_MODULE_VERSION here means Electron — the only other ABI
-  // this repo builds for.
-  if (message.includes("NODE_MODULE_VERSION")) return "electron";
-  console.error(message.trim());
-  return "broken";
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 }
 
 /**
@@ -98,13 +106,13 @@ function currentAbi() {
  * The exit status is always the child's — `pnpm test` and CI read it, and a
  * diagnosis is no reason to turn a failure into a success.
  */
-function run(cmd, args) {
+function run(cmd, args, env = process.env) {
   console.log(`[ensure-native-abi] > ${cmd} ${args.join(" ")}`);
   const result = spawnSync(cmd, args, {
     cwd: repoRoot,
     stdio: ["inherit", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
-    env: process.env,
+    env,
   });
   const stdout = result.stdout?.toString() ?? "";
   const stderr = result.stderr?.toString() ?? "";
@@ -122,7 +130,30 @@ function run(cmd, args) {
   }
 }
 
-const abi = currentAbi();
+/**
+ * Put back anything a previous failed link deleted, before asking the tree
+ * which ABI it is. The question the probe answers cannot see this: it loads
+ * `better-sqlite3`, which a failed `find-git-repositories` link leaves alone.
+ */
+const repaired = restoreEntryPoints({
+  root: repoRoot,
+  abi: targetAbi({ runtime: target, root: repoRoot, run: ask }),
+  log: (message) => {
+    console.log(`[ensure-native-abi] ${message}`);
+  },
+});
+if (repaired.length > 0) {
+  console.log(
+    `[ensure-native-abi] repaired ${repaired.join(", ")} — no rebuild needed for that`,
+  );
+}
+
+const abi = currentAbi({
+  root: repoRoot,
+  log: (message) => {
+    console.error(message);
+  },
+});
 
 if (abi === target) {
   console.log(
@@ -135,16 +166,33 @@ console.log(
   `[ensure-native-abi] natives are "${abi}", need "${target}" — rebuilding`,
 );
 
+/**
+ * The SDK to build against. This is the half of ATR-057 that a rebuild can
+ * survive: with the SDK the compiler can read, the link that used to fail on
+ * `tapi error: malformed file` succeeds. A machine where it resolves to
+ * nothing is still worth telling about, but it is not a reason to refuse to
+ * try — the rebuild may not need the SDK at all, and the doctor reads the
+ * failure if it does.
+ */
+const sdk = resolveSdk({ run: ask });
+console.log(`[ensure-native-abi] ${sdk.reason}`);
+if (!sdk.ok) {
+  console.error(
+    "[ensure-native-abi] no usable macOS SDK found — a link may fail; see ATR-057 in docs/REMAINING-WORK.md",
+  );
+}
+const rebuildEnv = { ...process.env, ...sdk.env };
+
 if (target === "host") {
   // `pnpm rebuild` recompiles against the Node running pnpm, i.e. the host.
-  run("pnpm", ["rebuild", ...REBUILD_MODULES]);
+  run("pnpm", ["rebuild", ...REBUILD_MODULES], rebuildEnv);
 } else {
   // rebuild-natives.mjs wraps electron-rebuild (with an install-app-deps
   // fallback) and targets the installed Electron's ABI.
-  run("node", ["scripts/rebuild-natives.mjs"]);
+  run("node", ["scripts/rebuild-natives.mjs"], rebuildEnv);
 }
 
-const after = currentAbi();
+const after = currentAbi({ root: repoRoot });
 if (after !== target) {
   console.error(
     `[ensure-native-abi] rebuild finished but ABI is "${after}", expected "${target}"`,
