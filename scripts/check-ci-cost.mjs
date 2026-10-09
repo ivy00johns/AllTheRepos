@@ -86,6 +86,14 @@ export const MACOS_BUDGET = [
     why: "Proves the refusal check can still fail, by running it against a mock that refuses nothing. `gh workflow run ci.yml` starts it, so it costs nothing repeated.",
   },
   {
+    workflow: "visual-baselines.yml",
+    job: "baselines",
+    runner: "macos-14",
+    when: "dispatch",
+    legs: 1,
+    why: "Regenerates the catalog screenshot baselines for the rasterizer this runner provides. A baseline is only valid on the machine that rendered it — macOS anti-aliases text differently on every major release — so the `darwin23` baseline the `e2e` job compares against has to be made here. Asked for by hand, never on a push.",
+  },
+  {
     workflow: "release.yml",
     job: "release",
     runner: "macos-14",

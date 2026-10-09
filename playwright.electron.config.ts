@@ -60,8 +60,13 @@ export default defineConfig({
   // routes come from `src/renderer/routes/` and the view modes from the running
   // toolbar, so a screen added later cannot go unaudited. It is the spec that
   // would have caught the raw 13px size living on a route the sweep never opened.
+  // catalog-visual.spec.ts — the catalog as pictures, in every view mode it
+  // offers. The type sweep asks whether a class names a size; this one asks
+  // whether the screen moved, which no class list can answer. Its baselines are
+  // committed, and it reads its modes off the toolbar for the same reason the
+  // sweep does.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
@@ -75,6 +80,26 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
+  // Screenshot comparison, for `catalog-visual.spec.ts`. Everything the
+  // comparison needs is Playwright's default and is stated here so it cannot be
+  // changed by accident: animations are disabled and the caret are hidden (both a
+  // property of the clock, not of this layout).
+  expect: {
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      scale: "css",
+    },
+  },
+  // One baseline per **rasterizer**, not per platform. Playwright appends
+  // `-{platform}` by default, but the OS version is part of the render on macOS
+  // (CoreText and the compositor anti-alias differently on every major release),
+  // and the spec already names the environment into `{arg}` for that reason — so
+  // the default suffix would only produce `…-darwin27-darwin.png`, a platform
+  // named twice. The spec is the sole author of the name, which is what keeps
+  // `catalog-<mode>-darwin27.png` and `catalog-<mode>-darwin23.png` apart.
+  snapshotPathTemplate:
+    "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
   // No `projects` and no `webServer` — Electron is launched per-test via
   // `_electron.launch`. CI / humans should run `pnpm electron:build` (or
   // the convenience wrapper at `scripts/run-electron-e2e.mjs`) first so

@@ -10,6 +10,12 @@
  * The generated art is inline SVG rather than CSS gradients so the
  * motifs can be genuinely different shapes — a ring stack and a wave
  * field are far easier to tell apart at 48px than two gradients are.
+ *
+ * `data-cover` marks the art box for `tests/e2e/catalog-visual.spec.ts`, which
+ * masks it and asserts its size instead of comparing its pixels: the motif is
+ * rotated and sliced into a fractional scale, so a fraction of a pixel rasterizes
+ * differently between two runs of the same code — which makes it a bad pixel
+ * baseline and a perfectly good box to measure.
  */
 
 import * as React from "react";
@@ -182,6 +188,7 @@ export function RepoCover({
         src={imageSrc as string}
         alt=""
         aria-hidden
+        data-cover
         loading="lazy"
         decoding="async"
         onError={() => setImageFailed(true)}
@@ -200,6 +207,7 @@ export function RepoCover({
   return (
     <div
       aria-hidden
+      data-cover
       className={cn(
         SIZE_CLASSES[size],
         "relative shrink-0 overflow-hidden",
