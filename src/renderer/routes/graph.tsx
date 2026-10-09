@@ -507,9 +507,24 @@ function GraphPage() {
     if (!item) return;
     setRovingIndex(index);
     item.pick();
-    // After the commit: opening a group replaces the list, so the element at
-    // this index may not exist until the next frame.
+    /*
+     * Focus now, and again after the commit only if focus was lost.
+     *
+     * Moving through the repo list keeps the option that was pressed on
+     * screen — only which one is *selected* changes — so the cursor belongs on
+     * it in this frame. Deferring the focus to the next one cost the keyboard
+     * its cursor for that frame, which is long enough for a test to look and
+     * find `document.activeElement` somewhere else.
+     *
+     * Opening a group does replace the list, so the element just focused is
+     * removed from the document, focus falls back to `<body>`, and the tab
+     * stop would be nowhere at all. That is the case the second attempt is
+     * for — and it only fires when focus was actually dropped, so it can
+     * never steal it back from wherever a person has since put it.
+     */
+    nodeOptionRefs.current[index]?.focus();
     window.requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
       nodeOptionRefs.current[index]?.focus();
     });
   };

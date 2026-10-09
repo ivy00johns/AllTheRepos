@@ -330,7 +330,10 @@ test("settings shows a skeleton while it reads and a retry when it cannot (ATR-0
     await stashHandlers(app, [CHANNEL.settings]);
 
     // Settings is read by the shell at boot, so the cache has to go before a
-    // fresh read can be watched. A reload also resets the router to `/`.
+    // fresh read can be watched. This reload happens on the catalog, so that
+    // is where the app comes back: the route lives in the address now (see
+    // `router.tsx`), and a reload no longer resets it to `/` — which is why
+    // the two reloads below walk home before waiting on the catalog.
     await holdHandler(app, CHANNEL.settings, "settings-read");
     await win.reload();
     await win.waitForLoadState("domcontentloaded");
@@ -354,6 +357,10 @@ test("settings shows a skeleton while it reads and a retry when it cannot (ATR-0
     await failHandler(app, CHANNEL.settings);
     await win.reload();
     await win.waitForLoadState("domcontentloaded");
+    // The reload lands back on `/settings` rather than on the catalog, so the
+    // catalog is not the thing to wait for here. Walking home is also the
+    // check that a failed settings read leaves the rest of the app usable.
+    await goTo(win, /^AllTheRepos$/i);
     await expectCatalog(win);
     await goTo(win, /^settings$/i);
 
@@ -416,6 +423,9 @@ test("processes shows a skeleton while it reads and a retry when it cannot (ATR-
     await failHandler(app, CHANNEL.processes);
     await win.reload();
     await win.waitForLoadState("domcontentloaded");
+    // As above: the reload comes back on `/processes`, so come home to the
+    // catalog first, then walk into the failing route the way a person would.
+    await goTo(win, /^AllTheRepos$/i);
     await expectCatalog(win);
     await goTo(win, /^running/i);
 
