@@ -157,7 +157,16 @@ export function CatalogToolbar({
   const clearSelection = useCatalogView((s) => s.clearSelection);
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+    /*
+      `flex-wrap` rather than one unbreakable row. The controls need ~854px;
+      the column they live in is 544px at the window's 800px minimum and
+      644px at 1280 with the detail panel open, and an ancestor clips the
+      overflow — so Fetch, Pull and the repo count sat outside the clip and
+      could not be clicked at all. `min-h-11` keeps a single row exactly the
+      44px it has always been; a second row only appears when the controls
+      genuinely do not fit.
+    */
+    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-background px-4 py-1">
       <div
         role="group"
         aria-label="View mode"

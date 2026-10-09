@@ -19,8 +19,13 @@
  * of that library, and this bridge routes every write the app can honour in a
  * browser — favourite, tags, curated links, moves, folder renames, scan roots —
  * through it, so a click that changes the catalog changes it here too and the
- * next read shows it. The rules the main process enforces are enforced there,
- * including the ones that make a write fail: a dirty tree still blocks a move.
+ * next read shows it. Those writes are saved to this browser's `localStorage`,
+ * so they are still there after a reload: a review that forgot the favourite it
+ * just set on every refresh was not much of a review. `?reset-edits` on the URL
+ * starts from the catalog alone: it drops the saved edits *and* the saved view
+ * (scope, sort, folder, filters), because a filter alone can hide every row. The rules the main process enforces are
+ * enforced there, including the ones that make a write fail: a dirty tree still
+ * blocks a move.
  *
  * What a browser tab genuinely cannot do is refused, with a reason, rather than
  * pretended: nothing runs a process, opens an editor, installs an update or
@@ -31,6 +36,8 @@
  * the real bridge (dev and packaged alike), so this can never shadow real IPC;
  * it is reachable only from a browser tab or a `file://` load with no preload.
  */
+
+import type { SyncResult } from "@shared/types";
 
 import type { AtrBridge } from "@renderer/lib/atr";
 import {
@@ -47,8 +54,11 @@ import {
 import {
   addScanPath,
   assertLink,
+  clearPersistedEdits,
   countUnder,
+  defaultStorage,
   detail,
+  enablePersistence,
   loadExportedCatalog,
   type CatalogSource,
   folderCheck,
@@ -71,6 +81,8 @@ import {
   settings,
   updateSettings,
 } from "@renderer/lib/demo-store";
+import { PERSIST_KEY as CATALOG_VIEW_PERSIST_KEY, useCatalogView } from "@renderer/stores/catalog-view";
+import { PERSIST_KEY as UI_PERSIST_KEY, useUiStore } from "@renderer/stores/ui";
 
 /**
  * The unavailable-write reason, so the UI can explain itself.
@@ -79,6 +91,31 @@ import {
  * demo store can honour is honoured.
  */
 const NO_WRITES = "Browser bridge — the Electron main process is not running.";
+
+/**
+ * A `SyncResult` for a tab that cannot reach a remote.
+ *
+ * Git sync is a main-process job against the repos on disk, so there is nothing
+ * behind it here. The *shape* matters as much as the refusal: the caller counts
+ * `result.entries`, and answering with a key that does not exist (`{ results: [] }`)
+ * left `catalog-shell` walking `undefined` — an uncaught rejection behind a sync
+ * notice stuck on "Fetching 5…" forever. One `failed` entry per requested repo
+ * says what happened and where to do it for real.
+ */
+function refusedSync(slugs: string[]): SyncResult {
+  const nameBySlug = new Map(listRepos().map((repo) => [repo.slug, repo.name]));
+  const entries = slugs.map((slug) => ({
+    slug,
+    name: nameBySlug.get(slug) ?? slug,
+    outcome: "failed" as const,
+    received: 0,
+    ahead: 0,
+    behind: 0,
+    currentBranch: null,
+    message: "A browser tab cannot reach a remote — run pnpm electron:dev to fetch or pull.",
+  }));
+  return { entries, updated: 0, failed: entries.length };
+}
 
 /**
  * Where the dev server serves an exported catalog, when one exists.
@@ -160,11 +197,17 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         // selection and the chips from the full list rather than asking main
         // for each one, so pre-filtering here would empty those surfaces.
         const repos = listRepos();
+        const limit = input?.limit ?? repos.length;
         const offset = input?.offset ?? 0;
-        const items = repos.slice(offset, offset + (input?.limit ?? repos.length));
+        const items = repos.slice(offset, offset + limit);
         return {
           items,
           total: repos.length,
+          // `ListReposResult` is `{ items, total, limit, offset }`. Echoing the
+          // window is what lets a caller page; without them a consumer reading
+          // `limit` got nothing to advance by.
+          limit,
+          offset,
           snapshotAt: now(),
         } as never;
       },
@@ -249,31 +292,70 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         return folderMove(fromPath, parentPath) as never;
       },
       // The demo tree is derived from the repos' paths, so there is no empty
-      // folder to put anywhere — saying it worked would be a lie.
-      folderCreate: async () => ({
+      // folder to put anywhere. `FolderOpResult` has an `error` field, so the
+      // refusal is expressible and keeps the shape a caller can read.
+      folderCreate: async ({ parentPath, name }) => ({
         ok: false,
-        reason: "The browser bridge has no folders of its own — create one by moving a repo into it.",
+        fromPath: "",
+        toPath: `${parentPath}/${name}`,
+        movedRepos: 0,
+        batchId: null,
+        error: "The browser bridge has no folders of its own — create one by moving a repo into it.",
       }) as never,
     },
     scan: {
-      start: async () => ({ started: false, reason: NO_WRITES }) as never,
-      status: async () => {
+      // `StartScanResult` is `{ jobId, status: "running", startedAt }` — there is
+      // no field in which to say "I did not start". A tab cannot walk the disk,
+      // so it refuses the way the group writes do rather than reporting a job
+      // that does not exist.
+      start: async () => refused(),
+      // A job a tab has never run reports `unknown`, which is in the status
+      // enum for exactly this. `startedAt` has no nullable form, so it carries
+      // the epoch: no job started, and `status` is what says so.
+      status: async ({ jobId }) => {
         await ready;
         return {
-          running: false,
-          scanned: listRepos().length,
-          total: listRepos().length,
+          jobId,
+          status: "unknown",
+          processed: 0,
+          total: 0,
+          startedAt: new Date(0).toISOString(),
+          endedAt: null,
+          errorMessage: "The browser bridge does not scan.",
         } as never;
       },
-      cancel: async () => ({ cancelled: false }) as never,
+      cancel: async ({ jobId }) => ({ jobId, cancelled: false }) as never,
       onProgress: noSubscription as never,
     },
     git: {
-      fetch: async () => ({ results: [] }) as never,
-      pull: async () => ({ results: [] }) as never,
-      status: async () => ({ branch: "main", ahead: 0, behind: 0, dirty: false }) as never,
-      branches: async () => ({ branches: [], current: "main" }) as never,
-      openInEditor: async () => ({ ok: false, reason: NO_WRITES }) as never,
+      fetch: async ({ slugs }) => {
+        await ready;
+        return refusedSync(slugs) as never;
+      },
+      pull: async ({ slugs }) => {
+        await ready;
+        return refusedSync(slugs) as never;
+      },
+      // `GitStatus` is `{ slug, isDirty, ahead, behind, currentBranch, upstream }`.
+      // The export knows the branch name and the dirty flag from the scan, so
+      // those are answered with; ahead/behind and the upstream name are reads
+      // against the remote, which a tab cannot make, and are reported unknown.
+      status: async ({ slug }) => {
+        await ready;
+        const repo = listRepos().find((row) => row.slug === slug);
+        return {
+          slug,
+          isDirty: repo?.isDirty ?? false,
+          ahead: 0,
+          behind: 0,
+          currentBranch: repo?.currentBranch ?? null,
+          upstream: null,
+        } as never;
+      },
+      // The result is the array itself, not an object around one. A tab knows
+      // of no branches to offer, which is the panel's empty state.
+      branches: async () => [] as never,
+      openInEditor: async () => ({ opened: false, uri: null }) as never,
     },
     tasks: {
       // Scripts are read from each repo's `package.json` on disk, so an export
@@ -340,15 +422,23 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       // rather than answered with an unrelated group.
       create: async () => refused(),
       rename: async () => refused(),
-      delete: async () => ({ deleted: false, reason: NO_WRITES }) as never,
+      // `deleted` is `z.literal(true)`, so a result cannot say "nothing was
+      // deleted" — the same reason the other three refuse.
+      delete: async () => refused(),
       setMembers: async () => refused(),
     },
     app: {
-      setDockBadge: async () => ({ ok: true }) as never,
-      notify: async () => ({ ok: false }) as never,
-      showSpotlight: async () => ({ ok: false }) as never,
-      hideSpotlight: async () => ({ ok: false }) as never,
-      registerActions: async () => ({ registered: 0 }) as never,
+      // `SetDockBadgeResult` is `{ badge }` — the badge text LEFT on the icon.
+      // A tab has no dock, so the honest answer is the empty string.
+      setDockBadge: async () => ({ badge: "" }) as never,
+      // `{ shown }` can say no, so this is a refusal in the result shape.
+      notify: async () => ({ shown: false }) as never,
+      // `visible` is `z.literal(true)`: the result type exists to confirm the
+      // window appeared, and a tab has no window to show. Refuse.
+      showSpotlight: async () => refused(),
+      // "not visible" is both true and expressible.
+      hideSpotlight: async () => ({ visible: false }) as never,
+      registerActions: async ({ actions }) => ({ accepted: 0, skipped: actions.length }) as never,
       toggleDevtools: () => {},
       onMenuCommand: noSubscription as never,
       onDeepLink: noSubscription as never,
@@ -455,12 +545,86 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
 }
 
 /**
+ * Forget everything the renderer remembers about *how* the catalog was being
+ * looked at.
+ *
+ * `?reset-edits` promises to "start from the catalog alone", and clearing the
+ * demo store's edit record is only half of that. The scope, view mode, grouping,
+ * sort, folder selection, ownership filter and `favoritesOnly` are persisted by
+ * `stores/catalog-view.ts`, and the search/language/tag filter by
+ * `stores/ui.ts` — each under its own key — and a filter intersection can hide
+ * every row. Measured in the running app: *Mine* left the catalog at `30 of 271`,
+ * *Favourites* took it to `0 of 271`, and adding `?reset-edits=1` to the URL
+ * brought it back at `0 of 271` too, with nothing on screen but the rail rows'
+ * own highlight to say why. A reviewer following the bridge's own instructions
+ * saw an empty catalog and no reason for it.
+ *
+ * Both halves are needed, and neither alone is enough:
+ *
+ *   - the stores are put back to their initial state, because zustand hydrates
+ *     them as `stores/*` is imported — which happens before this runs — so
+ *     removing the key alone would leave the tab that is open now still filtered;
+ *   - the keys are removed *after* that, so the *next* load starts clean too.
+ *
+ * Returns whether it could reach a storage. The in-memory half runs either way:
+ * with no `localStorage` there is nothing to forget between loads, but the state
+ * a fresh document hydrates to is still the state this makes sure of.
+ */
+export function resetPersistedViewState(): boolean {
+  const storage = defaultStorage();
+
+  // Replacing rather than merging: the initial state is the whole answer, and a
+  // merge would leave behind any key this store no longer has.
+  //
+  // Best-effort, and deliberately so: each `setState` is also a persist write,
+  // and a storage that refuses writes — full, or disabled by the platform —
+  // would otherwise throw out of `installBrowserBridge` and take the whole
+  // renderer down at boot. The state is already set by the time a failing write
+  // reaches this catch, so the reset still happens where it matters.
+  try {
+    useCatalogView.setState(useCatalogView.getInitialState(), true);
+    useUiStore.setState(useUiStore.getInitialState(), true);
+  } catch {
+    // Nothing to do about a storage that will not write; the in-memory half is
+    // the half that makes the tab that is open now clean.
+  }
+
+  // Removed last, not first: that `setState` is a persist write, so a remove
+  // before it would be undone by the write that follows.
+  for (const key of [CATALOG_VIEW_PERSIST_KEY, UI_PERSIST_KEY]) {
+    try {
+      storage?.removeItem(key);
+    } catch {
+      // Nothing was stored under it, or the storage refuses removes: either way
+      // there is nothing left to forget.
+    }
+  }
+
+  return storage !== null;
+}
+
+/**
  * Install the demo bridge when no real one is present. Returns whether it did,
  * so a caller (or a test) can tell the difference.
  */
 export function installBrowserBridge(): boolean {
   if (typeof window === "undefined") return false;
   if (window.atr) return false;
+
+  // A reviewer who wants the catalog as it is can ask for that in the URL,
+  // rather than reaching for a button in a page that may not be reachable. The
+  // edits are read lazily by the demo store, so clearing them here is early
+  // enough; the view stores hydrate at import, so theirs is reset in place.
+  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("reset-edits")) {
+    clearPersistedEdits();
+    resetPersistedViewState();
+    console.info(
+      "[browser-bridge] ?reset-edits — cleared the edits and the saved view this browser had.",
+    );
+  }
+  // Before the first read, so what it restores is on screen from the first
+  // paint; with no localStorage the store simply keeps its session-local copy.
+  enablePersistence();
 
   // Kicked before the first read and awaited by every read that needs it: the
   // export is a fetch, and the first catalog read happens on mount, so a tab
@@ -472,8 +636,9 @@ export function installBrowserBridge(): boolean {
       "bridge so every route renders in a browser tab: catalog, repo detail, " +
       "/graph, /claude, /processes and /settings. Writes that change the " +
       "catalog — favourites, tags, curated links, moves, folder renames, scan " +
-      "roots — apply to a session-local copy and are lost on reload; the rest " +
-      "are refused with a reason. \n" +
+      "roots — are applied to a copy this browser keeps in localStorage, so they " +
+      "survive a reload; add ?reset-edits to the URL to start from the catalog " +
+      "alone. The rest are refused with a reason. \n" +
       "[browser-bridge] The library being served is named on the next line. With " +
       `no export at ${EXPORT_URL} it is the demo library (${listRepos().length} ` +
       `repos under ${DEMO_ROOT}); run \`node scripts/export-catalog.mjs\` to ` +

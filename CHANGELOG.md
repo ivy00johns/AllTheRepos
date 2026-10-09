@@ -69,6 +69,21 @@ source of truth for the current version.
   this machine that is 1,891 owner links against 29 curated ones. Script lists, CLAUDE.md state and listening
   processes need the disk too, and those panels show their empty states rather than rows about repos that are
   not in your catalog.
+- keep the browser bridge's edits across a reload. The bridge above let a browser tab change the catalog — a
+  favourite, a tag, a move, a curated link — and forgot every one of them the moment the tab was reloaded,
+  which made a viewer out of a tab with a working save button. `src/renderer/lib/demo-store.ts` now records
+  each write as the smallest edit that can be replayed (the field values it set, keyed by slug, plus the
+  settings object and the links to assert or drop) and saves that record to `localStorage` under a key per
+  library, so an export's edits and the demo library's never mix. It is a record of edits rather than a
+  snapshot of the catalog on purpose: an edit names a slug and a field, so re-running
+  `node scripts/export-catalog.mjs` and reloading keeps the edits you made while the catalog underneath you
+  was refreshed. The record is parsed against a Zod schema before it is trusted — it is as external as an
+  export, since any script on the origin can write it — so a corrupt or older one is a warning and a clean
+  start rather than a half-applied catalog, and a page with no `localStorage` keeps the session-local
+  behavior every write had before. `?reset-edits` on the URL clears both records before the store hydrates.
+  The undo bar stays per-session deliberately: the moved path persists, the affordance to reverse it does
+  not. `tests/unit/renderer/demo-store.spec.ts` drives each flow across a fresh module instance, which is a
+  reload in everything but name; 9 of its 33 tests are this.
 - keep the macOS bill from creeping back, in `scripts/check-ci-cost.mjs`. macOS runner minutes bill at
   ten times the Linux rate on a private repository, which makes where a job runs a spending decision
   rather than a style one — and nothing was keeping count, which is how a two-leg Electron matrix came
@@ -98,6 +113,22 @@ source of truth for the current version.
   P1 — two accessibility blockers and two viewport-height clipping bugs, both measured against a
   real window rather than read off the source. Nothing was fixed by that sweep: it files, it does
   not touch.
+- press every control on every screen, and report the ones that throw, hang, or leave a notice stuck. The
+  [2026-10-09 review](./docs/audits/2026-10-09-ui-ux-review.md) added that second pass, because the first
+  one only *navigated*: the two bugs it missed (a Fetch button that answered with the wrong shape, and a
+  notice that counted forever behind it) were both reachable only by pressing something. `.atr-dev/ux-review.mjs`
+  now opens all eight screens at the window's real sizes and presses every control whose centre is on screen
+  — **247 of 247**, and it reports four outcomes, all of them failures: a click that never completes, a click
+  that raises or logs an error, a notice the press introduced that is still there three seconds later, and a
+  control that was there when the screen opened and not when the same clean screen was re-created to press
+  it. Getting that list to mean anything cost three harness bugs, each of which looked exactly like an app
+  bug: every press shared one document (so one press that filtered the catalog to zero rows made every later
+  press report that the screen would not open), a failed re-open was charged to the *next* control (which is
+  how one mutated catalog became 28 named "hangs"), and the stuck check read `document.body.innerText`, so a
+  sentence in a repo's README counted as a notice left on screen. A press now gets its own document with
+  empty storage, a screen-level failure is its own finding, and the notice read is scoped to `role="status"`
+  and `role="alert"`. Result: no hang, no control that went missing, no screen a press could not re-open and
+  no notice left stuck; six presses logged an error, and all six are the README image gap filed as U10.
 
 ### Changed
 
@@ -133,6 +164,69 @@ source of truth for the current version.
 
 ### Fixed
 
+- reset the saved catalog *view*, not only the edits, behind `?reset-edits`. The bridge tells a reviewer to
+  "add `?reset-edits` to the URL to start from the catalog alone", and `clearPersistedEdits()` cleared the
+  demo store's edit record while the scope, view mode, grouping, sort, folder selection, ownership filter and
+  `favoritesOnly` stayed in `stores/catalog-view.ts`'s own key (and the search/language/tag filter in
+  `stores/ui.ts`'s). A filter intersection can hide every row, so the documented reset could hand a reviewer
+  an empty catalog with nothing on screen to say why: measured in the running app, *Mine* left it at
+  `30 of 271`, *Favourites* took it to `0 of 271`, and `?reset-edits=1` came back at `0 of 271` too. Both
+  halves are required and neither is enough — the stores hydrate as `stores/*` is imported, so removing the
+  key alone leaves the open tab filtered, and the stores are reset in place first and the keys removed after
+  (a `setState` is itself a persist write, so removing first is undone by the write that follows). A storage
+  that refuses writes cannot stop the renderer booting: the reset is best-effort, and the state is already
+  set by the time a failing write is caught.
+- check the browser bridge against the contract it stands in for, and fix the fourteen answers that had
+  drifted from it. The stub is hand-written to mimic the preload bridge, and every answer is cast
+  (`as never`) past the type checker while never passing through the IPC layer's own validation — so
+  nothing compared what a caller reads with what it is handed. The two crashes above are both that bug.
+  `tests/unit/renderer/browser-bridge-contract.spec.ts` now pairs every method on the installed bridge
+  with the `@shared/schemas` schema `src/main/ipc/*` validates the real handler's result with, and fails
+  if a method has no entry or an entry names a method that is gone, so the surface cannot grow unchecked.
+  It found, on the first run: `catalog.list` answering without the `limit`/`offset` a caller pages by;
+  `scan.status` answering `{ running, scanned, total }` where the result is
+  `{ jobId, status, processed, total, startedAt, endedAt, errorMessage }`; `git.status` answering
+  `{ branch, dirty }` where it owes `{ slug, isDirty, currentBranch, upstream, ahead, behind }`;
+  `git.branches` answering an object where the result is the array itself; `git.openInEditor` answering a
+  launcher result where the result is `{ opened, uri }`; `app.setDockBadge`, `app.notify`,
+  `app.showSpotlight`, `app.hideSpotlight` and `app.registerActions` each answering `{ ok }` or
+  `{ registered }` where their results are `{ badge }`, `{ shown }`, `{ visible: true }`,
+  `{ visible: false }` and `{ accepted, skipped }`; `catalog.folderCreate` answering `{ ok, reason }` where
+  the result is a full `FolderOpResult`; and `scan.cancel` and `groups.delete` each missing a required
+  field. Where the result type has room to say no — `{ shown: false }`, `{ visible: false }`,
+  `{ error }` — it says no; where it does not (`StartScanResult.status` is `z.literal("running")`,
+  `groups.delete`'s is `z.literal(true)`), the bridge refuses by throwing, which is what its other
+  unwritable operations already did and what the callers already handle.
+- stop the catalog toolbar's Fetch and Pull buttons hanging when they fail. Both set the notice strip to
+  `Fetching 5…` and then awaited the sync with nothing catching a rejection, so any failure left the strip
+  counting forever while the error went to the console. The strip now reports the failure too. Underneath
+  was a real crash: the browser bridge answered `git.fetch` and `git.pull` with `{ results: [] }` where the
+  caller reads `{ entries, updated, failed }`, so the summary walked `undefined` and threw
+  `result.entries is not iterable` on every click. Both return a `SyncResult` now, one `failed` entry per
+  requested repo carrying the reason a browser tab cannot reach a remote, and
+  `tests/unit/renderer/browser-bridge.spec.ts` parses that answer against `SyncResultSchema` so the shape
+  cannot drift away from the caller again.
+- stop the repo detail drawer covering the top bar. Below `lg` the panel is a fixed overlay, and it was
+  anchored to the window (`top-0 h-full`) rather than to the content area, so between 800 and 1023px it
+  painted over the 48px bar: the app title, the search field and all five nav destinations were under it.
+  Measured at the 800px minimum window, with one repo open, a click on *Map* landed on the drawer, and
+  seven of nine screens could not be opened at all. It starts at `top-12` now, sized
+  `h-[calc(100%-3rem)]` to match the bar's `h-12`, so the drawer stays inside the space below the bar at
+  every width. The `lg:static` / `lg:h-auto` overrides still win above 1024px, so the two-column layout
+  is unchanged.
+- let the catalog toolbar wrap instead of hiding its own controls. The controls need 854px; the column
+  they sit in is 544px at the 800px minimum and 644px at 1280 with the detail panel open, and their
+  container clips the overflow, so Fetch, Pull and the repo count were on screen, outside the column and
+  impossible to click. The bar wraps to a second row only when the controls do not fit, and `min-h-11`
+  keeps a single row exactly the 44px it has always been.
+- drop the unnamed button every leaf folder contributed to the accessibility tree. The directory rail's
+  disclosure chevron is `disabled` and invisible when a folder has no children, and its `aria-label` was
+  conditional, so it entered the tree as a disabled button with no name on the catalog, the repo detail
+  and the command palette. It is `aria-hidden` when there is nothing to disclose.
+- lift the "external" ownership colour to clear AA. `--color-own-external` is `#828e9f` rather than
+  `#7c8899`, because the ownership label is 11px monospace and measured 4.24:1 against the repo card,
+  under the 4.5:1 that size needs. Re-measured across every route at 1280x800, 1024x768 and 800x600: no
+  contrast failures.
 - make the window the height everything else measures against, instead of the page growing with its
   content. The root column was `min-h-screen` — a minimum, not a height — so `main` was sized by whatever it
   held: a full catalog grid pushed it to 1404px inside a 900px window (and the body scrolled), while a short

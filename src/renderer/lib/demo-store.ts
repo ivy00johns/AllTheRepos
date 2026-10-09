@@ -9,9 +9,25 @@
  * This module is the missing half. It owns one mutable copy of the demo library
  * and applies the writes the app actually makes — favourite, tags, curated
  * links, moves, folder renames, scan roots — to that copy, so the next read
- * shows the change. It is a *memory* of the session, not a mock: nothing is
- * written to disk, and every rule the main process enforces is enforced here
- * too, including the ones that make a write fail.
+ * shows the change. It is not a mock: every rule the main process enforces is
+ * enforced here too, including the ones that make a write fail, and nothing is
+ * written to the database or the filesystem a browser tab does not have.
+ *
+ * Those writes outlive the tab. Each one is recorded as the smallest edit that
+ * can be replayed — the field values it set, not a snapshot of the catalog — and
+ * the record is saved to `localStorage`, so a reload re-applies it on top of
+ * whatever library is being served. That keeps the export live: re-running
+ * `scripts/export-catalog.mjs` produces a fresh catalog and the edits still land
+ * on it, because an edit names a `slug` and a `field`, not a row. The store is
+ * keyed per library (demo and export keep separate records), the export's own
+ * edits are ignored when the demo library is serving and vice versa, and none of
+ * it is touched until the browser bridge asks for it — see `enablePersistence`,
+ * which the bridge calls at install.
+ *
+ * Two things deliberately stay session-local: a move batch's undo entry (the
+ * moved path persists; the undo bar is a per-session affordance, like a shell's
+ * history) and the derived signals the map reads — an export carries none, so
+ * the store cannot invent them.
  *
  * Those rules are copied from `src/main/services/move.ts` deliberately:
  *
@@ -60,9 +76,11 @@ import type {
 // Zod is the cost of that, and it is the same dependency the handlers use.
 import {
   GroupSchema,
+  RepoLinkKindSchema,
   RepoLinkSchema,
   RepoSchema,
   SettingsSchema,
+  TagSchema,
   type SettingsZ,
 } from "@shared/schemas";
 import { z } from "zod";
@@ -222,6 +240,365 @@ const blockersMessage = (blockers: Array<MoveBlocker | FolderBlocker>): string =
   blockers.join(", ");
 
 // ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the edits are kept between reloads — `localStorage`, in a browser tab.
+ *
+ * Narrowed to three methods on purpose: the store only ever reads one key,
+ * writes it and deletes it, and a test can supply a `Map`-backed stand-in
+ * without pretending to be the whole Web Storage API.
+ */
+export interface EditStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/**
+ * One repo's edits, recorded as the values to write back on replay.
+ *
+ * Every field is optional and absolute, because that is what makes a replay
+ * safe: absent means "the catalog's own value", present means "this is what a
+ * person chose", so a fresh export with newer data is never blanked by an edit
+ * that only touched a favourite.
+ */
+const PersistedRepoEditSchema = z.object({
+  fullPath: z.string().min(1).optional(),
+  isFavorite: z.boolean().optional(),
+  favoritedAt: z.string().nullable().optional(),
+  tags: z.array(TagSchema).optional(),
+  lastScannedAt: z.string().nullable().optional(),
+  updatedAt: z.string().optional(),
+  deleted: z.literal(true).optional(),
+});
+
+/** A curated link to assert, in the shape the store can rebuild it from. */
+const PersistedAddedLinkSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+  why: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** A curated link to drop, identified the way `removeLink` identifies one. */
+const PersistedRemovedLinkSchema = z.object({
+  fromSlug: z.string().min(1),
+  toSlug: z.string().min(1),
+  kind: RepoLinkKindSchema,
+});
+
+/**
+ * The edit record for one library, as it is stored.
+ *
+ * `source` is in the record itself as well as in the key it is stored under, so
+ * a record that is moved between the two is refused rather than replayed against
+ * a library whose slugs it describes only by accident.
+ */
+const PersistedEditsSchema = z.object({
+  format: z.number().int(),
+  source: z.enum(["demo", "export"]),
+  repos: z.record(PersistedRepoEditSchema),
+  links: z.object({
+    added: z.array(PersistedAddedLinkSchema),
+    removed: z.array(PersistedRemovedLinkSchema),
+  }),
+  settings: SettingsSchema.optional(),
+});
+
+type PersistedEdits = z.infer<typeof PersistedEditsSchema>;
+
+/** What this build knows how to replay. */
+const EDITS_FORMAT = 1;
+
+/**
+ * A key per library, not one shared record.
+ *
+ * Demo slugs and export slugs are different repos, so replaying one library's
+ * edits onto the other would set a real repo's favourite from a demo one's — or
+ * silently drop the edit. Two keys also mean switching between them (run the
+ * export, then delete the file) does not destroy either set.
+ */
+const editsKey = (source: CatalogSource): string => `atr.browser-bridge.edits.v${EDITS_FORMAT}.${source}`;
+
+/**
+ * `localStorage` when this context has one; `null` when it does not.
+ *
+ * Exported because a caller that forgets persisted state has the same problem
+ * this module does — a hardened context can throw on the property access
+ * itself, not just be missing the object — and should not solve it twice.
+ */
+export function defaultStorage(): EditStorage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    // Some hardened/disabled contexts throw on the property access itself.
+    return null;
+  }
+}
+
+const emptyEdits = (source: CatalogSource): PersistedEdits => ({
+  format: EDITS_FORMAT,
+  source,
+  repos: {},
+  links: { added: [], removed: [] },
+});
+
+/**
+ * The settings, copied.
+ *
+ * A settings write records the whole settings object rather than one key,
+ * because the scan roots are the field that matters and they are replaced, not
+ * patched — and a reference would let a later in-place write change the record
+ * without it being re-saved.
+ */
+const snapshotSettings = (): SettingsZ => ({
+  ...state.settings,
+  scanPaths: [...state.settings.scanPaths],
+  identities: [...state.settings.identities],
+});
+
+/** The storage the record is kept in, once the bridge has asked for it. */
+let storage: EditStorage | null = null;
+let persistenceOn = false;
+let edits: PersistedEdits = emptyEdits("demo");
+
+const countEdits = (blob: PersistedEdits): number =>
+  Object.keys(blob.repos).length + blob.links.added.length + blob.links.removed.length +
+  (blob.settings ? 1 : 0);
+
+/**
+ * Read one library's record, refusing anything this build cannot replay.
+ *
+ * The blob is as external as an export — `localStorage` is writable by any
+ * script on the origin and survives across builds — so it is parsed against the
+ * same kind of schema before it is trusted, and a mismatch is a warning and a
+ * fresh start rather than a half-applied catalog.
+ */
+function readEdits(store: EditStorage, source: CatalogSource): PersistedEdits | null {
+  let raw: string | null;
+  try {
+    raw = store.getItem(editsKey(source));
+  } catch (error) {
+    console.warn("[demo-store] could not read saved edits — starting from the catalog alone.", error);
+    return null;
+  }
+  if (!raw) return null;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    console.warn(
+      "[demo-store] the saved browser-bridge edits are not valid JSON — starting from the " +
+        "catalog alone. Add ?reset-edits to the URL to clear them.",
+    );
+    return null;
+  }
+
+  const parsed = PersistedEditsSchema.safeParse(json);
+  if (!parsed.success || parsed.data.format !== EDITS_FORMAT || parsed.data.source !== source) {
+    console.warn(
+      "[demo-store] the saved browser-bridge edits were written by a different build (or for " +
+        "another library) — ignoring them. Add ?reset-edits to the URL to clear them.",
+    );
+    return null;
+  }
+  return parsed.data;
+}
+
+/**
+ * Save the record after a write.
+ *
+ * A failure here (quota, a disabled store) turns persistence off with a warning
+ * rather than throwing into a catalog write: the edit itself already landed in
+ * the running store, and a tab that could not save it should still be usable.
+ */
+function persistEdits(): void {
+  if (!persistenceOn || !storage) return;
+  try {
+    storage.setItem(editsKey(state.source), JSON.stringify(edits));
+  } catch (error) {
+    persistenceOn = false;
+    console.warn(
+      "[demo-store] could not save this session's catalog edits — they will be lost on " +
+        "reload.",
+      error,
+    );
+  }
+}
+
+/** The record for one slug, created on first edit. */
+function editRepo(slug: string): PersistedEdits["repos"][string] {
+  return (edits.repos[slug] ??= {});
+}
+
+/** Record a repo write, then save. The one call every repo-touching write makes. */
+function rememberRepoEdit(
+  slug: string,
+  patch: PersistedEdits["repos"][string],
+): void {
+  Object.assign(editRepo(slug), patch);
+  persistEdits();
+}
+
+const linkKey = (link: { fromSlug: string; toSlug: string; kind: RepoLinkKind }): string =>
+  `${link.fromSlug}\u0000${link.toSlug}\u0000${link.kind}`;
+
+/** A link asserted here — and no longer one of the base's, if it was removed before. */
+function rememberAddedLink(link: RepoLink): void {
+  const key = linkKey(link);
+  edits.links.removed = edits.links.removed.filter((candidate) => linkKey(candidate) !== key);
+  edits.links.added = edits.links.added.filter((candidate) => linkKey(candidate) !== key);
+  edits.links.added.push({
+    fromSlug: link.fromSlug,
+    toSlug: link.toSlug,
+    kind: link.kind,
+    why: link.why,
+    createdAt: link.createdAt,
+  });
+  persistEdits();
+}
+
+/** A link removed here, dropped from the added list so add-then-remove is a no-op. */
+function rememberRemovedLink(link: { fromSlug: string; toSlug: string; kind: RepoLinkKind }): void {
+  const key = linkKey(link);
+  edits.links.added = edits.links.added.filter((candidate) => linkKey(candidate) !== key);
+  if (!edits.links.removed.some((candidate) => linkKey(candidate) === key)) {
+    edits.links.removed.push({ fromSlug: link.fromSlug, toSlug: link.toSlug, kind: link.kind });
+  }
+  persistEdits();
+}
+
+/**
+ * Re-apply the record on top of whatever the base just loaded.
+ *
+ * Tolerant by design: an edit whose repo is no longer in the catalog is skipped
+ * (a fresh export of a repo you deleted on disk), and a link whose ends are
+ * missing is not drawn at all. Ids for re-asserted links are re-issued from the
+ * loaded catalog, so they are stable across reloads without the record having
+ * to store them.
+ */
+function replayEdits(): void {
+  const blob = edits;
+  if (blob.settings) Object.assign(state.settings, blob.settings);
+
+  const deleted = new Set<string>();
+  for (const [slug, edit] of Object.entries(blob.repos)) {
+    const repo = findRepo(slug);
+    if (!repo) continue;
+    if (edit.deleted) {
+      deleted.add(slug);
+      continue;
+    }
+    if (edit.fullPath !== undefined) repo.fullPath = edit.fullPath;
+    if (edit.isFavorite !== undefined) repo.isFavorite = edit.isFavorite;
+    if (edit.favoritedAt !== undefined) repo.favoritedAt = edit.favoritedAt;
+    if (edit.tags !== undefined) repo.tags = edit.tags.map((tag) => ({ ...tag }));
+    if (edit.lastScannedAt !== undefined) repo.lastScannedAt = edit.lastScannedAt;
+    if (edit.updatedAt !== undefined) repo.updatedAt = edit.updatedAt;
+  }
+
+  if (deleted.size > 0) {
+    state.repos = state.repos.filter((repo) => !deleted.has(repo.slug));
+    // A dropped row takes its links with it, exactly as `forgetRepo` does.
+    state.links = state.links.filter(
+      (link) => !deleted.has(link.fromSlug) && !deleted.has(link.toSlug),
+    );
+  }
+
+  for (const removal of blob.links.removed) {
+    const key = linkKey(removal);
+    state.links = state.links.filter((link) => linkKey(link) !== key);
+  }
+  for (const addition of blob.links.added) {
+    if (!findRepo(addition.fromSlug) || !findRepo(addition.toSlug)) continue;
+    const key = linkKey(addition);
+    if (state.links.some((link) => linkKey(link) === key)) continue;
+    const nextId = state.links.reduce((max, link) => Math.max(max, link.id), 0) + 1;
+    state.links.push({
+      id: nextId,
+      fromSlug: addition.fromSlug,
+      toSlug: addition.toSlug,
+      kind: addition.kind,
+      why: addition.why,
+      source: "ui",
+      createdAt: addition.createdAt,
+    });
+  }
+  touch();
+}
+
+/** Load the record for `source` and replay it. A no-op while persistence is off. */
+function hydrateEdits(source: CatalogSource): void {
+  if (!persistenceOn || !storage) return;
+  const restored = readEdits(storage, source);
+  edits = restored ?? emptyEdits(source);
+  if (!restored) return;
+  const count = countEdits(restored);
+  if (count > 0) replayEdits();
+  console.info(
+    `[demo-store] restored ${count} catalog edit${count === 1 ? "" : "s"} saved by this ` +
+      `browser for the ${source} library — they survive a reload. Add ?reset-edits to the URL ` +
+      "to start from the catalog alone.",
+  );
+}
+
+/**
+ * Persist this browser's catalog edits.
+ *
+ * Called once by the browser bridge at install, before the first catalog read,
+ * so the edits it restores are on screen from the first paint. Returns whether
+ * it could — with no `localStorage` (a `file://` page, a disabled store) the
+ * store keeps applying writes to itself and simply does not survive a reload,
+ * which is the behavior every write had before this existed.
+ */
+export function enablePersistence(candidate?: EditStorage | null): boolean {
+  if (persistenceOn) return true;
+  const store = candidate ?? defaultStorage();
+  if (!store) {
+    console.info(
+      "[demo-store] this context has no localStorage — catalog edits apply to this session " +
+        "only and are lost on reload.",
+    );
+    return false;
+  }
+  storage = store;
+  persistenceOn = true;
+  hydrateEdits(state.source);
+  return true;
+}
+
+/** A read for diagnostics, and for the bridge's own banner. */
+export function persistenceEnabled(): boolean {
+  return persistenceOn;
+}
+
+/**
+ * Forget every saved edit, for both libraries, and stop replaying them.
+ *
+ * It clears the storage, not the running store: the bridge calls it as it
+ * installs (behind `?reset-edits`), before anything has been hydrated, so the
+ * tab comes up on the plain catalog. Live state is untouched by design, which
+ * keeps this from having to un-apply a move.
+ */
+export function clearPersistedEdits(candidate?: EditStorage | null): boolean {
+  const store = candidate ?? storage ?? defaultStorage();
+  if (!store) return false;
+  for (const source of ["demo", "export"] as const) {
+    try {
+      store.removeItem(editsKey(source));
+    } catch {
+      // Nothing was stored; there is nothing to remove.
+    }
+  }
+  edits = emptyEdits(state.source);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
 
@@ -342,6 +719,9 @@ function applyExport(parsed: z.infer<typeof ExportedCatalogSchema>): void {
   // Batches describe moves made in this session, and this one replaced them.
   state.batches = [];
   state.source = "export";
+  // Which record applies changed with the base: this browser's edits for the
+  // exported catalog, replayed on top of the rows it just loaded.
+  hydrateEdits("export");
   touch();
 }
 
@@ -393,8 +773,8 @@ export async function loadExportedCatalog(url: string): Promise<CatalogSource> {
     console.info(
       `[demo-store] serving your exported catalog: ${parsed.data.repos.length} repos, ` +
         `${parsed.data.groups.length} groups and ${parsed.data.links.length} curated links from ` +
-        `${parsed.data.dbPath} (exported ${parsed.data.exportedAt}). Writes still apply to this ` +
-        "session only.",
+        `${parsed.data.dbPath} (exported ${parsed.data.exportedAt}). Writes apply to this ` +
+        "browser's copy of it.",
     );
     return state.source;
   } catch (error) {
@@ -421,6 +801,11 @@ export function setFavorite(slug: string, favorite: boolean): Repo | null {
   repo.isFavorite = favorite;
   repo.favoritedAt = favorite ? now() : null;
   repo.updatedAt = now();
+  rememberRepoEdit(slug, {
+    isFavorite: repo.isFavorite,
+    favoritedAt: repo.favoritedAt,
+    updatedAt: repo.updatedAt,
+  });
   touch();
   return repo;
 }
@@ -431,6 +816,10 @@ export function setTags(slug: string, tags: string[]): Repo {
   // outranks anything inferred from the code.
   repo.tags = tags.map((value) => ({ value, source: "user" as const }));
   repo.updatedAt = now();
+  rememberRepoEdit(slug, {
+    tags: repo.tags.map((tag) => ({ ...tag })),
+    updatedAt: repo.updatedAt,
+  });
   touch();
   return repo;
 }
@@ -449,6 +838,7 @@ export function forgetRepo(slug: string): { slug: string; deleted: boolean } {
   state.links = state.links.filter(
     (link) => link.fromSlug !== slug && link.toSlug !== slug,
   );
+  rememberRepoEdit(slug, { deleted: true });
   touch();
   return { slug, deleted: true };
 }
@@ -457,6 +847,7 @@ export function forgetRepo(slug: string): { slug: string; deleted: boolean } {
 export function rescan(slug: string): RescanRepoResult {
   const repo = requireRepo(slug);
   repo.lastScannedAt = now();
+  rememberRepoEdit(slug, { lastScannedAt: repo.lastScannedAt });
   touch();
   return repo;
 }
@@ -498,6 +889,7 @@ export function assertLink(input: {
   };
   state.links.push(link);
   touch();
+  rememberAddedLink(link);
   return { link };
 }
 
@@ -516,7 +908,10 @@ export function removeLink(input: {
       ),
   );
   const removed = state.links.length !== before;
-  if (removed) touch();
+  if (removed) {
+    touch();
+    rememberRemovedLink(input);
+  }
   return { removed };
 }
 
@@ -605,6 +1000,9 @@ export function move(slugs: string[], targetDir: string): MoveResult {
     if (repo) {
       repo.fullPath = entry.toPath;
       repo.updatedAt = now();
+      const edit = editRepo(entry.slug);
+      edit.fullPath = entry.toPath;
+      edit.updatedAt = repo.updatedAt;
       performed.push({
         slug: entry.slug,
         fromPath: entry.fromPath,
@@ -620,6 +1018,9 @@ export function move(slugs: string[], targetDir: string): MoveResult {
     };
   });
 
+  // Saved once for the batch, not once per repo: a folder move re-paths every
+  // repo inside it and each save would re-serialise the whole record.
+  if (performed.length > 0) persistEdits();
   touch();
   return {
     targetDir: check.targetDir,
@@ -666,6 +1067,9 @@ export function moveUndo(batchId?: string): MoveResult {
     if (repo) {
       repo.fullPath = record.fromPath;
       repo.updatedAt = now();
+      const edit = editRepo(record.slug);
+      edit.fullPath = record.fromPath;
+      edit.updatedAt = repo.updatedAt;
     }
     return {
       slug: record.slug,
@@ -677,6 +1081,7 @@ export function moveUndo(batchId?: string): MoveResult {
   });
 
   state.batches = state.batches.filter((candidate) => candidate !== batch);
+  if (entries.length > 0) persistEdits();
   touch();
   return {
     targetDir: parentOf(batch.records[0]?.fromPath ?? ""),
@@ -773,8 +1178,12 @@ function applyFolderMove(from: string, to: string): FolderOpResult {
     if (!repo) continue;
     repo.fullPath = entry.toPath;
     repo.updatedAt = now();
+    const edit = editRepo(entry.slug);
+    edit.fullPath = entry.toPath;
+    edit.updatedAt = repo.updatedAt;
     records.push({ slug: entry.slug, fromPath: entry.fromPath, toPath: entry.toPath });
   }
+  if (records.length > 0) persistEdits();
   touch();
   return {
     ok: true,
@@ -797,7 +1206,9 @@ export function updateSettings(patch: Partial<Settings>): Settings {
     Object.entries(patch).filter(([, value]) => value !== undefined),
   );
   Object.assign(state.settings, defined);
+  edits.settings = snapshotSettings();
   touch();
+  persistEdits();
   return state.settings;
 }
 
@@ -811,7 +1222,9 @@ export function addScanPath(path: string): AddScanPathResult {
     };
   }
   state.settings.scanPaths = [...state.settings.scanPaths, trimmed];
+  edits.settings = snapshotSettings();
   touch();
+  persistEdits();
   return { settings: state.settings, added: true, reason: null };
 }
 
@@ -842,6 +1255,10 @@ export function removeScanPath(
   }
   const forgotten = forgetRepos ? countUnder(trimmed) : 0;
   if (forgetRepos) {
+    // Each row is marked before it goes, so a reload drops them again.
+    for (const repo of state.repos) {
+      if (isInside(repo.fullPath, trimmed)) editRepo(repo.slug).deleted = true;
+    }
     state.repos = state.repos.filter((repo) => !isInside(repo.fullPath, trimmed));
     // A forgotten repo takes its links with it.
     const kept = new Set(state.repos.map((repo) => repo.slug));
@@ -850,6 +1267,8 @@ export function removeScanPath(
     );
   }
   state.settings.scanPaths = state.settings.scanPaths.filter((root) => root !== trimmed);
+  edits.settings = snapshotSettings();
   touch();
+  persistEdits();
   return { settings: state.settings, removed: true, forgotten, reason: null };
 }

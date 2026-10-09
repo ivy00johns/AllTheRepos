@@ -640,3 +640,233 @@ describe("an exported catalog", () => {
     expect(store.listRepos()).toHaveLength(12);
   });
 });
+
+/**
+ * A `localStorage` stand-in.
+ *
+ * The store only touches one key per library, and `Map` is the whole API it
+ * uses, so the fake is deliberately not the Web Storage interface: what is
+ * being tested is that a write is recorded and replayed, not that `length` has
+ * the right value.
+ */
+function fakeStorage(initial: Record<string, string> = {}) {
+  const map = new Map(Object.entries(initial));
+  return {
+    map,
+    getItem: (key: string): string | null => map.get(key) ?? null,
+    setItem: (key: string, value: string): void => {
+      map.set(key, value);
+    },
+    removeItem: (key: string): void => {
+      map.delete(key);
+    },
+  };
+}
+
+/** The `why` on every curated link the graph draws between two repos. */
+function curatedWhys(store: Store, a: string, b: string): string[] {
+  const graph = GraphResultSchema.parse(store.graph());
+  const edge = graph.edges.find(
+    (candidate) =>
+      (candidate.source === a && candidate.target === b) ||
+      (candidate.source === b && candidate.target === a),
+  );
+  return (edge?.curated ?? []).map((link) => link.why ?? "");
+}
+
+/** The slug key for one library's saved edits — asserted, so a rename is caught here. */
+const DEMO_EDITS_KEY = "atr.browser-bridge.edits.v1.demo";
+
+/**
+ * Edits outlive the tab.
+ *
+ * A write is recorded as the smallest edit that can be replayed — the value it
+ * set on one field, keyed by slug — and saved, so a new module instance (a
+ * reload, in everything but name) re-applies it on top of the library it finds.
+ * What matters is the pair of halves that could each be wrong: an edit that is
+ * applied to the wrong library (a demo star landing on a real repo) or an edit
+ * that quietly stops applying when the catalog behind it is refreshed.
+ */
+describe("saved edits", () => {
+  test("writes before persistence is enabled reach no storage at all", async () => {
+    const storage = fakeStorage();
+    const store = await freshStore();
+    const repo = store.listRepos().find((candidate) => !candidate.isFavorite);
+    if (!repo) throw new Error("Every demo repo is already a favourite");
+
+    store.setFavorite(repo.slug, true);
+    expect(storage.map.size).toBe(0);
+
+    // And in a context with no localStorage (this one) it stays session-local.
+    expect(store.enablePersistence()).toBe(false);
+    expect(store.persistenceEnabled()).toBe(false);
+  });
+
+  test("a favourite and a tag come back in the next session", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    expect(first.enablePersistence(storage)).toBe(true);
+
+    const repo = first.listRepos().find((candidate) => !candidate.isFavorite);
+    if (!repo) throw new Error("Every demo repo is already a favourite");
+    first.setFavorite(repo.slug, true);
+    first.setTags(repo.slug, ["kept"]);
+
+    // One key, holding the edit — not a snapshot of the whole catalog.
+    expect(storage.map.size).toBe(1);
+
+    const second = await freshStore();
+    expect(second.enablePersistence(storage)).toBe(true);
+    const restored = second.findRepo(repo.slug);
+    expect(restored?.isFavorite).toBe(true);
+    expect(restored?.favoritedAt).not.toBeNull();
+    expect(restored?.tags.map((tag) => tag.value)).toEqual(["kept"]);
+    expect(restored?.tags.every((tag) => tag.source === "user")).toBe(true);
+  });
+
+  test("a move comes back, with the slug kept", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    const repo = freeRepo(first);
+
+    const moved = MoveResultSchema.parse(first.move([repo.slug], FOLDER));
+    expect(moved.movedCount).toBe(1);
+
+    const second = await freshStore();
+    second.enablePersistence(storage);
+    expect(second.findRepo(repo.slug)?.fullPath).toBe(`${FOLDER}/${repo.name}`);
+    // The moved path persists; the undo bar is a session affordance.
+    expect(second.moveLast()).toBeNull();
+  });
+
+  test("a curated link comes back, and a removed one stays removed", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    const repos = first.listRepos();
+
+    const asserted = { from: byName(repos, "lighthouse-ui"), to: byName(repos, "pixel-forge") };
+    first.assertLink({
+      fromSlug: asserted.from.slug,
+      toSlug: asserted.to.slug,
+      kind: "related",
+      why: "asserted before the reload",
+    });
+
+    // A link the demo library ships, removed here — the record has to say so,
+    // because the base will keep offering it on every reload.
+    const seeded = { from: byName(repos, "sketchbook"), to: byName(repos, "weatherbot") };
+    const SEEDED_WHY = "same forecasting idea — the notebook came first";
+    expect(curatedWhys(first, seeded.from.slug, seeded.to.slug)).toContain(SEEDED_WHY);
+    expect(
+      first.removeLink({ fromSlug: seeded.from.slug, toSlug: seeded.to.slug, kind: "related" })
+        .removed,
+    ).toBe(true);
+
+    const second = await freshStore();
+    second.enablePersistence(storage);
+    expect(curatedWhys(second, asserted.from.slug, asserted.to.slug)).toContain(
+      "asserted before the reload",
+    );
+    expect(curatedWhys(second, seeded.from.slug, seeded.to.slug)).not.toContain(SEEDED_WHY);
+  });
+
+  test("a scan root and a settings edit come back", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    first.addScanPath("/Users/demo/Side");
+    first.updateSettings({ ollamaBaseUrl: "http://localhost:1234" });
+
+    const second = await freshStore();
+    second.enablePersistence(storage);
+    expect(second.settings().scanPaths).toContain("/Users/demo/Side");
+    expect(second.settings().ollamaBaseUrl).toBe("http://localhost:1234");
+  });
+
+  test("a dropped repo stays dropped, and takes its links with it", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    const repos = first.listRepos();
+    const gone = byName(repos, "mailroom");
+    const keeper = byName(repos, "ledger-core");
+
+    first.assertLink({ fromSlug: keeper.slug, toSlug: gone.slug, kind: "related" });
+    expect(first.forgetRepo(gone.slug).deleted).toBe(true);
+
+    const second = await freshStore();
+    second.enablePersistence(storage);
+    expect(second.findRepo(gone.slug)).toBeNull();
+    expect(
+      RepoRelationsResultSchema.parse(second.relations(keeper.slug)).relations.some(
+        (relation) => relation.slug === gone.slug,
+      ),
+    ).toBe(false);
+  });
+
+  test("an unreadable record is ignored rather than half-applied", async () => {
+    const store = await freshStore();
+    const storage = fakeStorage({ [DEMO_EDITS_KEY]: "{ this is not json" });
+
+    expect(store.enablePersistence(storage)).toBe(true);
+    expect(store.listRepos()).toHaveLength(12);
+
+    // A record from a build this one does not read is refused the same way.
+    const stale = await freshStore();
+    const staleStorage = fakeStorage({
+      [DEMO_EDITS_KEY]: JSON.stringify({ format: 99, source: "demo", repos: {} }),
+    });
+    expect(stale.enablePersistence(staleStorage)).toBe(true);
+    expect(stale.listRepos()).toHaveLength(12);
+  });
+
+  test("clearing the record leaves the library itself alone", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    const repo = first.listRepos().find((candidate) => !candidate.isFavorite);
+    if (!repo) throw new Error("Every demo repo is already a favourite");
+    first.setFavorite(repo.slug, true);
+    expect(storage.map.size).toBe(1);
+
+    expect(first.clearPersistedEdits(storage)).toBe(true);
+    expect(storage.map.size).toBe(0);
+
+    const second = await freshStore();
+    second.enablePersistence(storage);
+    expect(second.findRepo(repo.slug)?.isFavorite).toBe(false);
+  });
+
+  test("an export does not inherit the demo library's edits, and keeps its own", async () => {
+    const storage = fakeStorage();
+    const first = await freshStore();
+    first.enablePersistence(storage);
+    const repo = byName(first.listRepos(), "lighthouse-ui");
+    first.setFavorite(repo.slug, true);
+
+    const body = {
+      format: 1,
+      exportedAt: "2026-10-08T12:00:00.000Z",
+      dbPath: "/Users/somebody/Library/Application Support/alltherepos/alltherepos.db",
+      repos: [{ ...repo, fullPath: "/Users/somebody/Repos/mine/one", isFavorite: false }],
+      groups: [],
+      detail: {},
+      links: [],
+      settings: { ...first.settings(), scanPaths: ["/Users/somebody/Repos"] },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body })),
+    );
+    expect(await first.loadExportedCatalog("/__atr/catalog.json")).toBe("export");
+
+    // The demo star does not follow the slug into a library that is not its own.
+    expect(first.findRepo(repo.slug)?.isFavorite).toBe(false);
+
+    // And the export's own record is written under its own key.
+    first.setFavorite(repo.slug, true);
+    expect(storage.map.size).toBe(2);
+  });
+});

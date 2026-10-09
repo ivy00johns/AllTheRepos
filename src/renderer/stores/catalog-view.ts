@@ -84,7 +84,12 @@ interface CatalogViewState {
   clearSelection(): void;
 }
 
-const PERSIST_KEY = "atr:catalog-view:v1";
+/**
+ * Where this store is persisted, named so a caller that has to *forget* the
+ * saved view can remove exactly this key rather than a copy of the string
+ * (`browser-bridge.ts`, behind `?reset-edits`).
+ */
+export const PERSIST_KEY = "atr:catalog-view:v1";
 
 export const useCatalogView = create<CatalogViewState>()(
   persist(

@@ -342,6 +342,13 @@ function DirRow({
               : undefined
           }
           aria-expanded={hasChildren ? isOpen : undefined}
+          /*
+            A leaf folder's chevron is only a layout spacer — the button is
+            `disabled` and `opacity-0`, so it can never be operated. Without
+            this it still entered the accessibility tree as an unnamed, disabled
+            button, which is what an a11y sweep reports as a defect.
+          */
+          aria-hidden={!hasChildren}
           disabled={!hasChildren}
           onClick={(e) => {
             e.stopPropagation();

@@ -129,7 +129,12 @@
    * every status hue, and the state most worth noticing.
    */
   --color-own-mine: var(--accent);
-  --color-own-external: #7c8899;
+  /*
+   * Measured on the repo card: 11px text in #7c8899 came out at 4.24:1, under
+   * the 4.5:1 AA needs at that size. #828e9f is the smallest step that clears
+   * it (4.6:1) and keeps the muted-against-mine reading.
+   */
+  --color-own-external: #828e9f;
   --color-own-local: #a78bfa;
 
   --radius-sm: 0.25rem;
