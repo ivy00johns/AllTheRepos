@@ -34,6 +34,11 @@ import { useSettings } from "@renderer/hooks/use-settings";
 import { cn } from "@renderer/lib/cn";
 import { UNGROUPED_CLUSTER_ID } from "@renderer/lib/graph-clusters";
 import { countEdgesBySignal } from "@renderer/lib/graph-signals";
+import {
+  focusRailOption,
+  railStop,
+  railTarget,
+} from "@renderer/lib/rail-keyboard";
 import { tildify } from "@renderer/lib/repo-tree";
 
 import { Route as RootRoute } from "./__root";
@@ -483,13 +488,13 @@ function GraphPage() {
     return items;
   }, [atGroupLevel, data, ungroupedSlugs, visibleNodes, selectedSlug, openCluster]);
 
-  /**
-   * Where the list's single tab stop sits. Clamped rather than trusted: the
-   * list shrinks when a group is opened or the filter changes, and an index
-   * past the end would leave it with nothing tabbable at all.
+  /*
+   * Where the list's single tab stop sits, clamped to a list that may have
+   * shrunk since it was last set. The clamp, the key map and the cursor
+   * policy all live in `lib/rail-keyboard`, where they are testable without a
+   * window — see that file for why each is shaped the way it is.
    */
-  const rovingOption =
-    railItems.length === 0 ? -1 : Math.min(rovingIndex, railItems.length - 1);
+  const rovingOption = railStop(rovingIndex, railItems.length);
 
   /*
    * Follow the map: selecting a node on it (or in the link list below) moves
@@ -507,41 +512,19 @@ function GraphPage() {
     if (!item) return;
     setRovingIndex(index);
     item.pick();
-    /*
-     * Focus now, and again after the commit only if focus was lost.
-     *
-     * Moving through the repo list keeps the option that was pressed on
-     * screen — only which one is *selected* changes — so the cursor belongs on
-     * it in this frame. Deferring the focus to the next one cost the keyboard
-     * its cursor for that frame, which is long enough for a test to look and
-     * find `document.activeElement` somewhere else.
-     *
-     * Opening a group does replace the list, so the element just focused is
-     * removed from the document, focus falls back to `<body>`, and the tab
-     * stop would be nowhere at all. That is the case the second attempt is
-     * for — and it only fires when focus was actually dropped, so it can
-     * never steal it back from wherever a person has since put it.
-     */
-    nodeOptionRefs.current[index]?.focus();
-    window.requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      nodeOptionRefs.current[index]?.focus();
+    focusRailOption(index, {
+      optionAt: (at) => nodeOptionRefs.current[at] ?? null,
+      activeElement: () => document.activeElement,
+      fallback: () => document.body,
+      afterFrame: (again) => {
+        window.requestAnimationFrame(again);
+      },
     });
   };
 
   const handleRailKeyDown = (event: React.KeyboardEvent, index: number) => {
-    const last = railItems.length - 1;
-    let target: number | null = null;
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      target = index >= last ? 0 : index + 1;
-    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      target = index <= 0 ? last : index - 1;
-    } else if (event.key === "Home") {
-      target = 0;
-    } else if (event.key === "End") {
-      target = last;
-    }
-    if (target === null || target < 0) return;
+    const target = railTarget(event.key, index, railItems.length - 1);
+    if (target === null) return;
     event.preventDefault();
     selectRailItem(target);
   };
