@@ -46,7 +46,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { currentAbi, missingEntryPoints, resolveSdk } from "./native-toolchain.mjs";
+import {
+  currentAbi,
+  linkProbe,
+  missingEntryPoints,
+  resolveSdk,
+} from "./native-toolchain.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -222,17 +227,43 @@ export function checkNativeAbi({ abi, missing = [], needed = HOST_RUNTIME } = {}
 // ---------------------------------------------------------------------------
 
 /**
- * Whether a native rebuild would have an SDK its compiler can read.
+ * Whether a native rebuild would have an SDK its compiler can read — asked of
+ * the linker, not of `xcrun`.
  *
- * Only the case where the resolver had to *change* something is a warning: that
- * is ATR-057, where the Command Line Tools SDK and the Xcode clang disagree, and
- * the rebuild works only because it is pointed somewhere else. Naming the SDK it
- * would use is the difference between a warning a person can act on and one they
- * learn to scroll past.
+ * This is the check ATR-057 is about, and the reason it compiles something
+ * rather than trusting a path: on the afternoon in question `xcrun` named an SDK
+ * perfectly happily and the linker then refused to read its stubs, so a verdict
+ * built on `xcrun` alone said the machine was ready and the rebuild still died.
+ * `link` is that probe's answer, and a probe that fails is a *failure*: a
+ * rebuild will not link, which is the most concrete thing this script can tell
+ * somebody.
+ *
+ * The other two verdicts are unchanged. A resolver that had to *change*
+ * something is a warning — the rebuild works, pointed somewhere else — and it
+ * names the SDK it uses, because a warning nobody can act on is noise. A
+ * resolver that found nothing usable is a failure.
+ *
+ * Off macOS there is nothing to pair and nothing to prove, and that is an `ok`
+ * rather than a pass nobody looked at: this doctor runs as a step on CI's fast
+ * job, which is `ubuntu-latest`, and reporting the absence of Xcode as a broken
+ * machine would turn every Linux run red over a check that does not apply
+ * there. It says which platform it is on rather than staying quiet, so a green
+ * line is still a statement about this machine.
  */
-export function checkSdk({ sdk } = {}) {
+export function checkSdk({ sdk, platform = process.platform, link = null } = {}) {
+  if (platform !== "darwin") {
+    return {
+      ok: true,
+      detail: `no macOS SDK to pair on ${platform} — native rebuilds here use this platform's own toolchain`,
+    };
+  }
+
   if (!sdk) {
-    return { ok: false, warning: true, detail: "no macOS SDK was resolved for a native rebuild" };
+    return {
+      ok: false,
+      warning: true,
+      detail: "no macOS SDK was resolved for a native rebuild",
+    };
   }
 
   const reason = sdk.reason ? ` (${sdk.reason})` : "";
@@ -244,12 +275,26 @@ export function checkSdk({ sdk } = {}) {
     };
   }
 
+  if (link !== null && link.ok === false) {
+    return {
+      ok: false,
+      detail: `a native rebuild would fail to link: ${link.detail}${reason}`,
+    };
+  }
+
   const adjusted = sdk.env !== undefined && Object.keys(sdk.env).length > 0;
   if (adjusted) {
     return {
       ok: false,
       warning: true,
       detail: `the compiler and the SDK it would link against come from different installs${reason}; a rebuild is pointed at ${sdk.sdkPath} so it can link`,
+    };
+  }
+
+  if (link !== null && link.ok) {
+    return {
+      ok: true,
+      detail: `${link.detail}${reason}`,
     };
   }
 
@@ -438,6 +483,8 @@ export function run({
   error = console.error,
   version = process.version,
   engines = null,
+  platform = process.platform,
+  resolve = null,
   abi = null,
   // The same two facts as a `abi`/`entryPoints` value, for a caller that would
   // rather hand over the probe than its answer. Both are honoured, and neither
@@ -446,13 +493,29 @@ export function run({
   entryPoints = null,
   missing = null,
   sdk = null,
+  link = null,
   database = null,
   open = openCatalog,
 } = {}) {
   const probeAbi = abi ?? safely(() => probe?.({ root }) ?? currentAbi({ root }), "broken");
   const artifacts =
     entryPoints ?? safely(() => missing?.({ root, abi: probeAbi }) ?? missingEntryPoints({ root, abi: probeAbi }), []);
-  const sdkState = sdk ?? safely(() => resolveSdk({}), null);
+  // Nothing below this line shells out on a platform that has no macOS SDK to
+  // ask about: `resolve` is not called at all off darwin, and neither is the
+  // probe. A check that spawns `xcode-select` on every runner is a check that
+  // eventually fails for a reason that has nothing to do with this project.
+  //
+  // The probe follows the same rule as every other seam here: an injected `sdk`
+  // is an answer, so the caller owns the verdict and nothing is compiled against
+  // a path this function was merely handed. A caller that wants the proof asks
+  // for it by leaving `sdk` out — which is what the command line does.
+  const sdkState =
+    sdk ?? (platform === "darwin" ? safely(() => (resolve ?? resolveSdk)({}), null) : null);
+  const linkState =
+    link ??
+    (sdk === null && platform === "darwin" && sdkState?.ok === true
+      ? safely(() => linkProbe({ sdkPath: sdkState.sdkPath }), null)
+      : null);
 
   const checks = {
     node: checkNodeVersion({
@@ -460,7 +523,7 @@ export function run({
       engines: engines ?? readEngines(root),
     }),
     natives: checkNativeAbi({ abi: probeAbi, missing: artifacts, needed: HOST_RUNTIME }),
-    sdk: checkSdk({ sdk: sdkState }),
+    sdk: checkSdk({ sdk: sdkState, platform, link: linkState }),
     database: checkDatabase({
       path: database ?? defaultDatabasePath(),
       open,

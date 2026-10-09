@@ -19,7 +19,7 @@
 #
 # The steps are the same commands a developer runs, in the same order, so any
 # red run reproduces locally without translation:
-#   pnpm typecheck · pnpm lint · pnpm lint:prose · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
+#   pnpm run doctor · pnpm typecheck · pnpm lint · pnpm lint:prose · pnpm first-launch:check · pnpm badges · pnpm test:electron-e2e
 # and, for a job that has to package the app before it can run at all:
 #   pnpm electron:pack · pnpm test:packaged-update-refused
 #
@@ -83,6 +83,24 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The machine before the code. `scripts/doctor.mjs` asks the three
+      # questions a red suite answers badly: is this Node one `engines.node`
+      # names, are the native modules built for the runtime about to load them,
+      # and is there an SDK a native rebuild could link against. Each of those
+      # failures otherwise surfaces as a page of `Cannot find module` or
+      # `NODE_MODULE_VERSION` from thirty tests that have nothing to do with the
+      # change under review, and the diagnosis is buried in the wreckage. Here it
+      # is one step and one line, before anything else has run.
+      #
+      # On this runner the SDK half is an `ok` that says there is no macOS SDK to
+      # pair on Linux — printed rather than skipped, so a green line is still a
+      # statement about *this* machine.
+      #
+      # Spelled `pnpm run doctor`, and `tests/unit/scripts/doctor.spec.ts` holds
+      # the spelling: pnpm has a `doctor` subcommand of its own, so the bare form
+      # would run that and check nothing here while exiting 0.
+      - name: The machine, before the code it is about to run
+        run: pnpm run doctor
       - run: pnpm typecheck
       # TypeScript says the program is coherent; this says the parts of it that
       # compile anyway are the parts somebody meant to write — an import nothing

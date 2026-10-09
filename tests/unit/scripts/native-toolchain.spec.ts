@@ -41,6 +41,18 @@ interface RunResult {
   status: number | null;
   stdout: string;
   stderr?: string;
+  /** What `spawnSync` attaches when the command itself could not be run. */
+  error?: { message: string };
+}
+
+interface ProbeArea {
+  source: string;
+  output: string;
+  dispose(): void;
+}
+
+interface ProbeFiles {
+  create(): ProbeArea;
 }
 
 interface SdkVerdict {
@@ -90,6 +102,17 @@ interface ToolchainModule {
     run?: (cmd: string, args: string[]) => RunResult;
     listDir?: (dir: string) => string[];
   }): SdkVerdict;
+  SDK_PROBE_SOURCE: string;
+  linkProbe(options?: {
+    sdkPath: string;
+    clang?: string | null;
+    run?: (
+      cmd: string,
+      args: string[],
+      env?: Record<string, string>,
+    ) => RunResult;
+    files?: ProbeFiles;
+  }): { ok: boolean; detail: string; output: string };
 }
 
 let toolchain: ToolchainModule;
@@ -543,4 +566,172 @@ describe("the SDK a compiler is paired with", () => {
       expect(fs.readFileSync(ELECTRON_MANIFEST, "utf8").trim()).not.toBe("");
     },
   );
+});
+
+describe("whether a build against that SDK would actually link", () => {
+  /**
+   * The mistake this half of the module exists to prevent: `resolveSdk` is
+   * arithmetic over what `xcrun` says, and on the afternoon in question `xcrun`
+   * named an SDK the linker then refused to read. A verdict built on that alone
+   * calls the machine ready and a rebuild dies anyway, so the last word here is
+   * the compiler's.
+   */
+  const SDK = "/Xcode/MacOSX26.5.sdk";
+
+  /** A probe area whose cleanup is observable, and no filesystem at all. */
+  function probeArea() {
+    const disposed: number[] = [];
+    return {
+      files: {
+        create: (): ProbeArea => ({
+          source: "/tmp/atr-probe/atr-sdk-probe.cc",
+          output: "/tmp/atr-probe/atr-sdk-probe.dylib",
+          dispose: () => disposed.push(1),
+        }),
+      },
+      disposed,
+    };
+  }
+
+  test("the translation unit is the one the linker has to read the SDK for", () => {
+    // An empty object file would compile without touching the SDK's stubs, and
+    // the stubs are where the failure lives — so the source has to become a
+    // shared library, not an object file.
+    expect(toolchain.SDK_PROBE_SOURCE).toContain("atr_sdk_probe");
+  });
+
+  test("a compiler that links passes, and is handed the SDK in question", () => {
+    const asked: string[][] = [];
+    const area = probeArea();
+
+    const probe = toolchain.linkProbe({
+      sdkPath: SDK,
+      clang: "/usr/bin/clang++",
+      files: area.files,
+      run: (_cmd, args) => {
+        asked.push(args);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(probe.ok).toBe(true);
+    expect(probe.detail).toContain(SDK);
+    // `-isysroot` is what makes this a question about *this* SDK rather than
+    // about whichever one the compiler would have picked for itself.
+    expect(asked[0]).toEqual([
+      "-dynamiclib",
+      "-isysroot",
+      SDK,
+      "-o",
+      "/tmp/atr-probe/atr-sdk-probe.dylib",
+      "/tmp/atr-probe/atr-sdk-probe.cc",
+    ]);
+  });
+
+  test("the ATR-057 linker tail is a failure, quoting the line that names it", () => {
+    const area = probeArea();
+
+    const probe = toolchain.linkProbe({
+      sdkPath: SDK,
+      clang: "/usr/bin/clang++",
+      files: area.files,
+      run: () => ({
+        status: 1,
+        stdout: "",
+        stderr: [
+          "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld: multiple errors: tapi error: malformed file",
+          "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/lib/libSystem.B.tbd:4:20: error: unknown architecture",
+          "clang: error: linker command failed with exit code 1 (use -v to see invocation)",
+        ].join("\n"),
+      }),
+    });
+
+    expect(probe.ok).toBe(false);
+    expect(probe.detail).toContain("tapi error: malformed file");
+    expect(probe.detail).toContain(SDK);
+    // And the whole output comes back, so a caller that wants to print the tail
+    // rather than one line does not have to run the compiler again.
+    expect(probe.output).toContain("unknown architecture");
+  });
+
+  test("asks xcrun which compiler, because the pairing is the question", () => {
+    const asked: string[] = [];
+    const area = probeArea();
+
+    toolchain.linkProbe({
+      sdkPath: SDK,
+      files: area.files,
+      run: (cmd, args) => {
+        asked.push(`${cmd} ${args.join(" ")}`);
+        if (cmd === "xcrun") return { status: 0, stdout: "/usr/bin/clang++\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(asked[0]).toBe("xcrun --find clang++");
+    expect(asked[1]?.startsWith("/usr/bin/clang++ -dynamiclib")).toBe(true);
+  });
+
+  test("falls back to a plain clang++ when xcrun cannot name one", () => {
+    const asked: string[] = [];
+    const area = probeArea();
+
+    toolchain.linkProbe({
+      sdkPath: SDK,
+      files: area.files,
+      run: (cmd, args) => {
+        asked.push(`${cmd} ${args.join(" ")}`);
+        if (cmd === "xcrun") return { status: 1, stdout: "", stderr: "no clang" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(asked[1]?.startsWith("clang++ ")).toBe(true);
+  });
+
+  test("a machine with no compiler is a false, not an exception", () => {
+    // `spawnSync` reports ENOENT on the result rather than throwing, and a probe
+    // that threw here would take the whole doctor down on the machine it exists
+    // for.
+    const area = probeArea();
+
+    const probe = toolchain.linkProbe({
+      sdkPath: SDK,
+      clang: "clang++",
+      files: area.files,
+      run: () => ({
+        status: null,
+        stdout: "",
+        stderr: "",
+        error: { message: "spawnSync clang++ ENOENT" },
+      }),
+    });
+
+    expect(probe.ok).toBe(false);
+    expect(probe.detail).toContain("ENOENT");
+    expect(probe.detail).toContain(SDK);
+  });
+
+  test("and the temporary directory goes away on both outcomes", () => {
+    // Otherwise every doctor run leaves two files and a directory behind, in a
+    // temp dir somebody has to clean up by hand.
+    const passed = probeArea();
+    const failed = probeArea();
+
+    toolchain.linkProbe({
+      sdkPath: SDK,
+      clang: "clang++",
+      files: passed.files,
+      run: () => ({ status: 0, stdout: "", stderr: "" }),
+    });
+    toolchain.linkProbe({
+      sdkPath: SDK,
+      clang: "clang++",
+      files: failed.files,
+      run: () => ({ status: 1, stdout: "", stderr: "ld: boom" }),
+    });
+
+    expect(passed.disposed).toHaveLength(1);
+    expect(failed.disposed).toHaveLength(1);
+  });
 });

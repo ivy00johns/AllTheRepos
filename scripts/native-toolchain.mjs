@@ -24,6 +24,13 @@
  *     repository. `resolveSdk` says which SDK the pair will use and, when they
  *     disagree, hands back the `SDKROOT` that fixes it.
  *
+ *   - Arithmetic is not proof, though, and that is `linkProbe`. `xcrun` named an
+ *     SDK on the afternoon in question and the linker then refused to read it, so
+ *     a check that stops at what `xcrun` says will call the machine ready and a
+ *     rebuild will still die. The probe compiles three lines into a dynamic
+ *     library against the SDK in hand and lets the linker answer — the same step
+ *     the rebuild fails at, a second long instead of a session.
+ *
  * Everything here takes its world as arguments — paths, a runner, a directory
  * listing — so the spec can drive every branch without a compiler, an SDK or a
  * filesystem. Nothing prints except through an injected `log`, and nothing in
@@ -32,6 +39,7 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -400,4 +408,127 @@ export function resolveSdk({ env = process.env, run = quietRun, listDir = defaul
     reason: `the SDK in use (${resolved}) is not from the compiler's install (${developer}); building against ${sdkPath} instead`,
     env: { SDKROOT: sdkPath },
   };
+}
+
+/** The first line of `output` mentioning any of `needles`, trimmed. */
+function firstLineMentioning(output, needles) {
+  for (const line of output.split(/\r?\n/)) {
+    if (needles.some((needle) => line.includes(needle))) return line.trim();
+  }
+  return null;
+}
+
+/**
+ * What to say when the output named no error at all.
+ *
+ * A command that could not be run reports that on the result rather than in its
+ * output — `spawnSync clang++ ENOENT` — and saying "it said nothing" about a
+ * compiler that is not installed would send somebody looking for a broken SDK.
+ */
+function firstLineOrNothing(output, result, compiler) {
+  const trimmed = output.trim();
+  if (trimmed !== "") return trimmed.split("\n")[0];
+  if (result.error?.message) return result.error.message;
+  return `${compiler} exited with status ${result.status ?? "unknown"} and said nothing`;
+}
+
+/**
+ * A translation unit with nothing in it but a symbol.
+ *
+ * It has to be *linked*, not merely compiled, because the link is the step that
+ * failed: compiling to an object file only reads headers, while a dynamic
+ * library has to be linked against the SDK's `.tbd` stubs — which is where the
+ * Command Line Tools SDK named architectures (`arm64e.x1-macos`) that Xcode's
+ * `ld` did not know. An empty library links against libSystem, so this asks the
+ * SDK the same question a native rebuild asks it.
+ */
+export const SDK_PROBE_SOURCE = "int atr_sdk_probe(void) { return 0; }\n";
+
+/**
+ * Where the probe's two files live, and how they are cleaned up.
+ *
+ * A fresh directory under the system temp dir rather than a fixed path, so two
+ * probes — two doctors, or a doctor and a test — cannot overwrite each other's
+ * source while the compiler is reading it.
+ */
+const defaultProbeFiles = {
+  create() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atr-sdk-probe-"));
+    const source = path.join(dir, "atr-sdk-probe.cc");
+    const output = path.join(dir, "atr-sdk-probe.dylib");
+    fs.writeFileSync(source, SDK_PROBE_SOURCE, "utf8");
+    return {
+      source,
+      output,
+      dispose() {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+        } catch {
+          // A probe that cannot tidy up has still answered its question, and
+          // throwing here would turn a leak into a failed check.
+        }
+      },
+    };
+  },
+};
+
+/**
+ * Compile the three lines against `sdkPath`, and let the linker be the judge.
+ *
+ * The compiler is asked of `xcrun --find clang++` rather than named, because the
+ * pairing under test is exactly this: the clang `xcode-select` selects, against
+ * the SDK the build would use. Naming a path here would test a compiler nobody
+ * builds with.
+ *
+ * Never throws and never claims a verdict it did not reach: a compiler that is
+ * not installed comes back as `ok: false` with the attempt in `detail`, because
+ * "no toolchain" and "a toolchain that cannot read this SDK" are the same
+ * answer to the question being asked — will a rebuild link?
+ */
+export function linkProbe({
+  sdkPath,
+  clang = null,
+  run = quietRun,
+  files = defaultProbeFiles,
+} = {}) {
+  const asked =
+    clang === null
+      ? (run("xcrun", ["--find", "clang++"]).stdout ?? "").trim()
+      : clang;
+  const compiler = asked === "" ? "clang++" : asked;
+
+  const area = files.create();
+  try {
+    const result = run(compiler, [
+      "-dynamiclib",
+      "-isysroot",
+      sdkPath,
+      "-o",
+      area.output,
+      area.source,
+    ]);
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+    if (result.status === 0) {
+      return {
+        ok: true,
+        detail: `a three-line addon compiles and links against ${sdkPath}`,
+        output,
+      };
+    }
+
+    // The line that named the failure when it was diagnosed by hand, so the
+    // reader can judge the reading instead of trusting it.
+    const reason =
+      firstLineMentioning(output, ["error", "Error", "ld:"]) ??
+      firstLineOrNothing(output, result, compiler);
+
+    return {
+      ok: false,
+      detail: `${compiler} cannot link against ${sdkPath} — ${reason}`,
+      output,
+    };
+  } finally {
+    area.dispose();
+  }
 }

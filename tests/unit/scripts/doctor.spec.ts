@@ -26,6 +26,11 @@
  *     left to copy it from (ATR-057's second consequence);
  *   - an SDK mismatch (ATR-057) reported as ready because a workaround exists,
  *     without saying which SDK the workaround uses;
+ *   - an SDK that `xcrun` names reported as ready when the linker would refuse
+ *     to read it — which is the same failure, one layer further along, and the
+ *     reason the check now compiles something instead of trusting a path;
+ *   - a machine with no Xcode at all reported as broken *on Linux*, where there
+ *     is no macOS SDK to pair and CI runs this same script;
  *   - a catalog that does not exist yet treated as a fault, when the app creates
  *     it on first boot;
  *   - a native driver built for the other runtime reported as a corrupt
@@ -74,7 +79,11 @@ interface DoctorModule {
     missing?: EntryPoint[];
     needed?: string;
   }): Check;
-  checkSdk(options?: { sdk?: Sdk }): Check;
+  checkSdk(options?: {
+    sdk?: Sdk;
+    platform?: string;
+    link?: { ok: boolean; detail: string } | null;
+  }): Check;
   checkDatabase(options?: {
     path?: string;
     open?: (dbPath: string) => { integrity: string; close?: () => void };
@@ -95,9 +104,12 @@ interface DoctorModule {
     error?: (message: string) => void;
     version?: string;
     engines?: string;
+    platform?: string;
     abi?: string;
     entryPoints?: EntryPoint[];
-    sdk?: Sdk;
+    sdk?: Sdk | null;
+    link?: { ok: boolean; detail: string } | null;
+    resolve?: (options?: unknown) => Sdk;
     database?: string;
     open?: (dbPath: string) => { integrity: string; close?: () => void };
   }): number;
@@ -219,12 +231,58 @@ describe("the native modules", () => {
 });
 
 describe("the macOS SDK", () => {
+  // Every case names `darwin` rather than inheriting this process's platform:
+  // the unit suite runs on Linux in CI, and a check that silently means "not
+  // applicable" there would let a real macOS regression pass in the one place
+  // it is labelled as covered.
+  const MAC = "darwin";
+  const SHARED: Sdk = {
+    ok: true,
+    sdkPath: "/Xcode/MacOSX26.5.sdk",
+    reason: "the same install as clang",
+  };
+
   test("an SDK shared with the compiler passes", () => {
+    const verdict = doctor.checkSdk({ sdk: SHARED, platform: MAC });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.detail).toContain("/Xcode/MacOSX26.5.sdk");
+  });
+
+  test("an SDK the linker can read passes, and says it was compiled rather than assumed", () => {
+    // The point of the probe: `xcrun` naming a path and the linker accepting it
+    // are two different claims, and this is the second one.
     const verdict = doctor.checkSdk({
-      sdk: { ok: true, sdkPath: "/Xcode/MacOSX26.5.sdk", reason: "the same install as clang" },
+      sdk: SHARED,
+      platform: MAC,
+      link: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
+      },
     });
 
     expect(verdict.ok).toBe(true);
+    expect(verdict.detail).toContain("compiles and links");
+    expect(verdict.detail).toContain("/Xcode/MacOSX26.5.sdk");
+  });
+
+  test("an SDK `xcrun` named and the linker refuses is a failure, quoted", () => {
+    // ATR-057 exactly, one layer further along: the resolver was happy, and the
+    // build still could not link. This is the case that used to be reported as
+    // ready, which is why the check compiles something.
+    const verdict = doctor.checkSdk({
+      sdk: SHARED,
+      platform: MAC,
+      link: {
+        ok: false,
+        detail:
+          "/usr/bin/clang++ cannot link against /Xcode/MacOSX26.5.sdk — ld: multiple errors: tapi error: malformed file",
+      },
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.warning).toBeUndefined();
+    expect(verdict.detail).toContain("tapi error: malformed file");
     expect(verdict.detail).toContain("/Xcode/MacOSX26.5.sdk");
   });
 
@@ -234,10 +292,14 @@ describe("the macOS SDK", () => {
     // what makes the warning actionable rather than atmospheric.
     const verdict = doctor.checkSdk({
       sdk: {
-        ok: true,
-        sdkPath: "/Xcode/MacOSX26.5.sdk",
+        ...SHARED,
         reason: "the compiler and the SDK come from different installs",
         env: { SDKROOT: "/Xcode/MacOSX26.5.sdk" },
+      },
+      platform: MAC,
+      link: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
       },
     });
 
@@ -250,11 +312,25 @@ describe("the macOS SDK", () => {
   test("no usable SDK at all is a failure, because a flip will not link", () => {
     const verdict = doctor.checkSdk({
       sdk: { ok: false, sdkPath: null, reason: "no Xcode and no Command Line Tools" },
+      platform: MAC,
     });
 
     expect(verdict.ok).toBe(false);
     expect(verdict.warning).toBeUndefined();
     expect(verdict.detail).toContain("no Xcode and no Command Line Tools");
+  });
+
+  test("off macOS there is no SDK to pair, and that is not a broken machine", () => {
+    // CI's fast job runs this script on `ubuntu-latest`. Reporting the absence
+    // of Xcode as a failure there would turn every Linux run red over a check
+    // that does not apply — and a check that is wrong about the runner is worse
+    // than no check, because it teaches people to ignore the red.
+    const verdict = doctor.checkSdk({ platform: "linux" });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.warning).toBeUndefined();
+    expect(verdict.detail).toContain("no macOS SDK");
+    expect(verdict.detail).toContain("linux");
   });
 });
 
@@ -382,30 +458,37 @@ describe("the verdict", () => {
   });
 });
 
-describe("run", () => {
-  /** Every probe injected: the doctor is never pointed at the real machine. */
-  function doctorOn(
-    options: Partial<Parameters<DoctorModule["run"]>[0]> = {},
-  ): { code: number; said: string[] } {
-    const said: string[] = [];
-    const push = (message: string): void => {
-      said.push(message);
-    };
-    const code = doctor.run({
-      version: "22.10.0",
-      engines: ENGINES,
-      abi: "host",
-      entryPoints: [],
-      sdk: { ok: true, sdkPath: "/Xcode/MacOSX26.5.sdk", reason: "the same install as clang" },
-      database: "/tmp/atr-doctor-spec/alltherepos.db",
-      open: () => ({ integrity: "ok" }),
-      log: push,
-      error: push,
-      ...options,
-    });
-    return { code, said };
-  }
+/**
+ * Every probe injected: the doctor is never pointed at the real machine.
+ *
+ * At module scope rather than inside one `describe` because two of them run the
+ * script, and the second is the pair of cases about *which* probes get called on
+ * which platform — a verdict about the machine and a verdict about the calls
+ * made to it are only comparable if they come from the same harness.
+ */
+function doctorOn(
+  options: Partial<Parameters<DoctorModule["run"]>[0]> = {},
+): { code: number; said: string[] } {
+  const said: string[] = [];
+  const push = (message: string): void => {
+    said.push(message);
+  };
+  const code = doctor.run({
+    version: "22.10.0",
+    engines: ENGINES,
+    abi: "host",
+    entryPoints: [],
+    sdk: { ok: true, sdkPath: "/Xcode/MacOSX26.5.sdk", reason: "the same install as clang" },
+    database: "/tmp/atr-doctor-spec/alltherepos.db",
+    open: () => ({ integrity: "ok" }),
+    log: push,
+    error: push,
+    ...options,
+  });
+  return { code, said };
+}
 
+describe("run", () => {
   test("a machine with nothing wrong exits 0 and says so", () => {
     const { code, said } = doctorOn();
 
@@ -438,6 +521,46 @@ describe("run", () => {
     const aboutTheCatalog = said.filter((line) => line.includes("catalog"));
     expect(aboutTheCatalog.join("\n")).toContain("/tmp/atr-doctor-spec/only-mine.db");
     expect(aboutTheCatalog.join("\n")).not.toContain("Application Support");
+  });
+});
+
+describe("what the run asks the machine, per platform", () => {
+  test("on macOS the linker is asked, and a build that would not link exits 1", () => {
+    // The verdict the whole probe is for: this machine has an SDK, `xcrun` is
+    // happy with it, and a rebuild would still die at the link.
+    const { code, said } = doctorOn({
+      platform: "darwin",
+      link: {
+        ok: false,
+        detail:
+          "/usr/bin/clang++ cannot link against /Xcode/MacOSX26.5.sdk — ld: multiple errors: tapi error: malformed file",
+      },
+    });
+
+    expect(code).toBe(1);
+    const sdkLines = said.filter((line) => line.includes("link"));
+    expect(sdkLines.join("\n")).toContain("tapi error: malformed file");
+  });
+
+  test("and off macOS nothing is spawned at all, not even to be told no", () => {
+    // A step that shells out to `xcode-select` on every runner is a step that
+    // eventually fails for a reason with nothing to do with this project — and
+    // on a Linux runner there is no SDK to ask about in the first place.
+    const asked: string[] = [];
+
+    const { code, said } = doctorOn({
+      platform: "linux",
+      sdk: null,
+      resolve: () => {
+        asked.push("resolveSdk");
+        return { ok: false, sdkPath: null, reason: "no developer directory" };
+      },
+    });
+
+    expect(asked).toEqual([]);
+    expect(code).toBe(0);
+    expect(said.some((line) => line.includes("no macOS SDK"))).toBe(true);
+    expect(said.some((line) => line.includes("[doctor] FAIL"))).toBe(false);
   });
 });
 
