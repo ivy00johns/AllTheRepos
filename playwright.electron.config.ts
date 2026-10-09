@@ -60,8 +60,13 @@ export default defineConfig({
   // routes come from `src/renderer/routes/` and the view modes from the running
   // toolbar, so a screen added later cannot go unaudited. It is the spec that
   // would have caught the raw 13px size living on a route the sweep never opened.
+  // catalog-visual.spec.ts — the catalog as pictures, in every view mode it
+  // offers. The type sweep asks whether a class names a size; this one asks
+  // whether the screen moved, which no class list can answer. Its baselines are
+  // committed, and it reads its modes off the toolbar for the same reason the
+  // sweep does.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
@@ -74,6 +79,19 @@ export default defineConfig({
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+  },
+  // Screenshot comparison, for `catalog-visual.spec.ts`. Everything the
+  // comparison needs is Playwright's default and is stated here so it cannot be
+  // changed by accident: animations are disabled and the caret is hidden (both a
+  // property of the clock, not of this layout), and one name is one file per
+  // platform, so a platform with no baseline fails loudly rather than passing
+  // against another platform's picture.
+  expect: {
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      scale: "css",
+    },
   },
   // No `projects` and no `webServer` — Electron is launched per-test via
   // `_electron.launch`. CI / humans should run `pnpm electron:build` (or
