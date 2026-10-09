@@ -101,6 +101,9 @@ interface ToolchainModule {
     env?: Record<string, string | undefined>;
     run?: (cmd: string, args: string[]) => RunResult;
     listDir?: (dir: string) => string[];
+    probe?: (options?: {
+      sdkPath?: string | null;
+    }) => { ok: boolean; detail: string };
   }): SdkVerdict;
   SDK_PROBE_SOURCE: string;
   linkProbe(options?: {
@@ -433,17 +436,36 @@ describe("the SDK a compiler is paired with", () => {
     return { run, asked };
   };
 
+  /** A probe that links, for the cases that are about paths. */
+  const links = (detail = "a three-line addon compiles and links") => () => ({
+    ok: true,
+    detail,
+  });
+
+  /** A probe that refuses everything, with the linker's kind of line. */
+  const neverLinks = () => ({
+    ok: false,
+    detail: "clang++ cannot link — ld: multiple errors: tapi error: malformed file",
+  });
+
   test("takes an SDKROOT somebody already set at its word", () => {
     // The script exists to get a build working, not to argue with the person
-    // who is holding the workaround for the same problem.
+    // who is holding the workaround for the same problem — so it does not even
+    // spend a compiler's second second-guessing them.
+    let probed = 0;
     const verdict = toolchain.resolveSdk({
       env: { SDKROOT: "/Applications/Xcode.app/…/MacOSX26.5.sdk" },
       run: () => ({ status: 1, stdout: "", stderr: "" }),
+      probe: () => {
+        probed += 1;
+        return { ok: true, detail: "unused" };
+      },
     });
 
     expect(verdict.ok).toBe(true);
     expect(verdict.sdkPath).toBe("/Applications/Xcode.app/…/MacOSX26.5.sdk");
     expect(verdict.env).toEqual({});
+    expect(probed).toBe(0);
   });
 
   test("leaves a compiler and an SDK from the same install alone", () => {
@@ -453,21 +475,98 @@ describe("the SDK a compiler is paired with", () => {
         "/Library/Developer/CommandLineTools/SDKs/MacOSX15.0.sdk\n",
     });
 
-    const verdict = toolchain.resolveSdk({ env: {}, run, listDir: () => [] });
+    const verdict = toolchain.resolveSdk({
+      env: {},
+      run,
+      listDir: () => [],
+      probe: links(),
+    });
 
     expect(verdict.ok).toBe(true);
     expect(verdict.sdkPath).toBe(
       "/Library/Developer/CommandLineTools/SDKs/MacOSX15.0.sdk",
     );
-    // Nothing to add: a build with no SDKROOT already gets this one.
+    // Nothing to add: a build with no SDKROOT already links, which is the whole
+    // reason this file asks before it advises.
     expect(verdict.env).toEqual({});
+    expect(verdict.reason).toContain("and a build links");
+  });
+
+  test("leaves a build that already links alone, even when the paths disagree", () => {
+    // The paths are a hint and not the verdict: two installs *can* coexist with
+    // a linker that reads the right stubs, and overriding the SDK on a machine
+    // whose builds work would be fixing what is not broken.
+    const xcode = "/Applications/Xcode.app/Contents/Developer";
+    const { run } = runnerFor({
+      "xcode-select -p": `${xcode}\n`,
+      "xcrun --sdk macosx --show-sdk-path":
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk\n",
+    });
+
+    const verdict = toolchain.resolveSdk({
+      env: {},
+      run,
+      listDir: () => ["MacOSX26.5.sdk"],
+      probe: links(),
+    });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.sdkPath).toBe(
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk",
+    );
+    expect(verdict.env).toEqual({});
+    expect(verdict.reason).toContain("not from the compiler's install");
+  });
+
+  test("points the build at an SDK when the environment cannot link without one", () => {
+    /*
+     * This machine's state on 2026-10-09, and the reason the paths are no longer
+     * the answer. `xcode-select` and `xcrun` both named Xcode — the same
+     * install, by every string comparison — and the link a rebuild performs
+     * still read the Command Line Tools SDK's stubs and died on
+     * `tapi error: malformed file`. Naming that SDK fixes it, so the rebuild is
+     * given it and nobody has to export anything by hand.
+     */
+    const xcode = "/Applications/Xcode.app/Contents/Developer";
+    const sdk = path.join(
+      xcode,
+      "Platforms",
+      "MacOSX.platform",
+      "Developer",
+      "SDKs",
+      "MacOSX26.5.sdk",
+    );
+    const { run } = runnerFor({
+      "xcode-select -p": `${xcode}\n`,
+      "xcrun --sdk macosx --show-sdk-path": `${sdk}\n`,
+    });
+
+    const verdict = toolchain.resolveSdk({
+      env: {},
+      run,
+      listDir: () => ["MacOSX26.5.sdk"],
+      probe: ({ sdkPath } = {}) =>
+        sdkPath === sdk
+          ? { ok: true, detail: `a three-line addon compiles and links against ${sdk}` }
+          : neverLinks(),
+    });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.sdkPath).toBe(sdk);
+    expect(verdict.env).toEqual({ SDKROOT: sdk });
+    // The failure it is working around is in the reason, so the reading can be
+    // checked rather than trusted.
+    expect(verdict.reason).toContain("tapi error: malformed file");
+    expect(verdict.reason).toContain(sdk);
   });
 
   test("overrides the SDK that does not come from the compiler's install, and says why", () => {
     // ATR-057 exactly: Xcode's clang, the Command Line Tools' SDK, and a link
-    // that dies reading the SDK's own stubs.
+    // that dies reading the SDK's own stubs — with the working SDK beside the
+    // compiler rather than the one `xcrun` named.
     const xcode = "/Applications/Xcode.app/Contents/Developer";
     const sdkDir = path.join(xcode, "Platforms", "MacOSX.platform", "Developer", "SDKs");
+    const works = path.join(sdkDir, "MacOSX26.5.sdk");
     const { run } = runnerFor({
       "xcode-select -p": `${xcode}\n`,
       "xcrun --sdk macosx --show-sdk-path":
@@ -478,11 +577,19 @@ describe("the SDK a compiler is paired with", () => {
       env: {},
       run,
       listDir: () => ["MacOSX26.5.sdk", "MacOSX26.2.sdk", "MacOSX.platform"],
+      probe: ({ sdkPath } = {}) =>
+        sdkPath === works
+          ? { ok: true, detail: `a three-line addon compiles and links against ${works}` }
+          : {
+              ok: false,
+              detail:
+                "clang++ cannot link — ld: multiple errors: tapi error: malformed file /Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/lib/libSystem.B.tbd",
+            },
     });
 
     expect(verdict.ok).toBe(true);
-    expect(verdict.sdkPath).toBe(path.join(sdkDir, "MacOSX26.5.sdk"));
-    expect(verdict.env).toEqual({ SDKROOT: path.join(sdkDir, "MacOSX26.5.sdk") });
+    expect(verdict.sdkPath).toBe(works);
+    expect(verdict.env).toEqual({ SDKROOT: works });
     // Both paths, because the reader has to be able to disagree with the
     // reading rather than take "using this one instead" on trust.
     expect(verdict.reason).toContain("/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk");
@@ -503,15 +610,21 @@ describe("the SDK a compiler is paired with", () => {
       env: {},
       run,
       listDir: () => ["MacOSX9.3.sdk", "MacOSX26.5.sdk", "MacOSX26.12.sdk"],
+      probe: ({ sdkPath } = {}) =>
+        sdkPath === path.join(sdkDir, "MacOSX26.12.sdk")
+          ? { ok: true, detail: "a three-line addon compiles and links" }
+          : neverLinks(),
     });
 
     expect(verdict.sdkPath).toBe(path.join(sdkDir, "MacOSX26.12.sdk"));
+    expect(verdict.env).toEqual({ SDKROOT: path.join(sdkDir, "MacOSX26.12.sdk") });
   });
 
   test("says no rather than naming a path it did not find", () => {
     const bare = toolchain.resolveSdk({
       env: {},
       run: () => ({ status: 1, stdout: "", stderr: "" }),
+      probe: links(),
     });
     expect(bare.ok).toBe(false);
     expect(bare.sdkPath).toBeNull();
@@ -523,6 +636,7 @@ describe("the SDK a compiler is paired with", () => {
         "xcode-select -p": "/Applications/Xcode.app/Contents/Developer\n",
       }).run,
       listDir: () => [],
+      probe: links(),
     });
     expect(noSdk.ok).toBe(false);
     expect(noSdk.sdkPath).toBeNull();
@@ -534,13 +648,16 @@ describe("the SDK a compiler is paired with", () => {
         "xcrun --sdk macosx --show-sdk-path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk\n",
       }).run,
       listDir: () => [],
+      probe: neverLinks,
     });
     expect(nothingToPointAt.ok).toBe(false);
     // Still names the SDK the build would have used, because that is the path
-    // the reader needs to look at.
+    // the reader needs to look at — and the linker's own line is in the reason,
+    // so a machine where nothing links is diagnosable from the verdict alone.
     expect(nothingToPointAt.sdkPath).toBe(
       "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk",
     );
+    expect(nothingToPointAt.reason).toContain("tapi error: malformed file");
   });
 
   // The live check: the path the module derives for Electron is a claim about

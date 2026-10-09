@@ -290,12 +290,19 @@ export function checkSdk({
     if (sdkLink !== null && sdkLink.ok) {
       // The trap this pair of probes was built for: the link a rebuild performs
       // is not the link an SDK named on a command line performs. Pointing at
-      // this one fixes it, so the machine can build — but only if somebody says
-      // so, and the line below is that sentence.
+      // this one fixes it, so the machine can build — but only in an
+      // environment that says so, which is why the sentence names the variable
+      // and, when the resolver will set it itself, says so.
+      const scripted =
+        typeof sdk.env?.SDKROOT === "string"
+          ? ", which is what the rebuild scripts here do themselves"
+          : "";
+      // No `reason` here: the resolver's sentence for this state is the same
+      // finding, so appending it would print the linker's line twice.
       return {
         ok: false,
         warning: true,
-        detail: `a native rebuild would fail to link — ${link.detail} — but pointed at ${sdk.sdkPath} it links, so a rebuild needs \`export SDKROOT=${sdk.sdkPath}\`${reason}`,
+        detail: `a native rebuild would fail to link — ${link.detail} — but pointed at ${sdk.sdkPath} it links${scripted}, so anything that rebuilds without \`export SDKROOT=${sdk.sdkPath}\` will fail`,
       };
     }
 
@@ -539,15 +546,15 @@ export function run({
   // for it by leaving `sdk` out — which is what the command line does.
   const sdkState =
     sdk ?? (platform === "darwin" ? safely(() => (resolve ?? resolveSdk)({}), null) : null);
-  // The link a rebuild would really perform: the environment it inherits, plus
-  // the SDKROOT the resolver decided the build needs — and nothing else.
+  // The link a build performs in the environment as it stands: whatever SDKROOT
+  // is already exported, and nothing this file — or the resolver — adds. That is
+  // deliberately stricter than what the rebuild scripts would do (they point the
+  // build at an SDK when they have to, see `resolveSdk`), because the question
+  // worth answering is what a person typing `pnpm rebuild` gets.
   const linkState =
     link ??
     (sdk === null && platform === "darwin" && sdkState?.ok === true
-      ? safely(
-          () => linkProbe({ sdkPath: sdkState.env?.SDKROOT ?? null }),
-          null,
-        )
+      ? safely(() => linkProbe({}), null)
       : null);
   // Asked only when the first one failed: does naming the resolved SDK fix what
   // the environment cannot? `null` is "not asked", which the check reports as

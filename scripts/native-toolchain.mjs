@@ -17,19 +17,20 @@
  *     that was deleted is the one the same install keeps ABI-tagged under
  *     `bin/`, so `restoreEntryPoints` puts it back rather than making somebody
  *     compile their way out of a problem that has nothing to do with the code.
- *   - The mismatch itself is arithmetic, not guesswork. `xcrun` resolves an SDK
- *     from whichever developer directory is selected, and the compiler resolves
- *     from the same place — when those disagree (Xcode's clang, the Command
- *     Line Tools' SDK) the link fails in a way that reads like a broken
- *     repository. `resolveSdk` says which SDK the pair will use and, when they
- *     disagree, hands back the `SDKROOT` that fixes it.
+ *   - The mismatch looks like arithmetic, and arithmetic is not proof — which
+ *     is `linkProbe`. `xcrun` resolves an SDK from whichever developer directory
+ *     is selected, and the compiler resolves from the same place; when those
+ *     disagree (Xcode's clang, the Command Line Tools' SDK) the link fails in a
+ *     way that reads like a broken repository. But they can also *agree* and the
+ *     link still fail, because the linker reads stub files through its own
+ *     search path — so `linkProbe` compiles three lines into a dynamic library
+ *     and lets the linker answer, one second instead of one session.
  *
- *   - Arithmetic is not proof, though, and that is `linkProbe`. `xcrun` named an
- *     SDK on the afternoon in question and the linker then refused to read it, so
- *     a check that stops at what `xcrun` says will call the machine ready and a
- *     rebuild will still die. The probe compiles three lines into a dynamic
- *     library against the SDK in hand and lets the linker answer — the same step
- *     the rebuild fails at, a second long instead of a session.
+ *   - `resolveSdk` is what uses that answer. It asks the linker first, with the
+ *     environment as a rebuild would find it, and only then goes looking for an
+ *     SDK to point the build at — handing each candidate to the linker before it
+ *     believes it. So the rebuild `ensure-native-abi.mjs` runs gets the
+ *     `SDKROOT` it needs without the person at the keyboard exporting one.
  *
  * Everything here takes its world as arguments — paths, a runner, a directory
  * listing — so the spec can drive every branch without a compiler, an SDK or a
@@ -332,18 +333,39 @@ function compareVersions(a, b) {
  *   2. `xcode-select -p` names the developer directory — the one the compiler
  *      comes from — and `xcrun --sdk macosx --show-sdk-path` names the SDK a
  *      build gets by default.
- *   3. When the SDK sits inside that developer directory, the two agree and
- *      there is nothing to fix.
- *   4. When it does not, they are from two different installs, which is
- *      ATR-057 exactly. The SDK beside the compiler is the one it can read, so
- *      that is the `SDKROOT` this returns, newest version first.
- *   5. With no SDK there to point at, `ok: false` and the paths that were
- *      tried — never a made-up path, and never `ok` on a guess.
+ *   3. **The question those two paths cannot answer: does a link actually
+ *      succeed?** The SDK a path names and the one the linker reads are not
+ *      always the same document — `xcrun` names one and `ld` may then read
+ *      another install's `.tbd` stubs through its own search path — so the
+ *      linker is asked, with no `SDKROOT` of this file's making, exactly as a
+ *      rebuild would find it. If that links, there is nothing to fix and `env`
+ *      stays empty.
+ *   4. When it does not, the candidates are tried in turn and each is
+ *      *linked against* before it is believed: the SDK `xcrun` named first,
+ *      then the ones beside the compiler, newest version first. The first that
+ *      links becomes the `SDKROOT` this returns.
+ *   5. When none of them links, `ok: false` with the linker's own line and the
+ *      paths that were tried — never a made-up path, and never `ok` on a
+ *      guess.
+ *
+ * Step 3 is why this is a probe and not arithmetic, and the day it was added
+ * is the proof: `xcode-select` and `xcrun` agreed on Xcode, the paths were from
+ * one install, and the linker still read the Command Line Tools SDK and died on
+ * `tapi error: malformed file`. Trusting the paths called that machine ready and
+ * a rebuild failed anyway.
  *
  * `env` carries only what the caller has to add. Empty means "build as you
  * were".
+ *
+ * `probe` is injectable so the question can be answered by a stub, and it is
+ * handed this function's `run` so an injected runner never reaches a compiler.
  */
-export function resolveSdk({ env = process.env, run = quietRun, listDir = defaultListDir } = {}) {
+export function resolveSdk({
+  env = process.env,
+  run = quietRun,
+  listDir = defaultListDir,
+  probe = ({ sdkPath = null } = {}) => linkProbe({ sdkPath, run }),
+} = {}) {
   const already = env.SDKROOT;
   if (typeof already === "string" && already.trim() !== "") {
     return {
@@ -377,36 +399,46 @@ export function resolveSdk({ env = process.env, run = quietRun, listDir = defaul
     };
   }
 
-  if (resolved.startsWith(developer)) {
+  // The link a build actually performs, before any advice about paths.
+  const asItStands = probe({});
+
+  if (asItStands.ok) {
     return {
       ok: true,
       sdkPath: resolved,
-      reason: `the compiler and the SDK both come from ${developer}`,
+      reason: resolved.startsWith(developer)
+        ? `the compiler and the SDK both come from ${developer}, and a build links`
+        : `the SDK in use (${resolved}) is not from the compiler's install (${developer}), but a build links against it as things stand`,
       env: {},
     };
   }
 
   const sdkDir = path.join(developer, SDKS_SUFFIX);
-  const best = listDir(sdkDir)
+  const beside = listDir(sdkDir)
     .map((name) => ({ name, version: sdkVersion(name) }))
     .filter((candidate) => candidate.version !== null)
-    .sort((a, b) => compareVersions(b.version, a.version))[0];
+    .sort((a, b) => compareVersions(b.version, a.version))
+    .map((candidate) => path.join(sdkDir, candidate.name));
 
-  if (best === undefined) {
+  // The SDK `xcrun` names is tried first, because it is the one a build gets by
+  // default when nothing is overridden; the compiler's own install is the
+  // fallback ATR-057 needed, and newest wins among those.
+  const tried = [resolved, ...beside.filter((candidate) => candidate !== resolved)];
+  for (const candidate of tried) {
+    if (!probe({ sdkPath: candidate }).ok) continue;
     return {
-      ok: false,
-      sdkPath: resolved,
-      reason: `the SDK in use (${resolved}) does not come from the compiler's own install (${developer}), and that install has no MacOSX*.sdk to build against instead`,
-      env: {},
+      ok: true,
+      sdkPath: candidate,
+      reason: `a build as this machine stands would fail to link (${asItStands.detail}); pointed at ${candidate} it links, and that is the SDKROOT the rebuild is given`,
+      env: { SDKROOT: candidate },
     };
   }
 
-  const sdkPath = path.join(sdkDir, best.name);
   return {
-    ok: true,
-    sdkPath,
-    reason: `the SDK in use (${resolved}) is not from the compiler's install (${developer}); building against ${sdkPath} instead`,
-    env: { SDKROOT: sdkPath },
+    ok: false,
+    sdkPath: resolved,
+    reason: `a build as this machine stands would fail to link (${asItStands.detail}), and pointing it at ${tried.join(", ")} does not fix it`,
+    env: {},
   };
 }
 

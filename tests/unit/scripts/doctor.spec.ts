@@ -318,6 +318,28 @@ describe("the macOS SDK", () => {
     expect(verdict.detail).toContain("export SDKROOT=/Xcode/MacOSX26.5.sdk");
   });
 
+  test("and it says when the repository's own rebuilds already point at that SDK", () => {
+    // `resolveSdk` hands the rebuild the SDKROOT it needs, so on a machine like
+    // this one the command a developer actually runs works — the warning is then
+    // about the shell they are standing in, not about their checkout.
+    const verdict = doctor.checkSdk({
+      sdk: { ...SHARED, env: { SDKROOT: "/Xcode/MacOSX26.5.sdk" } },
+      platform: MAC,
+      link: {
+        ok: false,
+        detail: "clang++ cannot link with the environment as a rebuild finds it — ld: boom",
+      },
+      sdkLink: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
+      },
+    });
+
+    expect(verdict.warning).toBe(true);
+    expect(verdict.detail).toContain("the rebuild scripts here do themselves");
+    expect(verdict.detail).toContain("export SDKROOT=/Xcode/MacOSX26.5.sdk");
+  });
+
   test("and when naming the SDK does not fix it, it is a failure that says both", () => {
     // Twice-broken is not twice as hard: the second line rules out the fix the
     // first one would send somebody to try.
