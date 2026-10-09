@@ -56,13 +56,27 @@ const INHERITED_PROFILE_FILES = [
   "settings.json",
 ];
 
+/** The one file whose presence means this profile has already been initialised. */
+const PROFILE_DATABASE = "alltherepos.db";
+
 let warnedAboutMissingTemplate = false;
 
 /**
  * Copy the seeded catalog into a fresh profile. Returns true when anything was
  * copied — a launch with no template still works, it just starts empty.
+ *
+ * "Fresh" means the profile holds no database yet, not "this helper created the
+ * directory". A spec that launches twice on one `profileDir` wants the second
+ * launch to inherit what the first left — a database with the app's own writes
+ * in it, and the window's remembered route beside it — so re-copying the
+ * template over it would erase exactly the state under test. Gating on the
+ * database rather than on who made the directory also keeps a developer's
+ * hand-made profile from being silently overwritten.
  */
 function inheritSeededProfile(profileDir: string): boolean {
+  if (existsSync(join(profileDir, PROFILE_DATABASE))) {
+    return false;
+  }
   const template = process.env[TEMPLATE_PROFILE_ENV];
   if (!template) {
     if (!warnedAboutMissingTemplate) {
@@ -126,7 +140,7 @@ export async function launchApp(
   const ownsProfile = options.profileDir === undefined;
   const profileDir =
     options.profileDir ?? mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
-  if (ownsProfile) inheritSeededProfile(profileDir);
+  inheritSeededProfile(profileDir);
 
   let app: ElectronApplication;
   try {
