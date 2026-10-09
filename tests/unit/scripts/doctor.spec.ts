@@ -83,6 +83,7 @@ interface DoctorModule {
     sdk?: Sdk;
     platform?: string;
     link?: { ok: boolean; detail: string } | null;
+    sdkLink?: { ok: boolean; detail: string } | null;
   }): Check;
   checkDatabase(options?: {
     path?: string;
@@ -109,6 +110,7 @@ interface DoctorModule {
     entryPoints?: EntryPoint[];
     sdk?: Sdk | null;
     link?: { ok: boolean; detail: string } | null;
+    sdkLink?: { ok: boolean; detail: string } | null;
     resolve?: (options?: unknown) => Sdk;
     database?: string;
     open?: (dbPath: string) => { integrity: string; close?: () => void };
@@ -283,6 +285,55 @@ describe("the macOS SDK", () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.warning).toBeUndefined();
     expect(verdict.detail).toContain("tapi error: malformed file");
+    expect(verdict.detail).toContain("/Xcode/MacOSX26.5.sdk");
+  });
+
+  test("an environment that cannot link, and an SDK that fixes it, is a warning with the fix in it", () => {
+    /*
+     * The state this machine was actually in on 2026-10-09, found by running
+     * the doctor against it and then rebuilding by hand: the link a rebuild
+     * performs reads the Command Line Tools SDK through the linker's default
+     * search path and dies on `tapi error: malformed file`, while the same link
+     * pointed at the Xcode SDK succeeds. A verdict of "ready" there is worse
+     * than no verdict, and a bare failure would be a dead end — so it is a
+     * warning that names both the linker's line and the variable that fixes it.
+     */
+    const verdict = doctor.checkSdk({
+      sdk: SHARED,
+      platform: MAC,
+      link: {
+        ok: false,
+        detail:
+          "/usr/bin/clang++ cannot link with the environment as a rebuild finds it — ld: multiple errors: tapi error: malformed file",
+      },
+      sdkLink: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
+      },
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.warning).toBe(true);
+    expect(verdict.detail).toContain("tapi error: malformed file");
+    expect(verdict.detail).toContain("export SDKROOT=/Xcode/MacOSX26.5.sdk");
+  });
+
+  test("and when naming the SDK does not fix it, it is a failure that says both", () => {
+    // Twice-broken is not twice as hard: the second line rules out the fix the
+    // first one would send somebody to try.
+    const verdict = doctor.checkSdk({
+      sdk: SHARED,
+      platform: MAC,
+      link: { ok: false, detail: "clang++ cannot link with the environment — ld: boom" },
+      sdkLink: {
+        ok: false,
+        detail: "clang++ cannot link against /Xcode/MacOSX26.5.sdk — ld: boom",
+      },
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.warning).toBeUndefined();
+    expect(verdict.detail).toContain("does not fix it");
     expect(verdict.detail).toContain("/Xcode/MacOSX26.5.sdk");
   });
 
@@ -540,6 +591,29 @@ describe("what the run asks the machine, per platform", () => {
     expect(code).toBe(1);
     const sdkLines = said.filter((line) => line.includes("link"));
     expect(sdkLines.join("\n")).toContain("tapi error: malformed file");
+  });
+
+  test("on macOS a build the environment cannot link, but the SDK can, still exits 0", () => {
+    // The exit code is the deliverable — a warning is a machine that can build
+    // once it is told where to point, and CI reads the status rather than the
+    // prose.
+    const { code, said } = doctorOn({
+      platform: "darwin",
+      link: {
+        ok: false,
+        detail:
+          "/usr/bin/clang++ cannot link with the environment as a rebuild finds it — ld: multiple errors: tapi error: malformed file",
+      },
+      sdkLink: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(said.some((line) => line.includes("[doctor] warn"))).toBe(true);
+    expect(said.some((line) => line.includes("export SDKROOT="))).toBe(true);
+    expect(said.some((line) => line.includes("[doctor] FAIL"))).toBe(false);
   });
 
   test("and off macOS nothing is spawned at all, not even to be told no", () => {

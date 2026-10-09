@@ -234,9 +234,15 @@ export function checkNativeAbi({ abi, missing = [], needed = HOST_RUNTIME } = {}
  * rather than trusting a path: on the afternoon in question `xcrun` named an SDK
  * perfectly happily and the linker then refused to read its stubs, so a verdict
  * built on `xcrun` alone said the machine was ready and the rebuild still died.
- * `link` is that probe's answer, and a probe that fails is a *failure*: a
- * rebuild will not link, which is the most concrete thing this script can tell
- * somebody.
+ *
+ * Two probes, because there are two answers and the interesting state is where
+ * they disagree. `link` is the link a rebuild would actually perform — the
+ * environment it inherits, no SDK named on the command line — and `sdkLink` is
+ * the same link with the resolved SDK passed explicitly. A machine where the
+ * second works and the first does not is a machine whose rebuild dies unless
+ * somebody exports `SDKROOT`, which is a warning with the fix in it rather than
+ * a mystery; a machine where neither works is a failure, and one where the first
+ * works needs no advice at all.
  *
  * The other two verdicts are unchanged. A resolver that had to *change*
  * something is a warning — the rebuild works, pointed somewhere else — and it
@@ -250,7 +256,12 @@ export function checkNativeAbi({ abi, missing = [], needed = HOST_RUNTIME } = {}
  * there. It says which platform it is on rather than staying quiet, so a green
  * line is still a statement about this machine.
  */
-export function checkSdk({ sdk, platform = process.platform, link = null } = {}) {
+export function checkSdk({
+  sdk,
+  platform = process.platform,
+  link = null,
+  sdkLink = null,
+} = {}) {
   if (platform !== "darwin") {
     return {
       ok: true,
@@ -276,9 +287,25 @@ export function checkSdk({ sdk, platform = process.platform, link = null } = {})
   }
 
   if (link !== null && link.ok === false) {
+    if (sdkLink !== null && sdkLink.ok) {
+      // The trap this pair of probes was built for: the link a rebuild performs
+      // is not the link an SDK named on a command line performs. Pointing at
+      // this one fixes it, so the machine can build — but only if somebody says
+      // so, and the line below is that sentence.
+      return {
+        ok: false,
+        warning: true,
+        detail: `a native rebuild would fail to link — ${link.detail} — but pointed at ${sdk.sdkPath} it links, so a rebuild needs \`export SDKROOT=${sdk.sdkPath}\`${reason}`,
+      };
+    }
+
+    const alsoFailed =
+      sdkLink !== null && sdkLink.ok === false
+        ? `, and naming ${sdk.sdkPath} does not fix it (${sdkLink.detail})`
+        : "";
     return {
       ok: false,
-      detail: `a native rebuild would fail to link: ${link.detail}${reason}`,
+      detail: `a native rebuild would fail to link: ${link.detail}${alsoFailed}${reason}`,
     };
   }
 
@@ -494,6 +521,7 @@ export function run({
   missing = null,
   sdk = null,
   link = null,
+  sdkLink = null,
   database = null,
   open = openCatalog,
 } = {}) {
@@ -511,9 +539,26 @@ export function run({
   // for it by leaving `sdk` out — which is what the command line does.
   const sdkState =
     sdk ?? (platform === "darwin" ? safely(() => (resolve ?? resolveSdk)({}), null) : null);
+  // The link a rebuild would really perform: the environment it inherits, plus
+  // the SDKROOT the resolver decided the build needs — and nothing else.
   const linkState =
     link ??
     (sdk === null && platform === "darwin" && sdkState?.ok === true
+      ? safely(
+          () => linkProbe({ sdkPath: sdkState.env?.SDKROOT ?? null }),
+          null,
+        )
+      : null);
+  // Asked only when the first one failed: does naming the resolved SDK fix what
+  // the environment cannot? `null` is "not asked", which the check reports as
+  // the plain failure it is rather than as an unfixed one.
+  const sdkLinkState =
+    sdkLink ??
+    (linkState !== null &&
+    linkState.ok === false &&
+    sdk === null &&
+    platform === "darwin" &&
+    sdkState?.ok === true
       ? safely(() => linkProbe({ sdkPath: sdkState.sdkPath }), null)
       : null);
 
@@ -523,7 +568,12 @@ export function run({
       engines: engines ?? readEngines(root),
     }),
     natives: checkNativeAbi({ abi: probeAbi, missing: artifacts, needed: HOST_RUNTIME }),
-    sdk: checkSdk({ sdk: sdkState, platform, link: linkState }),
+    sdk: checkSdk({
+      sdk: sdkState,
+      platform,
+      link: linkState,
+      sdkLink: sdkLinkState,
+    }),
     database: checkDatabase({
       path: database ?? defaultDatabasePath(),
       open,

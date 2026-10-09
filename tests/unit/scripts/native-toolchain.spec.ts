@@ -104,7 +104,7 @@ interface ToolchainModule {
   }): SdkVerdict;
   SDK_PROBE_SOURCE: string;
   linkProbe(options?: {
-    sdkPath: string;
+    sdkPath?: string | null;
     clang?: string | null;
     run?: (
       cmd: string,
@@ -626,6 +626,59 @@ describe("whether a build against that SDK would actually link", () => {
       "/tmp/atr-probe/atr-sdk-probe.dylib",
       "/tmp/atr-probe/atr-sdk-probe.cc",
     ]);
+  });
+
+  test("with no SDK named, it links the way a rebuild does", () => {
+    /*
+     * The distinction this test exists for, and the one that was wrong here.
+     *
+     * A rebuild links with the `SDKROOT` it inherits and nothing else, so a
+     * probe that always passes `-isysroot` answers a *different* question — and
+     * on 2026-10-09 this machine was the counterexample: `-isysroot <the Xcode
+     * SDK>` links, while the same link without it reads the Command Line Tools
+     * SDK through the linker's default search path and dies on its stub files.
+     * The probe said ready and `pnpm test:electron-e2e` died at the link, which
+     * is the whole reason the question has to be askable both ways.
+     */
+    const asked: string[][] = [];
+
+    const probe = toolchain.linkProbe({
+      clang: "/usr/bin/clang++",
+      files: probeArea().files,
+      run: (_cmd, args) => {
+        asked.push(args);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(probe.ok).toBe(true);
+    expect(asked[0]).toEqual([
+      "-dynamiclib",
+      "-o",
+      "/tmp/atr-probe/atr-sdk-probe.dylib",
+      "/tmp/atr-probe/atr-sdk-probe.cc",
+    ]);
+    // And it says which question it answered, so a reader is not left to guess
+    // whether the SDK in a passing line was one this process chose.
+    expect(probe.detail).toContain("environment");
+    expect(probe.detail).not.toContain(SDK);
+  });
+
+  test("a failure with no SDK named quotes the linker and claims no SDK", () => {
+    const probe = toolchain.linkProbe({
+      clang: "/usr/bin/clang++",
+      files: probeArea().files,
+      run: () => ({
+        status: 1,
+        stdout: "",
+        stderr:
+          "ld: multiple errors: tapi error: malformed file\n/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/lib/libSystem.B.tbd:4:20: error: unknown architecture\n",
+      }),
+    });
+
+    expect(probe.ok).toBe(false);
+    expect(probe.detail).toContain("tapi error: malformed file");
+    expect(probe.detail).toContain("environment");
   });
 
   test("the ATR-057 linker tail is a failure, quoting the line that names it", () => {

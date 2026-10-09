@@ -473,7 +473,18 @@ const defaultProbeFiles = {
 };
 
 /**
- * Compile the three lines against `sdkPath`, and let the linker be the judge.
+ * Compile the three lines, and let the linker be the judge.
+ *
+ * `sdkPath` is the SDK the caller is *asking about* — `-isysroot` is passed for
+ * it. Leave it out and the probe links exactly as the environment stands, which
+ * is a different question and the one that matters: a rebuild links with the
+ * `SDKROOT` it inherits and nothing else, so an SDK passed on this probe's
+ * command line can prove a machine ready while the rebuild it stands for dies.
+ * That happened here. `-isysroot <Xcode SDK>` links on a machine where
+ * `node-gyp`'s own link reads the Command Line Tools SDK through the linker's
+ * default search path and fails on its stub files, and the probe has to be able
+ * to see both, which is why the two questions are asked separately and the
+ * answers are compared by the caller (`checkSdk` in `doctor.mjs`).
  *
  * The compiler is asked of `xcrun --find clang++` rather than named, because the
  * pairing under test is exactly this: the clang `xcode-select` selects, against
@@ -486,7 +497,7 @@ const defaultProbeFiles = {
  * answer to the question being asked — will a rebuild link?
  */
 export function linkProbe({
-  sdkPath,
+  sdkPath = null,
   clang = null,
   run = quietRun,
   files = defaultProbeFiles,
@@ -496,13 +507,22 @@ export function linkProbe({
       ? (run("xcrun", ["--find", "clang++"]).stdout ?? "").trim()
       : clang;
   const compiler = asked === "" ? "clang++" : asked;
+  const against =
+    typeof sdkPath === "string" && sdkPath !== ""
+      ? { flags: ["-isysroot", sdkPath], what: `against ${sdkPath}` }
+      : {
+          flags: [],
+          // Deliberately not "no SDKROOT": there may be one, inherited, and this
+          // probe is asking about whatever a rebuild would get from the
+          // environment. The check's own sentence has the detail.
+          what: "with the environment as a rebuild finds it",
+        };
 
   const area = files.create();
   try {
     const result = run(compiler, [
       "-dynamiclib",
-      "-isysroot",
-      sdkPath,
+      ...against.flags,
       "-o",
       area.output,
       area.source,
@@ -512,7 +532,7 @@ export function linkProbe({
     if (result.status === 0) {
       return {
         ok: true,
-        detail: `a three-line addon compiles and links against ${sdkPath}`,
+        detail: `a three-line addon compiles and links ${against.what}`,
         output,
       };
     }
@@ -525,7 +545,7 @@ export function linkProbe({
 
     return {
       ok: false,
-      detail: `${compiler} cannot link against ${sdkPath} — ${reason}`,
+      detail: `${compiler} cannot link ${against.what} — ${reason}`,
       output,
     };
   } finally {
