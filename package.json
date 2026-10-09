@@ -17,6 +17,7 @@
     "test:electron-e2e": "node scripts/ensure-native-abi.mjs electron && node scripts/run-electron-e2e.mjs",
     "test:packaged-update": "ATR_PACKAGED_UPDATE_E2E=1 playwright test --config playwright.electron.config.ts packaged-update-check",
     "test:packaged-update-refused": "node scripts/refused-update-check.mjs",
+    "visual:baselines": "pnpm exec playwright test --config playwright.electron.config.ts catalog-visual --update-snapshots",
     "test:full": "pnpm test && pnpm test:electron-e2e",
     "electron:rebuild": "node scripts/ensure-native-abi.mjs electron",
     "electron:dev": "pnpm electron:rebuild && electron-vite dev",

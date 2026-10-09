@@ -53,6 +53,8 @@
  * Owner: qe-agent (2026-10-08 UI/UX pass).
  */
 
+import os from "node:os";
+
 import {
   expect,
   test,
@@ -187,6 +189,33 @@ async function viewModes(win: Page): Promise<string[]> {
   return modes;
 }
 
+/**
+ * The rasterizer this run will be compared against, as a file-name token.
+ *
+ * A screenshot baseline is only a test if the machine that produced it renders
+ * the way this one does, and on macOS that is the OS version: CoreText
+ * rasterizes text (and the compositor anti-aliases) slightly differently on
+ * every major release. Measured on 2026-10-08, a baseline rendered on macOS 27
+ * and compared on the `macos-14` runner differs over ~1% of pixels — every
+ * view mode, uniformly, with the content identical (the row count and the cover
+ * boxes both matched). That is *more* than the change this file exists to catch:
+ * the `gap-3`→`gap-4` nudge it was proved against moved ~0.3% of pixels. The two
+ * cannot be told apart by a tolerance, so the environment is part of the key
+ * instead: each rasterizer gets its own committed baseline, and a rasterizer
+ * with no baseline fails loudly rather than passing against another one's
+ * picture.
+ *
+ * `os.release()` is the Darwin kernel version, whose major tracks the macOS
+ * release (`23` is macOS 14, `27` is macOS 27), so the token reads as
+ * `darwin27` here and `darwin23` on the runner. Adding an environment (a new
+ * macOS on the CI runner, or a Linux leg) means generating its baseline with
+ * `pnpm visual:baselines` and committing it — the same way this one was made.
+ */
+function renderEnvironment(): string {
+  const [major] = os.release().split(".");
+  return `${process.platform}${major}`;
+}
+
 /** A file-name-safe form of a mode's label, for the baseline it names. */
 function slugify(label: string): string {
   return label
@@ -247,7 +276,7 @@ test.describe("the catalog, as pictures", () => {
             .toEqual(expected);
         }
 
-        const name = `catalog-${slugify(mode)}.png`;
+        const name = `catalog-${slugify(mode)}-${renderEnvironment()}.png`;
         shots.push(name);
         // `soft`, so a run names every mode that moved rather than stopping at
         // the first one — the same reason the type sweep collects its findings.
@@ -260,7 +289,8 @@ test.describe("the catalog, as pictures", () => {
 
       // A loop that never ran would compare nothing and pass, so the baselines
       // this run actually looked at are asserted to be one per view mode.
-      expect(shots).toEqual(modes.map((mode) => `catalog-${slugify(mode)}.png`));
+      const env = renderEnvironment();
+      expect(shots).toEqual(modes.map((mode) => `catalog-${slugify(mode)}-${env}.png`));
     } finally {
       await close();
     }

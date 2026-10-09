@@ -82,10 +82,8 @@ export default defineConfig({
   },
   // Screenshot comparison, for `catalog-visual.spec.ts`. Everything the
   // comparison needs is Playwright's default and is stated here so it cannot be
-  // changed by accident: animations are disabled and the caret is hidden (both a
-  // property of the clock, not of this layout), and one name is one file per
-  // platform, so a platform with no baseline fails loudly rather than passing
-  // against another platform's picture.
+  // changed by accident: animations are disabled and the caret are hidden (both a
+  // property of the clock, not of this layout).
   expect: {
     toHaveScreenshot: {
       animations: "disabled",
@@ -93,6 +91,15 @@ export default defineConfig({
       scale: "css",
     },
   },
+  // One baseline per **rasterizer**, not per platform. Playwright appends
+  // `-{platform}` by default, but the OS version is part of the render on macOS
+  // (CoreText and the compositor anti-alias differently on every major release),
+  // and the spec already names the environment into `{arg}` for that reason — so
+  // the default suffix would only produce `…-darwin27-darwin.png`, a platform
+  // named twice. The spec is the sole author of the name, which is what keeps
+  // `catalog-<mode>-darwin27.png` and `catalog-<mode>-darwin23.png` apart.
+  snapshotPathTemplate:
+    "{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
   // No `projects` and no `webServer` — Electron is launched per-test via
   // `_electron.launch`. CI / humans should run `pnpm electron:build` (or
   // the convenience wrapper at `scripts/run-electron-e2e.mjs`) first so
