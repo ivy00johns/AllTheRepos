@@ -50,7 +50,18 @@ async function openMap(win: Page) {
   const listbox = win.getByRole("listbox", {
     name: "Repositories on the map",
   });
-  await expect(listbox).toBeVisible({ timeout: 20_000 });
+  /*
+   * Wait for an option, not for the container.
+   *
+   * The rail paints its frame before the catalog read lands, and until it does
+   * the listbox is there, empty and zero-height — which Playwright calls hidden,
+   * so waiting on the container fails on a map that is loading perfectly
+   * normally. "The map is up" is an option being visible, and the degree the
+   * rail puts beside each name is what makes it worth having.
+   */
+  await expect(listbox.getByRole("option").first()).toBeVisible({
+    timeout: 20_000,
+  });
   return listbox;
 }
 
