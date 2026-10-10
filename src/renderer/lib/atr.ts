@@ -66,18 +66,6 @@ import type {
   TaskOutputEvent,
   CoverInput,
   CoverResult,
-  MoveInput,
-  MoveCheckResult,
-  MoveResult,
-  MoveUndoInput,
-  MoveLastInput,
-  MoveLastResult,
-  FolderCheckInput,
-  FolderCheckResult,
-  FolderRenameInput,
-  FolderMoveInput,
-  FolderCreateInput,
-  FolderOpResult,
   PickScanPathInput,
   PickScanPathResult,
   AddScanPathInput,
@@ -181,26 +169,10 @@ export interface AtrBridge {
     smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
     /** Resolve a repo's own cover artwork; `src: null` when it has none. */
     cover(input: CoverInput): Promise<CoverResult>;
-    /** Preflight a relocation — reads only, nothing is moved. */
-    moveCheck(input: MoveInput): Promise<MoveCheckResult>;
-    /** Relocate repos on disk and update their catalog rows. */
-    move(input: MoveInput): Promise<MoveResult>;
-    /** Reverse a journaled move batch; defaults to the most recent. */
-    moveUndo(input: MoveUndoInput): Promise<MoveResult>;
-    /** Describe the most recent move batch, for the undo affordance. */
-    moveLast(input: MoveLastInput): Promise<MoveLastResult>;
     /** Subscribe to live catalog changes; returns an unsubscribe lambda. */
     onChanged(callback: (event: CatalogChangeEvent) => void): () => void;
     /** Pin or unpin a repo. */
     setFavorite(input: SetFavoriteInput): Promise<SetFavoriteResult>;
-    /** Preflight a folder rename/move — reads only. */
-    folderCheck(input: FolderCheckInput): Promise<FolderCheckResult>;
-    /** Rename a folder in place. */
-    folderRename(input: FolderRenameInput): Promise<FolderOpResult>;
-    /** Move a folder into a different parent. */
-    folderMove(input: FolderMoveInput): Promise<FolderOpResult>;
-    /** Create an empty folder inside a scan root. */
-    folderCreate(input: FolderCreateInput): Promise<FolderOpResult>;
   };
   scan: {
     start(input: StartScanInput): Promise<StartScanResult>;

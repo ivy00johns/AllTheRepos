@@ -6,16 +6,16 @@
  * together and live in five different folders" is a to-do, where the map
  * alone is just a picture.
  *
- * Selecting a cluster highlights it on the map and offers to move its
- * strays into the folder where most of the cluster already lives, via
- * the same preflighted move machinery the catalog uses.
+ * Selecting a cluster highlights it on the map and names the strays —
+ * the repos that belong with the cluster but live somewhere else. It is
+ * a reading of where things are, not a way to rearrange them: this app
+ * shows you that a repo is out of place, and leaves the moving to you.
  */
 
 import * as React from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import {
   Eye,
-  FolderInput,
   Loader2,
   Network,
   RefreshCw,
@@ -25,12 +25,9 @@ import {
 import type { GraphCluster, GraphSignal } from "@shared/types";
 
 import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
-import { MoveDialog } from "@renderer/components/catalog/move-dialog";
 import { RelatedRepos } from "@renderer/components/catalog/related-repos";
 import { Button } from "@renderer/components/ui/button";
 import { useGraph } from "@renderer/hooks/use-graph";
-import { useRepos } from "@renderer/hooks/use-repos";
-import { useSettings } from "@renderer/hooks/use-settings";
 import { cn } from "@renderer/lib/cn";
 import { UNGROUPED_CLUSTER_ID } from "@renderer/lib/graph-clusters";
 import { countEdgesBySignal } from "@renderer/lib/graph-signals";
@@ -157,13 +154,6 @@ const OVERVIEW_EDGE_CAP = 320;
 
 function GraphPage() {
   const graph = useGraph();
-  /*
-   * The move dialog's repo list, at the contract's page ceiling (see
-   * `ListReposInputSchema`). The 500 this used to ask for was rejected before the
-   * query ran, so the dialog listed no repos to move.
-   */
-  const reposQuery = useRepos({ limit: 200 });
-  const settingsQuery = useSettings();
 
   /*
    * The map's view state, read from the address rather than held here. See
@@ -247,9 +237,6 @@ function GraphPage() {
     (slug: string | null) => setSearch({ repo: slug ?? undefined }, false),
     [setSearch],
   );
-  const [moveSlugs, setMoveSlugs] = React.useState<string[]>([]);
-  const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
-  const [moveOpen, setMoveOpen] = React.useState(false);
   /*
    * ATR-069: cytoscape paints the map into untitled `<canvas>` elements, so
    * none of the nodes can be focused and the inspector could only describe the
@@ -900,18 +887,6 @@ function GraphPage() {
                           </li>
                         ))}
                       </ul>
-                      <Button
-                        size="sm"
-                        className="mt-1 w-full"
-                        onClick={() => {
-                          setMoveSlugs(cluster.strays);
-                          setMoveTarget(cluster.dominantFolder);
-                          setMoveOpen(true);
-                        }}
-                      >
-                        <FolderInput aria-hidden />
-                        Gather the {cluster.strays.length} strays
-                      </Button>
                     </div>
                   ) : null}
                 </li>
@@ -921,18 +896,6 @@ function GraphPage() {
         </section>
       </aside>
 
-      <MoveDialog
-        open={moveOpen}
-        onOpenChange={(open) => {
-          setMoveOpen(open);
-          if (!open) setMoveSlugs([]);
-        }}
-        slugs={moveSlugs}
-        repos={reposQuery.data?.items ?? []}
-        scanPaths={settingsQuery.data?.scanPaths ?? []}
-        initialTarget={moveTarget}
-        onMoved={() => void graph.refetch()}
-      />
     </div>
   );
 }

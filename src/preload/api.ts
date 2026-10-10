@@ -61,18 +61,6 @@ import type {
   TaskOutputEvent,
   CoverInput,
   CoverResult,
-  MoveInput,
-  MoveCheckResult,
-  MoveResult,
-  MoveUndoInput,
-  MoveLastInput,
-  MoveLastResult,
-  FolderCheckInput,
-  FolderCheckResult,
-  FolderRenameInput,
-  FolderMoveInput,
-  FolderCreateInput,
-  FolderOpResult,
   PickScanPathInput,
   PickScanPathResult,
   AddScanPathInput,
@@ -226,23 +214,6 @@ export const api = {
       ) as Promise<SmartFilterResult>,
     cover: (input: CoverInput): Promise<CoverResult> =>
       ipcRenderer.invoke(IPC.CATALOG.COVER, input) as Promise<CoverResult>,
-    moveCheck: (input: MoveInput): Promise<MoveCheckResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_CHECK,
-        input,
-      ) as Promise<MoveCheckResult>,
-    move: (input: MoveInput): Promise<MoveResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.MOVE, input) as Promise<MoveResult>,
-    moveUndo: (input: MoveUndoInput): Promise<MoveResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_UNDO,
-        input,
-      ) as Promise<MoveResult>,
-    moveLast: (input: MoveLastInput): Promise<MoveLastResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_LAST,
-        input,
-      ) as Promise<MoveLastResult>,
     /**
      * Subscribe to live catalog changes from the filesystem watcher.
      * Returns an unsubscribe lambda; callers MUST invoke it on cleanup
@@ -267,26 +238,6 @@ export const api = {
         IPC.CATALOG.SET_FAVORITE,
         input,
       ) as Promise<SetFavoriteResult>,
-    folderCheck: (input: FolderCheckInput): Promise<FolderCheckResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_CHECK,
-        input,
-      ) as Promise<FolderCheckResult>,
-    folderRename: (input: FolderRenameInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_RENAME,
-        input,
-      ) as Promise<FolderOpResult>,
-    folderMove: (input: FolderMoveInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_MOVE,
-        input,
-      ) as Promise<FolderOpResult>,
-    folderCreate: (input: FolderCreateInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_CREATE,
-        input,
-      ) as Promise<FolderOpResult>,
   },
 
   scan: {

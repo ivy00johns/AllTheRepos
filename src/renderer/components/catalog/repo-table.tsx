@@ -48,7 +48,6 @@ export interface RepoTableProps {
   onSelect: (slug: string) => void;
   onToggleChecked: (slug: string, additive: boolean) => void;
   onOpenEditor: (slug: string) => void;
-  onDragStart?: (slug: string, event: React.DragEvent) => void;
 }
 
 interface ColumnDef {
@@ -151,7 +150,6 @@ export function RepoTable({
   onSelect,
   onToggleChecked,
   onOpenEditor,
-  onDragStart,
 }: RepoTableProps) {
   const groupedByFolder = useCatalogView((state) => state.groupBy) === "folder";
   const columns = React.useMemo(
@@ -205,8 +203,6 @@ export function RepoTable({
               key={repo.slug}
               data-repo-slug={repo.slug}
               data-selected={selectedSlug === repo.slug ? "true" : "false"}
-              draggable
-              onDragStart={(event) => onDragStart?.(repo.slug, event)}
               onClick={activate}
               className={cn(
                 "cursor-pointer border-b border-border/60 transition-colors duration-150",

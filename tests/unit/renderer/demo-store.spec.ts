@@ -2,18 +2,18 @@
  * Unit test for the browser bridge's writable store
  * (`src/renderer/lib/demo-store.ts`).
  *
- * The store exists so the flows that change the catalog — favourite, tags,
- * curated links, moves — can be reviewed in a browser tab instead of being
- * refused. A review is only worth anything if what it shows is what the app
- * would do, so this test drives each flow and checks the two things that could
- * quietly be wrong:
+ * The store exists so the flows that change the catalog's own notes about a
+ * repo — favourite, tags, curated links — can be reviewed in a browser tab
+ * instead of being refused. A review is only worth anything if what it shows is
+ * what the app would do, so this test drives each flow and checks the two things
+ * that could quietly be wrong:
  *
  *   1. Shape — every answer parses against the same Zod schema the IPC boundary
  *      validates with. A write that answers with the right *idea* and the wrong
  *      fields is worse than a refused one: it renders as a broken panel.
- *   2. Rules — the store refuses what `services/move.ts` refuses (a dirty tree,
- *      a folder with a process in it, a target outside the scan roots), keeps
- *      the slug across a move as main does, and leaves an undoable batch behind.
+ *   2. Rules — a write changes what the app knows and nothing else: no test in
+ *      this file can move, rename, copy or delete a repo, because there is no
+ *      call that does any of those.
  *
  * Each test gets a fresh module instance, because the state is deliberately a
  * session-long singleton.
@@ -24,11 +24,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   AddScanPathResultSchema,
   AssertRepoLinkResultSchema,
-  FolderCheckResultSchema,
   GraphResultSchema,
-  MoveCheckResultSchema,
-  MoveLastResultSchema,
-  MoveResultSchema,
   RemoveRepoLinkResultSchema,
   RemoveScanPathResultSchema,
   RepoDetailSchema,
@@ -40,16 +36,12 @@ import {
 
 import type { Repo } from "@shared/types";
 
-import { DEMO_PROCESSES, DEMO_ROOT } from "@renderer/lib/demo-library";
-
 type Store = typeof import("@renderer/lib/demo-store");
 
 const freshStore = async (): Promise<Store> => {
   vi.resetModules();
   return import("@renderer/lib/demo-store");
 };
-
-const FOLDER = "/Users/demo/Code/archive";
 
 const byName = (repos: Repo[], name: string): Repo => {
   const repo = repos.find((candidate) => candidate.name === name);
@@ -199,212 +191,6 @@ describe("curated links", () => {
   });
 });
 
-describe("moves", () => {
-  test("a clean repo moves, keeps its slug, and comes back on undo", async () => {
-    const store = await freshStore();
-    const repo = freeRepo(store);
-    const fromPath = repo.fullPath;
-
-    const check = MoveCheckResultSchema.parse(store.moveCheck([repo.slug], FOLDER));
-    expect(check.movableCount).toBe(1);
-    expect(check.entries[0]?.toPath).toBe(`${FOLDER}/${repo.name}`);
-
-    const result = MoveResultSchema.parse(store.move([repo.slug], FOLDER));
-    expect(result.movedCount).toBe(1);
-    expect(result.batchId).toBeTruthy();
-
-    // The slug is the row key in main and survives the move; the path does not.
-    const moved = store.findRepo(repo.slug);
-    expect(moved?.slug).toBe(repo.slug);
-    expect(moved?.fullPath).toBe(`${FOLDER}/${repo.name}`);
-
-    // The map reads the new folder, which is what recomputes cluster spread.
-    const node = GraphResultSchema.parse(store.graph()).nodes.find(
-      (candidate) => candidate.slug === repo.slug,
-    );
-    expect(node?.folder).toBe(FOLDER);
-
-    const last = MoveLastResultSchema.parse(store.moveLast());
-    expect(last?.batchId).toBe(result.batchId);
-    expect(last?.kind).toBe("repos");
-    expect(last?.label).toBe("moved 1 repo");
-
-    expect(MoveResultSchema.parse(store.moveUndo()).movedCount).toBe(1);
-    expect(store.findRepo(repo.slug)?.fullPath).toBe(fromPath);
-    expect(store.moveLast()).toBeNull();
-  });
-
-  test("a dirty tree is blocked, and the reason is the one main gives", async () => {
-    const store = await freshStore();
-    const dirty = store.listRepos().find((candidate) => candidate.isDirty);
-    if (!dirty) throw new Error("No dirty demo repo to block");
-
-    const check = MoveCheckResultSchema.parse(store.moveCheck([dirty.slug], FOLDER));
-    expect(check.movableCount).toBe(0);
-    expect(check.blockedCount).toBe(1);
-    expect(check.entries[0]?.ok).toBe(false);
-    expect(check.entries[0]?.blockers).toContain("dirty");
-
-    const result = MoveResultSchema.parse(store.move([dirty.slug], FOLDER));
-    expect(result.movedCount).toBe(0);
-    expect(result.failedCount).toBe(1);
-    expect(result.batchId).toBeNull();
-    expect(store.findRepo(dirty.slug)?.fullPath).toBe(dirty.fullPath);
-  });
-
-  test("a repo with a process in it is blocked the same way main blocks it", async () => {
-    const store = await freshStore();
-    const busy = busySlugs(store);
-    // The demo library gives two repos a listening dev server; the rule is the
-    // one `services/move.ts` applies, so this has to be one of them.
-    expect(busy.size).toBeGreaterThan(0);
-    const held = store.listRepos().find((repo) => busy.has(repo.slug));
-    if (!held) throw new Error("No demo repo has a process in it");
-
-    const check = MoveCheckResultSchema.parse(store.moveCheck([held.slug], FOLDER));
-    expect(check.entries[0]?.blockers).toContain("running-process");
-    expect(check.entries[0]?.ok).toBe(false);
-    expect(check.movableCount).toBe(0);
-    expect(store.findRepo(held.slug)?.fullPath).toBe(held.fullPath);
-  });
-
-  test("a target outside the roots, inside the repo, or already there", async () => {
-    const store = await freshStore();
-    const clean = freeRepo(store);
-
-    // Outside the scan roots.
-    const outside = MoveCheckResultSchema.parse(
-      store.moveCheck([clean.slug], "/tmp/elsewhere"),
-    );
-    expect(outside.entries[0]?.blockers).toContain("target-outside-roots");
-    expect(outside.movableCount).toBe(0);
-
-    // Already there.
-    const same = MoveCheckResultSchema.parse(
-      store.moveCheck([clean.slug], clean.fullPath.slice(0, clean.fullPath.lastIndexOf("/"))),
-    );
-    expect(same.entries[0]?.blockers).toContain("same-location");
-
-    // Inside itself.
-    const inside = MoveCheckResultSchema.parse(
-      store.moveCheck([clean.slug], `${clean.fullPath}/nested`),
-    );
-    expect(inside.entries[0]?.blockers).toContain("target-inside-source");
-
-    // `destination-exists` is the one rule this store cannot reach: in main it
-    // is `pathExists(toPath)` on the real filesystem, and a browser tab has no
-    // filesystem — two catalog rows can only collide on a name the demo library
-    // does not contain. The rule is kept in the store so it mirrors main; the
-    // path it would write is still reported per entry.
-    const elsewhere = MoveCheckResultSchema.parse(
-      store.moveCheck([clean.slug], "/Users/demo/Code/gathered"),
-    );
-    expect(elsewhere.entries[0]?.toPath).toBe(`/Users/demo/Code/gathered/${clean.name}`);
-  });
-
-  test("an unknown slug is reported per entry instead of aborting the batch", async () => {
-    const store = await freshStore();
-    const check = MoveCheckResultSchema.parse(
-      store.moveCheck(["nope-00000000"], FOLDER),
-    );
-    expect(check.entries[0]?.blockers).toEqual(["unknown-repo"]);
-    expect(check.entries[0]?.ok).toBe(false);
-  });
-});
-
-/**
- * A repo the mover will accept: nothing uncommitted, nothing running in it.
- *
- * Both matter. `listRepos()` hands back the store's own rows, so anything a
- * test captures has to be read as a value now — a `fullPath` kept in a variable
- * is a string, but a `Repo` kept in a variable is the row a later write edits.
- */
-function freeRepo(store: Store): Repo {
-  const busy = busySlugs(store);
-  const repo = store
-    .listRepos()
-    .find((candidate) => !candidate.isDirty && !busy.has(candidate.slug));
-  if (!repo) throw new Error("No demo repo is free to move");
-  return repo;
-}
-
-/** Slugs with a listening process, read off the same rows the cards show. */
-function busySlugs(store: Store): Set<string> {
-  const known = new Set(store.listRepos().map((repo) => repo.slug));
-  return new Set(
-    DEMO_PROCESSES.processes
-      .map((row) => row.repoSlug)
-      .filter((slug): slug is string => slug !== null && known.has(slug)),
-  );
-}
-
-describe("folders", () => {
-  test("a clean folder renames, re-pathing every repo inside it", async () => {
-    const store = await freshStore();
-    const repos = store.listRepos();
-    const busy = busySlugs(store);
-
-    // Renaming is only allowed over repos with nothing in flight, so pick the
-    // folder whose members are all clean and none of them busy.
-    const folder = [...new Set(repos.map(folderOf))].find((candidate) => {
-      const inside = repos.filter(
-        (repo) => folderOf(repo) === candidate && candidate !== DEMO_ROOT,
-      );
-      return inside.length > 0 && inside.every((repo) => !repo.isDirty && !busy.has(repo.slug));
-    });
-    if (!folder) throw new Error("Every demo folder has work in flight");
-
-    // Snapshotted, because these are the store's own rows: after the rename,
-    // `repo.fullPath` reads the new path and the expectation would compare the
-    // result with itself.
-    const inside = repos
-      .filter((repo) => folderOf(repo) === folder)
-      .map((repo) => ({ slug: repo.slug, fullPath: repo.fullPath }));
-    const renamed = `${folder}-renamed`;
-
-    const check = FolderCheckResultSchema.parse(store.folderCheck(folder, renamed));
-    expect(check.ok).toBe(true);
-    expect(check.affected).toHaveLength(inside.length);
-
-    const result = store.folderRename(folder, `${folder.split("/").pop()}-renamed`);
-    expect(result.ok).toBe(true);
-    expect(result.movedRepos).toBe(inside.length);
-    for (const entry of inside) {
-      expect(store.findRepo(entry.slug)?.fullPath).toBe(
-        renamed + entry.fullPath.slice(folder.length),
-      );
-    }
-
-    // The undo bar can put the whole folder back in one move.
-    expect(MoveResultSchema.parse(store.moveUndo()).movedCount).toBe(inside.length);
-    for (const entry of inside) {
-      expect(store.findRepo(entry.slug)?.fullPath).toBe(entry.fullPath);
-    }
-  });
-
-  test("a folder with uncommitted work in it is refused, and nothing moves", async () => {
-    const store = await freshStore();
-    const dirty = store.listRepos().find((candidate) => candidate.isDirty);
-    if (!dirty) throw new Error("No dirty demo repo");
-    const folder = dirty.fullPath.slice(0, dirty.fullPath.lastIndexOf("/"));
-
-    const result = store.folderRename(folder, "somewhere-else");
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("dirty-repos");
-    expect(store.findRepo(dirty.slug)?.fullPath).toBe(dirty.fullPath);
-  });
-
-  test("a scan root cannot be renamed out from under the scan", async () => {
-    const store = await freshStore();
-    const root = store.settings().scanPaths[0] as string;
-    const check = FolderCheckResultSchema.parse(
-      store.folderCheck(root, `${root}-renamed`),
-    );
-    expect(check.blockers).toContain("is-scan-root");
-    expect(check.ok).toBe(false);
-  });
-});
-
 describe("settings", () => {
   test("a scan root can be added once, and removing it forgets its rows", async () => {
     const store = await freshStore();
@@ -481,9 +267,6 @@ describe("repo rows", () => {
 function settingsParse(store: Store) {
   return SettingsSchema.parse(store.settings());
 }
-
-const folderOf = (repo: Repo): string =>
-  repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
 
 /**
  * An export is a file this bundle did not produce, so the interesting cases are
@@ -728,22 +511,6 @@ describe("saved edits", () => {
     expect(restored?.favoritedAt).not.toBeNull();
     expect(restored?.tags.map((tag) => tag.value)).toEqual(["kept"]);
     expect(restored?.tags.every((tag) => tag.source === "user")).toBe(true);
-  });
-
-  test("a move comes back, with the slug kept", async () => {
-    const storage = fakeStorage();
-    const first = await freshStore();
-    first.enablePersistence(storage);
-    const repo = freeRepo(first);
-
-    const moved = MoveResultSchema.parse(first.move([repo.slug], FOLDER));
-    expect(moved.movedCount).toBe(1);
-
-    const second = await freshStore();
-    second.enablePersistence(storage);
-    expect(second.findRepo(repo.slug)?.fullPath).toBe(`${FOLDER}/${repo.name}`);
-    // The moved path persists; the undo bar is a session affordance.
-    expect(second.moveLast()).toBeNull();
   });
 
   test("a curated link comes back, and a removed one stays removed", async () => {
