@@ -1,17 +1,16 @@
 /**
  * Debug route ("/debug").
  *
- * Preserves the Phase 0 ping/pong smoke test so the existing QE
- * Playwright test (`tests/e2e/preload-ping.spec.ts`) keeps passing.
- * The renderer used to render this on the index route — Phase 1 moves
- * it here so `/` can host the real catalog.
+ * A main-process round-trip you can look at: it pings through the preload
+ * bridge and renders the response, which is the shortest way to tell whether
+ * the renderer, the bridge and the main process are all up and talking.
  *
- * The assertions Playwright cares about are:
- *   - the word "pong" appears in the document,
- *   - the rendered `mainProcessPid` is numeric,
- *   - the "Ping again" button is reachable.
- *
- * Behaviour is intentionally identical to the Phase 0 App.tsx.
+ * The renderer used to draw this on the index route; it moved here when `/`
+ * became the catalog. It survives the move for two reasons: an end-to-end
+ * launch check asserts this round-trip in the built app — "pong" in the
+ * document, a numeric `mainProcessPid`, a reachable "Ping again" button — and
+ * with `/debug` out of the navigation (ATR-074) the command palette's
+ * "Open Debug Page" action is the way in.
  */
 
 import { createRoute } from "@tanstack/react-router";
@@ -82,7 +81,7 @@ function DebugPage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-8 py-4">
       <header className="flex flex-col gap-2">
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          Phase 0 · preload bridge smoke test
+          Diagnostics · main-process round trip
         </p>
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">
           /debug — system.ping
@@ -92,8 +91,8 @@ function DebugPage() {
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
             window.atr.system.ping()
           </code>{" "}
-          and renders the response. This route exists so the Phase 0
-          Playwright E2E keeps passing as Phase 1 lands.
+          and renders the response. Live numbers below mean the renderer, the
+          preload bridge and the main process are all talking to each other.
         </p>
       </header>
 
