@@ -26,6 +26,8 @@
     "electron:dev": "pnpm electron:rebuild && electron-vite dev",
     "electron:build": "electron-vite build",
     "electron:preview": "electron-vite preview",
+    "demo": "node scripts/ensure-native-abi.mjs electron && electron-vite build && node scripts/demo-data.mjs --launch",
+    "demo:seed": "node scripts/demo-data.mjs",
     "electron:pack": "pnpm electron:rebuild && electron-vite build && electron-builder --mac --dir",
     "electron:pack-older": "node scripts/ensure-native-abi.mjs electron && electron-vite build && electron-builder --mac --dir -c.directories.output=release/older -c.extraMetadata.version=0.0.1",
     "electron:dist": "pnpm electron:rebuild && electron-vite build && electron-builder --mac",
