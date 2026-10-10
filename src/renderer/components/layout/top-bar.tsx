@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
+import { DemoDataBadge } from "@renderer/components/layout/demo-data-badge";
 import { SearchBar } from "@renderer/components/search/search-bar";
 import { isPackagedBuild } from "@renderer/lib/atr";
 import { useProcessCount } from "@renderer/hooks/use-processes";
@@ -208,6 +209,9 @@ export function TopBar() {
           </span>
         </button>
       ) : null}
+
+      {/* The invented library announces itself beside the update it invents. */}
+      <DemoDataBadge />
 
       <nav className="flex items-center gap-0.5">
         {NAV_ITEMS.map(({ to, label, Icon, badge }) => (

@@ -146,6 +146,42 @@ const noSubscription = () => () => {};
 const now = () => Date.now();
 
 /**
+ * Which library a browser tab ended up reading, and who is watching for that.
+ *
+ * `installBrowserBridge` is a no-op under Electron — the preload bridge is
+ * always there — so nothing below is reached in the app, and a marker built on
+ * it cannot appear in one. In a tab the answer is not known until
+ * `loadExportedCatalog` settles: an export may exist at {@link EXPORT_URL}, in
+ * which case the tab is reading this machine's own catalog and must not be
+ * marked, and it may not, in which case every read is answered from the demo
+ * library — invented repos, invented processes, and an invented update. A
+ * screen full of those has to say so, which is why the answer is published here
+ * rather than guessed at the point of display.
+ */
+let servedLibrary: CatalogSource | null = null;
+const servedLibraryListeners = new Set<(source: CatalogSource) => void>();
+
+/** The library this tab is reading; null while that is still being decided. */
+export function servedCatalogSource(): CatalogSource | null {
+  return servedLibrary;
+}
+
+/** Watch for the library this tab reads. Returns the unsubscribe lambda. */
+export function subscribeToServedCatalogSource(
+  listener: (source: CatalogSource) => void,
+): () => void {
+  servedLibraryListeners.add(listener);
+  return () => {
+    servedLibraryListeners.delete(listener);
+  };
+}
+
+function publishServedLibrary(source: CatalogSource): void {
+  servedLibrary = source;
+  for (const listener of servedLibraryListeners) listener(source);
+}
+
+/**
  * The honest answers for machine state a browser tab cannot read.
  *
  * A process snapshot, Claude usage and a session transcript all come from this
@@ -630,6 +666,10 @@ export function installBrowserBridge(): boolean {
   // export is a fetch, and the first catalog read happens on mount, so a tab
   // that did not wait would paint the demo library and swap it a frame later.
   const ready = loadExportedCatalog(EXPORT_URL);
+  // Published when it settles, not at install time: an export that exists means
+  // this tab is reading the machine's own catalog, and marking that as invented
+  // would be its own lie.
+  void ready.then(publishServedLibrary);
   window.atr = buildBridge(ready);
   console.info(
     "[browser-bridge] No Electron preload bridge found — installing the dev " +
