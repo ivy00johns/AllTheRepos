@@ -84,7 +84,12 @@ interface DoctorModule {
     platform?: string;
     link?: { ok: boolean; detail: string } | null;
     sdkLink?: { ok: boolean; detail: string } | null;
+    include?: { path: string; sdkPath: string } | null;
   }): Check;
+  readGypInclude(options?: {
+    path?: string;
+    read?: (file: string) => string | null;
+  }): { path: string; sdkPath: string } | null;
   checkDatabase(options?: {
     path?: string;
     open?: (dbPath: string) => { integrity: string; close?: () => void };
@@ -111,6 +116,7 @@ interface DoctorModule {
     sdk?: Sdk | null;
     link?: { ok: boolean; detail: string } | null;
     sdkLink?: { ok: boolean; detail: string } | null;
+    include?: { path: string; sdkPath: string } | null;
     resolve?: (options?: unknown) => Sdk;
     database?: string;
     open?: (dbPath: string) => { integrity: string; close?: () => void };
@@ -338,6 +344,76 @@ describe("the macOS SDK", () => {
     expect(verdict.warning).toBe(true);
     expect(verdict.detail).toContain("the rebuild scripts here do themselves");
     expect(verdict.detail).toContain("export SDKROOT=/Xcode/MacOSX26.5.sdk");
+  });
+
+  test("with gyp's include pointing at that same SDK, the export is not asked for", () => {
+    /*
+     * The state this machine is in after `pnpm install`: the environment alone
+     * cannot link, and a file in the home directory points every node-gyp build
+     * in every project at the SDK that can — which is the whole reason the
+     * script that writes it exists. Asking for an export here would be advice a
+     * person does not need, and a warning nobody can act on is how warnings stop
+     * being read.
+     */
+    const verdict = doctor.checkSdk({
+      sdk: { ...SHARED, env: { SDKROOT: "/Xcode/MacOSX26.5.sdk" } },
+      platform: MAC,
+      link: {
+        ok: false,
+        detail: "clang++ cannot link with the environment as a rebuild finds it — ld: boom",
+      },
+      sdkLink: {
+        ok: true,
+        detail: "a three-line addon compiles and links against /Xcode/MacOSX26.5.sdk",
+      },
+      include: { path: "/Users/somebody/.gyp/include.gypi", sdkPath: "/Xcode/MacOSX26.5.sdk" },
+    });
+
+    expect(verdict.warning).toBe(true);
+    expect(verdict.detail).toContain("/Users/somebody/.gyp/include.gypi");
+    expect(verdict.detail).toContain("needs no export");
+    expect(verdict.detail).not.toContain("export SDKROOT=");
+    expect(verdict.detail).not.toContain("will fail");
+  });
+
+  test("the include is only read back when it is this repository's file", () => {
+    const include = { path: "/home/somebody/.gyp/include.gypi" };
+    const text = (body: string | null) => () => body;
+
+    // Ours, with an SDK in it: the answer is the path it names.
+    expect(
+      doctor.readGypInclude({
+        path: include.path,
+        read: text(
+          "# Written by AllTheRepos — written by scripts/point-sdkroot.mjs\n{ 'SDKROOT': \"/Xcode/MacOSX26.5.sdk\" }\n",
+        ),
+      }),
+    ).toEqual({ path: include.path, sdkPath: "/Xcode/MacOSX26.5.sdk" });
+
+    // Somebody else's file is not ours to speak for, and neither is ours with
+    // no SDK line, and neither is no file at all.
+    for (const body of [
+      "{ 'SDKROOT': \"/Xcode/MacOSX26.5.sdk\" }\n",
+      "# Written by AllTheRepos — nothing named\n",
+      null,
+    ]) {
+      expect(doctor.readGypInclude({ path: include.path, read: text(body) })).toBe(null);
+    }
+  });
+
+  test("an include naming some other SDK is not evidence about this one", () => {
+    // The claim is about the path the linker accepted. A file naming an SDK
+    // nobody has proved anything about cannot be borrowed for it.
+    const verdict = doctor.checkSdk({
+      sdk: SHARED,
+      platform: MAC,
+      link: { ok: false, detail: "clang++ cannot link with the environment — ld: boom" },
+      sdkLink: { ok: true, detail: "links against /Xcode/MacOSX26.5.sdk" },
+      include: { path: "/Users/somebody/.gyp/include.gypi", sdkPath: "/Xcode/Old.sdk" },
+    });
+
+    expect(verdict.detail).toContain("will fail");
+    expect(verdict.detail).not.toContain("needs no export");
   });
 
   test("and when naming the SDK does not fix it, it is a failure that says both", () => {

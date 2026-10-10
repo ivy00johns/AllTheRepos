@@ -74,6 +74,17 @@ const defaultListDir = (dir) => {
 const defaultCopy = (from, to) => fs.copyFileSync(from, to);
 const defaultMkdir = (dir) => fs.mkdirSync(dir, { recursive: true });
 
+/** A file's text, or `null` when there is no such file to read. */
+const defaultReadFile = (file) => {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+};
+
+const defaultWriteFile = (file, text) => fs.writeFileSync(file, text, "utf8");
+
 /**
  * Run a command and hand back what it said, without inheriting this process's
  * exit code or writing anything to the terminal. Every question in this module
@@ -583,4 +594,146 @@ export function linkProbe({
   } finally {
     area.dispose();
   }
+}
+
+// ---------------------------------------------------------------------------
+// The SDK a *dependency's* build hook gets
+// ---------------------------------------------------------------------------
+
+/**
+ * Where gyp looks for a file it includes into every `.gyp` it reads.
+ *
+ * `~/.gyp/include.gypi` is gyp's own extension point — not this repository's
+ * invention — and it is the only lever that reaches a build nobody here starts:
+ * a bare `pnpm rebuild <native module>` runs the *dependency's* install script
+ * with the environment it inherits and nothing else, so passing `SDKROOT` to a
+ * child of ours (`ensure-native-abi.mjs`, which is how `pnpm test` and
+ * `test:electron-e2e` work) does nothing for the command a person types.
+ */
+export const GYP_INCLUDE_RELATIVE = path.join(".gyp", "include.gypi");
+
+/**
+ * The line that marks the file as this repository's to manage.
+ *
+ * The distinction is the whole reason this is safe to write on somebody's
+ * machine: a file carrying this line was written here and can be refreshed or
+ * replaced, and a file without it is theirs — an SDK they chose, or settings
+ * for other projects — so it is reported rather than overwritten.
+ */
+export const GYP_INCLUDE_MARKER = "# Written by AllTheRepos";
+
+/** `~/.gyp/include.gypi`, spelled for whatever home this is asked about. */
+export function gypIncludePath({ home = os.homedir() } = {}) {
+  return path.join(home, GYP_INCLUDE_RELATIVE);
+}
+
+/**
+ * The SDK a previously-written include names, read back out of it.
+ *
+ * A regex over the one line this repository writes rather than a gyp parser: the
+ * two callers both ask whether the SDK that file names is still the right one,
+ * and the answer is the string it put between quotes. `null` covers the file
+ * having no `SDKROOT` line at all, which is not an error — it is a file with
+ * nothing to say about SDKs.
+ */
+export function sdkFromGypInclude(text) {
+  const match = /'SDKROOT':\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  if (match === null) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the include says: the SDK, and enough prose to be understood.
+ *
+ * The path is JSON-encoded rather than interpolated, because a string in a gyp
+ * file is a Python string literal and a home directory with a quote in it would
+ * otherwise end the string early and leave gyp reading a file that is not the
+ * one this wrote.
+ */
+export function gypIncludeContents(sdkPath) {
+  return [
+    "# -*- mode: python; coding: utf-8 -*-",
+    `${GYP_INCLUDE_MARKER} — \`pnpm install\` runs \`scripts/point-sdkroot.mjs\`,`,
+    "# which put the macOS SDK it resolved here. gyp includes this file into every",
+    "# `.gyp` it reads, which is how a bare `pnpm rebuild` finds an SDK its linker",
+    "# can read: that build belongs to the dependency, runs its own node-gyp hook,",
+    "# and sees nothing this repository passes to children of its own.",
+    "#",
+    "# The SDK was accepted by a real link, not chosen by a path comparison. Delete",
+    "# this file (or this directory) to opt out; a native rebuild then needs",
+    "# `SDKROOT` exported by hand. Run `node scripts/point-sdkroot.mjs` to refresh",
+    "# it if this path ever goes away.",
+    "{",
+    "  'target_defaults': {",
+    "    'xcode_settings': {",
+    `      'SDKROOT': ${JSON.stringify(sdkPath)},`,
+    "    },",
+    "  },",
+    "}",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Point every node-gyp build on this machine at `sdkPath`.
+ *
+ * Four answers, and the caller words them: it was written, it already said this,
+ * somebody else's file is in the way, or the write failed. It never throws and
+ * never deletes anything — a convenience that removes a file it did not create,
+ * on a machine somebody else is working on, is not a convenience.
+ */
+export function pointGypAtSdk({
+  sdkPath,
+  home = os.homedir(),
+  read = defaultReadFile,
+  write = defaultWriteFile,
+  mkdir = defaultMkdir,
+} = {}) {
+  const include = gypIncludePath({ home });
+  const wanted = gypIncludeContents(sdkPath);
+  const existing = read(include);
+
+  if (existing !== null && !existing.includes(GYP_INCLUDE_MARKER)) {
+    return {
+      wrote: false,
+      foreign: true,
+      path: include,
+      reason: `${include} exists and was not written by this repository, so it was left alone`,
+    };
+  }
+
+  if (existing === wanted) {
+    return {
+      wrote: false,
+      foreign: false,
+      path: include,
+      reason: `${include} already points at ${sdkPath}`,
+    };
+  }
+
+  try {
+    mkdir(path.dirname(include));
+    write(include, wanted);
+  } catch (thrown) {
+    return {
+      wrote: false,
+      foreign: false,
+      path: include,
+      reason: `could not write ${include} — ${thrown?.message ?? thrown}`,
+    };
+  }
+
+  return {
+    wrote: true,
+    foreign: false,
+    path: include,
+    reason:
+      existing === null
+        ? `wrote ${include}, which points every node-gyp build on this machine at ${sdkPath}`
+        : `rewrote ${include} to point at ${sdkPath}`,
+  };
 }

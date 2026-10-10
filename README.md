@@ -66,7 +66,7 @@ Downloads live in [`alltherepos-releases`](https://github.com/ivy00johns/allther
 | **Node.js ≥22** | Vite 7 calls `crypto.hash()`, which does not exist in Node 21.0–21.6. An `.nvmrc` is checked in — run `nvm use`. `engines.node` enforces it at install time. |
 | **pnpm ≥9** | Pinned through the `packageManager` field. |
 | **macOS** | Required for `pnpm electron:pack` / `dist` (DMG output). The dev app builds anywhere Electron does, but only macOS is exercised. |
-| **Xcode command line tools** | `better-sqlite3` and `find-git-repositories` are compiled locally. On Xcode 26 set `SDKROOT` — see [Known Issues](#%EF%B8%8F-known-issues). |
+| **Xcode command line tools** | `better-sqlite3` and `find-git-repositories` are compiled locally. On Xcode 26 the installed SDK is one `clang` cannot read, and `pnpm install` arranges the fix itself — see [Known Issues](#%EF%B8%8F-known-issues). |
 | **Optional: [Ollama](http://localhost:11434)** | Embedding-based hybrid search. Without it, search answers from FTS5 alone — and the results say so rather than looking like a complete set. |
 
 ### Run it
@@ -285,13 +285,15 @@ The artifacts deliberately do **not** land in this repository. They go to [`ivy0
 <details>
 <summary><b>Native rebuilds fail on Xcode 26 with <code>tapi error: malformed file</code></b></summary>
 
-The linker picks up a command-line-tools SDK that Xcode's `clang` cannot parse. Point `SDKROOT` at the Xcode SDK for `pnpm test` and any native rebuild:
+A Command Line Tools update can leave the SDK the linker picks by default unreadable to Xcode's `clang` (`tapi error: malformed file`). Once the tree is installed, nothing has to be exported by hand: `pnpm install` runs `scripts/point-sdkroot.mjs`, which asks the linker whether a build links as the machine stands and, when it does not, resolves an SDK that does and writes it into gyp's own `~/.gyp/include.gypi`. Every `node-gyp` build on the machine reads that file, which is why it reaches the two commands a person types — a bare `pnpm rebuild <native module>`, whose build belongs to the dependency and runs with the environment it inherits, and `pnpm test`. Delete `~/.gyp/include.gypi` to opt out, or run `node scripts/point-sdkroot.mjs` to write it without an install.
+
+If you would rather choose the SDK yourself, the export still works — it is the first candidate the resolver asks when it has to point anything:
 
 ```bash
 export SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
 ```
 
-Tracked as ATR-057 in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
+The one install that still needs a hand is the first one on a machine that has never built these natives: pnpm compiles a dependency before it runs this project's `preinstall`, so there is nothing to point yet — export `SDKROOT` for that attempt, or install once and let the file take over. Tracked as ATR-057 in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
 </details>
 
 <details>

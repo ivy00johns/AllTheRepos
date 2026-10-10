@@ -106,6 +106,18 @@ interface ToolchainModule {
     }) => { ok: boolean; detail: string };
   }): SdkVerdict;
   SDK_PROBE_SOURCE: string;
+  GYP_INCLUDE_RELATIVE: string;
+  GYP_INCLUDE_MARKER: string;
+  gypIncludePath(options?: { home?: string }): string;
+  gypIncludeContents(sdkPath: string): string;
+  sdkFromGypInclude(text: string): string | null;
+  pointGypAtSdk(options?: {
+    sdkPath: string;
+    home?: string;
+    read?: (file: string) => string | null;
+    write?: (file: string, text: string) => void;
+    mkdir?: (dir: string) => void;
+  }): { wrote: boolean; foreign: boolean; path: string; reason: string };
   linkProbe(options?: {
     sdkPath?: string | null;
     clang?: string | null;
@@ -903,5 +915,195 @@ describe("whether a build against that SDK would actually link", () => {
 
     expect(passed.disposed).toHaveLength(1);
     expect(failed.disposed).toHaveLength(1);
+  });
+});
+
+describe("the SDK a dependency's own build hook gets", () => {
+  /*
+   * The lever, and why it is this one.
+   *
+   * `ensure-native-abi.mjs` hands the rebuild *it* starts the SDKROOT that
+   * links; a bare `pnpm rebuild <native module>` is not its child, so the only
+   * thing that reaches that build is gyp's own forced include,
+   * `~/.gyp/include.gypi`.
+   */
+  test("the include is gyp's own file, under whatever home is asked about", () => {
+    expect(toolchain.GYP_INCLUDE_RELATIVE).toBe(path.join(".gyp", "include.gypi"));
+    expect(toolchain.gypIncludePath({ home: "/tmp/somebody" })).toBe(
+      path.join("/tmp/somebody", ".gyp", "include.gypi"),
+    );
+  });
+
+  test("the contents name the marker, the SDK, and where the file comes from", () => {
+    const text = toolchain.gypIncludeContents("/SDKs/MacOSX26.5.sdk");
+
+    // The marker is what makes a file this wrote distinguishable from one a
+    // person keeps, which is the difference between refreshing and clobbering.
+    expect(text).toContain(toolchain.GYP_INCLUDE_MARKER);
+    expect(text).toContain("'SDKROOT': \"/SDKs/MacOSX26.5.sdk\",");
+    // A line a person reads, not just an assignment: how it got there, and how
+    // to undo it.
+    expect(text).toContain("scripts/point-sdkroot.mjs");
+    expect(text).toContain("pnpm rebuild");
+    expect(text).toContain("Delete");
+  });
+
+  test("the SDK path is encoded, so a quote in a home directory cannot end it", () => {
+    const hostile = '/Users/a"b/SDK "x".sdk';
+    const text = toolchain.gypIncludeContents(hostile);
+    const line = text
+      .split("\n")
+      .find((each) => each.includes("'SDKROOT':"));
+
+    expect(line).toBe(`      'SDKROOT': ${JSON.stringify(hostile)},`);
+    // Which is to say: one string literal, with each quote inside it escaped —
+    // the three in the path plus the pair that delimit it.
+    expect(line?.match(/"/g) ?? []).toHaveLength(5);
+    expect(line).toContain('\\"');
+  });
+
+  test("the SDK in a written include can be read back out of it", () => {
+    const sdkPath = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk";
+
+    expect(toolchain.sdkFromGypInclude(toolchain.gypIncludeContents(sdkPath))).toBe(
+      sdkPath,
+    );
+    // Escapes come back as the characters they stand for, which is the whole
+    // reason the path is encoded on the way in.
+    expect(toolchain.sdkFromGypInclude(toolchain.gypIncludeContents('/a"b/c.sdk'))).toBe(
+      '/a"b/c.sdk',
+    );
+    // A file with nothing to say about SDKs is not an error, and neither is one
+    // that is not readable at all.
+    expect(toolchain.sdkFromGypInclude("{ 'target_defaults': {} }\n")).toBe(null);
+    expect(toolchain.sdkFromGypInclude("{ 'SDKROOT': '/not/ours' }\n")).toBe(null);
+    expect(toolchain.sdkFromGypInclude("")).toBe(null);
+  });
+
+  test("no include at all is written, and its directory is created first", () => {
+    const home = tmp("atr-gyp");
+    const made: string[] = [];
+    const written: Array<{ file: string; text: string }> = [];
+
+    const verdict = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+      read: () => null,
+      mkdir: (dir) => made.push(dir),
+      write: (file, text) => written.push({ file, text }),
+    });
+
+    const include = path.join(home, ".gyp", "include.gypi");
+    expect(verdict.wrote).toBe(true);
+    expect(verdict.foreign).toBe(false);
+    expect(verdict.path).toBe(include);
+    expect(made).toEqual([path.dirname(include)]);
+    expect(written).toHaveLength(1);
+    expect(written[0].file).toBe(include);
+    expect(written[0].text).toBe(
+      toolchain.gypIncludeContents("/SDKs/MacOSX26.5.sdk"),
+    );
+    expect(verdict.reason).toContain("wrote");
+    expect(verdict.reason).toContain("/SDKs/MacOSX26.5.sdk");
+  });
+
+  test("a file that already says this is not rewritten on every install", () => {
+    const home = tmp("atr-gyp");
+    let writes = 0;
+    const read = () => toolchain.gypIncludeContents("/SDKs/MacOSX26.5.sdk");
+
+    const first = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+      read,
+      write: () => {
+        writes += 1;
+      },
+      mkdir: () => {},
+    });
+
+    expect(first.wrote).toBe(false);
+    expect(first.reason).toContain("already points at");
+    expect(writes).toBe(0);
+  });
+
+  test("our own file pointing somewhere else is rewritten", () => {
+    const home = tmp("atr-gyp");
+    const happened: string[] = [];
+
+    const verdict = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+      read: () => toolchain.gypIncludeContents("/SDKs/gone.sdk"),
+      write: () => happened.push("write"),
+      mkdir: () => happened.push("mkdir"),
+    });
+
+    expect(verdict.wrote).toBe(true);
+    expect(verdict.reason).toContain("rewrote");
+    expect(happened).toEqual(["mkdir", "write"]);
+  });
+
+  test("a file somebody else keeps is reported, never rewritten or removed", () => {
+    const home = tmp("atr-gyp");
+    const theirs = "{ 'target_defaults': { 'xcode_settings': { 'SDKROOT': '/X.sdk' } } }\n";
+    let touched = false;
+
+    const verdict = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+      read: () => theirs,
+      write: () => {
+        touched = true;
+      },
+      mkdir: () => {
+        touched = true;
+      },
+    });
+
+    expect(verdict).toMatchObject({ wrote: false, foreign: true });
+    expect(verdict.reason).toContain("left alone");
+    expect(touched).toBe(false);
+  });
+
+  test("a write that fails is a message, not an exception", () => {
+    const home = tmp("atr-gyp");
+
+    const verdict = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+      read: () => null,
+      mkdir: () => {},
+      write: () => {
+        throw new Error("EROFS: read-only file system");
+      },
+    });
+
+    expect(verdict.wrote).toBe(false);
+    expect(verdict.foreign).toBe(false);
+    expect(verdict.reason).toContain("could not write");
+    expect(verdict.reason).toContain("EROFS");
+  });
+
+  test("the real filesystem round-trips through the real node-gyp path", () => {
+    const home = tmp("atr-gyp");
+
+    expect(
+      toolchain.pointGypAtSdk({ sdkPath: "/SDKs/MacOSX26.5.sdk", home }).wrote,
+    ).toBe(true);
+
+    const include = path.join(home, ".gyp", "include.gypi");
+    expect(fs.readFileSync(include, "utf8")).toBe(
+      toolchain.gypIncludeContents("/SDKs/MacOSX26.5.sdk"),
+    );
+
+    // Second time is a no-op, which is what a `preinstall` on every install
+    // has to be.
+    const again = toolchain.pointGypAtSdk({
+      sdkPath: "/SDKs/MacOSX26.5.sdk",
+      home,
+    });
+    expect(again.wrote).toBe(false);
+    expect(again.reason).toContain("already points at");
   });
 });

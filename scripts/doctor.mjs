@@ -48,9 +48,12 @@ import { fileURLToPath } from "node:url";
 
 import {
   currentAbi,
+  GYP_INCLUDE_MARKER,
+  gypIncludePath,
   linkProbe,
   missingEntryPoints,
   resolveSdk,
+  sdkFromGypInclude,
 } from "./native-toolchain.mjs";
 
 const require = createRequire(import.meta.url);
@@ -226,6 +229,39 @@ export function checkNativeAbi({ abi, missing = [], needed = HOST_RUNTIME } = {}
 // macOS SDK
 // ---------------------------------------------------------------------------
 
+/** A file's text, or `null` when there is nothing to read there. */
+function readTextOrNull(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What gyp's forced include says, when that file is this repository's.
+ *
+ * `pnpm install` writes it so that a bare `pnpm rebuild` — a build this
+ * repository never starts, and so can never hand an environment to — links. The
+ * doctor reads it back for the one sentence that would otherwise be wrong:
+ * telling somebody to export `SDKROOT` by hand while a file on their machine
+ * already arranges it for every node-gyp build there is noise, and a warning
+ * nobody can act on is how warnings stop being read.
+ *
+ * `null` when there is no such file, when the file belongs to somebody else, or
+ * when it names no SDK — three states with one answer here, because the claim it
+ * feeds is only made when the path it names is the path that was proved to link.
+ */
+export function readGypInclude({
+  path: file = gypIncludePath(),
+  read = readTextOrNull,
+} = {}) {
+  const text = read(file);
+  if (text === null || !text.includes(GYP_INCLUDE_MARKER)) return null;
+  const sdkPath = sdkFromGypInclude(text);
+  return sdkPath === null ? null : { path: file, sdkPath };
+}
+
 /**
  * Whether a native rebuild would have an SDK its compiler can read — asked of
  * the linker, not of `xcrun`.
@@ -249,6 +285,12 @@ export function checkNativeAbi({ abi, missing = [], needed = HOST_RUNTIME } = {}
  * names the SDK it uses, because a warning nobody can act on is noise. A
  * resolver that found nothing usable is a failure.
  *
+ * When those two disagree, who else is already covered decides the sentence:
+ * `include` is gyp's forced include (see `readGypInclude`) and, when it names the
+ * path the link probe just accepted, a plain `pnpm rebuild` is pointed at a
+ * working SDK as things stand. The doctor says so instead of asking for an
+ * export it does not need.
+ *
  * Off macOS there is nothing to pair and nothing to prove, and that is an `ok`
  * rather than a pass nobody looked at: this doctor runs as a step on CI's fast
  * job, which is `ubuntu-latest`, and reporting the absence of Xcode as a broken
@@ -261,6 +303,7 @@ export function checkSdk({
   platform = process.platform,
   link = null,
   sdkLink = null,
+  include = null,
 } = {}) {
   if (platform !== "darwin") {
     return {
@@ -297,12 +340,20 @@ export function checkSdk({
         typeof sdk.env?.SDKROOT === "string"
           ? ", which is what the rebuild scripts here do themselves"
           : "";
+      // Saying this only when gyp's include names the path the linker just
+      // accepted, because that is the one arrangement being described: a file
+      // naming some other SDK is not covered by a proof about this one, and a
+      // file of somebody else's is not ours to describe.
+      const covered =
+        include !== null && include.sdkPath === sdk.sdkPath
+          ? `, and \`${include.path}\` already points every node-gyp build on this machine at it, so a plain \`pnpm rebuild\` needs no export`
+          : `, so anything that rebuilds without \`export SDKROOT=${sdk.sdkPath}\` will fail`;
       // No `reason` here: the resolver's sentence for this state is the same
       // finding, so appending it would print the linker's line twice.
       return {
         ok: false,
         warning: true,
-        detail: `a native rebuild would fail to link — ${link.detail} — but pointed at ${sdk.sdkPath} it links${scripted}, so anything that rebuilds without \`export SDKROOT=${sdk.sdkPath}\` will fail`,
+        detail: `a native rebuild would fail to link — ${link.detail} — but pointed at ${sdk.sdkPath} it links${scripted}${covered}`,
       };
     }
 
@@ -529,6 +580,7 @@ export function run({
   sdk = null,
   link = null,
   sdkLink = null,
+  include = undefined,
   database = null,
   open = openCatalog,
 } = {}) {
@@ -569,6 +621,16 @@ export function run({
       ? safely(() => linkProbe({ sdkPath: sdkState.sdkPath }), null)
       : null);
 
+  // Read only on macOS, and only when the caller has not handed over an answer:
+  // off darwin there is no such file to read, and a harness passing `null` is
+  // saying the question was not asked rather than that nothing is there.
+  const includeState =
+    include !== undefined
+      ? include
+      : platform === "darwin"
+        ? safely(() => readGypInclude(), null)
+        : null;
+
   const checks = {
     node: checkNodeVersion({
       version,
@@ -580,6 +642,7 @@ export function run({
       platform,
       link: linkState,
       sdkLink: sdkLinkState,
+      include: includeState,
     }),
     database: checkDatabase({
       path: database ?? defaultDatabasePath(),
