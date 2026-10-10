@@ -22,7 +22,11 @@
  * exposes `slug` via `Route.useParams()` in `routes/repos.$slug.tsx`.
  */
 
-import { createMemoryHistory, createRouter } from "@tanstack/react-router";
+import {
+  createHashHistory,
+  createMemoryHistory,
+  createRouter,
+} from "@tanstack/react-router";
 
 import { Route as RootRoute } from "@renderer/routes/__root";
 import { Route as IndexRoute } from "@renderer/routes/index";
@@ -44,17 +48,57 @@ const routeTree = RootRoute.addChildren([
   GraphRoute,
 ]);
 
+/** Either implementation. Both are the same `RouterHistory` shape. */
+type AppHistory =
+  | ReturnType<typeof createHashHistory>
+  | ReturnType<typeof createMemoryHistory>;
+
 /**
- * Electron note: we use `createMemoryHistory` instead of the default
- * browser history because the renderer is loaded from `file://` (or
- * the Vite dev server) and a real History API doesn't make sense in a
- * desktop app. Memory history also avoids the renderer being able to
- * navigate to arbitrary URLs via the address bar (defense-in-depth on
- * top of the main-process CSP).
+ * Hash history, so a reload keeps where you were.
+ *
+ * This was memory history, on the reasoning that a desktop app has no address
+ * bar and therefore no URL to keep. But "no address bar" is not "no URL worth
+ * having": reloading the window put you back on the catalog, and the map's own
+ * state — the open group, the selected repo, the signal filter — went with it,
+ * which is what "it keeps resetting on refresh" meant. The route now lives in
+ * `#/graph?cluster=3`, so it survives a reload, can be sent to somebody, and
+ * gives the router a Back that does something.
+ *
+ * The *fragment*, not a path, because the renderer is loaded from `file://`:
+ * a History API push cannot rewrite the path of a file URL. Electron still
+ * hands the renderer no address bar, and CSP plus `webPreferences` are
+ * unchanged, so nothing here widens what the window can reach.
+ *
+ * The two satellite windows load `#window=spotlight` and
+ * `#window=tray-popover`, which are not routes. `selectRoot()` in main.tsx has
+ * already chosen their root component from that fragment — this module is
+ * evaluated before it runs, since both are imported by the same bundle — and
+ * they never mount `RouterProvider`, so they keep memory history and their
+ * hash is left exactly as Electron wrote it.
  */
+function createAppHistory(): AppHistory {
+  if (typeof window === "undefined") {
+    return createMemoryHistory({ initialEntries: ["/"] });
+  }
+  const raw = window.location.hash.replace(/^#/, "");
+  const kind = new URLSearchParams(raw).get("window") ?? "main";
+  if (kind !== "main") return createMemoryHistory({ initialEntries: ["/"] });
+  // A fragment that is not a path is not a route either. Drop it before the
+  // router reads it, so a hand-edited `#anything` opens the catalog rather
+  // than a not-found page — replaced, not pushed, so Back leaves the app.
+  if (raw !== "" && !raw.startsWith("/")) {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${window.location.search}#/`,
+    );
+  }
+  return createHashHistory();
+}
+
 export const router = createRouter({
   routeTree,
-  history: createMemoryHistory({ initialEntries: ["/"] }),
+  history: createAppHistory(),
   defaultPreload: "intent",
   // Detail: in a desktop app we never want the route to throw a
   // 404 page — the route components themselves render an empty state.

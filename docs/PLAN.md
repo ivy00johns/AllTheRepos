@@ -58,8 +58,10 @@ green typecheck, de-flaked test, **Electron E2E 7/7**.
 Remaining (full detail in [`REMAINING-WORK.md`](./REMAINING-WORK.md)):
 
 1. ~~Retire the legacy Next.js stack (ATR-013)~~ — **done in Wave 0 (2026-08-21).**
-2. ~~Test-ABI automation tail (ATR-016)~~ — **done in Wave 0.** Note the flip mechanism it automated is itself
-   broken on this machine by a bad Command Line Tools SDK — see **ATR-057**.
+2. ~~Test-ABI automation tail (ATR-016)~~ — **done in Wave 0.** The flip it automated needed an
+   SDK this machine's own tools name badly, which is **ATR-057**; as of 2026-10-09 the SDK is
+   resolved and pointed at by the tree, at install time as well as by the test scripts, so no
+   `SDKROOT` export is part of running anything here.
 3. **Environment papercuts** — nvm dotfile (ATR-024), commit signing for agent sessions (ATR-025).
 4. **2026-07-11 audit intake — 11 P1 items** ([audit](./audits/2026-07-11-data-safety-scan-ux-audit.md)):
    - _Data safety:_ ✅ **shipped in Wave 4 (2026-07-13)** — moved-repo identity matching (ATR-027), stale-repo lifecycle + delete (ATR-028), last-opened stamped on every open (ATR-030).

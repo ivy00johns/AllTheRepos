@@ -4,9 +4,9 @@
  *
  * Per NEW-PLAN.md §9 Phase 0 deliverable: "one passing E2E test that opens
  * the window". Phase 1 moved the ping/pong card out of `/` (now the
- * catalog) into `/debug`. TanStack Router is configured with
- * `createMemoryHistory` so we cannot navigate via URL — the route is reached
- * through the app, as a person reaches it.
+ * catalog) into `/debug`. TanStack Router keeps its route in the URL hash, so
+ * `#/debug` reaches it too — but the route is reached through the app here,
+ * as a person reaches it.
  *
  * That door changed with ATR-074: `/debug` left the primary navigation, so
  * there is no longer a top-bar link to click. The command palette's
