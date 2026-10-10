@@ -158,7 +158,7 @@ export function TrayPopoverApp() {
         Running dev servers
       </header>
       <p className="px-2 py-1.5 text-xs text-muted-foreground">
-        (Phase 3 will populate this list)
+        Nothing to show yet.
       </p>
     </div>
   );
