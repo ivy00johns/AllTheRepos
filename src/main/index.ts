@@ -12,12 +12,15 @@
  *      d. Run Drizzle migrations to bring `alltherepos.db` up to date.
  *      e. Boot the scanner service (resume an unfinished job in future
  *         phases — Phase 1: no-op).
- *      f. Register every IPC handler.
- *      g. Subscribe to scan-progress events (fan-out to renderers +
- *         fire the native "Scan complete" notification on `done`).
- *      h. Create the main window.
+ *      f. Subscribe to every service's events (fan-out to renderers, the
+ *         dock badge, the native "Scan complete" notification).
+ *      g. Register every IPC handler.
+ *      h. Create the main window — **before** the services boot (ATR-055).
  *      i. Create the tray (lazy — depends on main window existing).
  *      j. Register the global Cmd+Shift+Space hotkey.
+ *      k. Boot the process, launcher and Claude services behind the window;
+ *         every handler that needs one of them awaits that service's
+ *         `boot()`, which hands back the promise started here.
  *   3. On `before-quit`: unregister every global shortcut.
  *   4. Honor macOS-specific lifecycle (`activate` recreates the window;
  *      we only quit on `window-all-closed` outside darwin).
@@ -175,6 +178,52 @@ function broadcastClaudeUpdate(
   }
 }
 
+/**
+ * Boot the services the window no longer waits for (ATR-055).
+ *
+ * These three used to be awaited before `createMainWindow()`, which put the
+ * scanning of every configured root, the detection of every editor on the
+ * machine and the indexing of every Claude session between a launch and its
+ * first paint. None of it is needed to draw the window: the renderer paints
+ * the shell and the catalog from SQLite (migrated before the window), and each
+ * panel that needs a service awaits that service's `boot()`, which hands back
+ * the promise started here rather than starting a second one.
+ *
+ * A failure is logged rather than fatal. It used to abort the whole boot with
+ * `app.exit(1)`, which meant a broken Claude index could keep the catalog from
+ * opening; now the panel whose service failed reports it, and offers a retry.
+ */
+function bootServicesBehindTheWindow(): void {
+  void (async () => {
+    try {
+      // ProcessService builds its catalog cwd→repo trie from the repos table
+      // (so `runMigrations` + the catalog must already be online) and starts
+      // paused — `start()` triggers on the first subscriber. LauncherService
+      // runs editor/terminal detection on /Applications + a PATH probe and
+      // caches the result for the app lifetime.
+      await processService.boot();
+
+      // Live filesystem watching. Started AFTER the catalog is open because
+      // the watcher prunes known repo subtrees, and it can only know them by
+      // reading the DB.
+      repoWatchService.onChange(broadcastCatalogChange);
+      repoWatchService.start();
+
+      await launcherService.boot();
+
+      // Reads `~/.claude.json`, walks `~/.claude/projects/<hash>/` to index
+      // sessions, and starts a chokidar watcher that emits `claude:on:update`
+      // when any project's session file changes.
+      await claudeService.boot();
+    } catch (err) {
+      console.error(
+        "[main] a service failed to boot behind the window — the panel that needs it will report it",
+        err,
+      );
+    }
+  })();
+}
+
 /** Acquire the single-instance lock before doing anything else. */
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -222,42 +271,15 @@ if (!gotSingleInstanceLock) {
       runMigrations();
 
       // 5. Scanner boot — Phase 1 is a no-op; later phases may resume a
-      //    half-finished job here.
+      //    half-finished job here. The only service boot that stays in front of
+      //    the window: no handler awaits it, so there is nothing that could
+      //    have waited for it afterwards.
       await scanService.boot();
 
-      // 5a. Phase 3a — ProcessService + LauncherService boot. ProcessService
-      //     builds its catalog cwd→repo trie from the SQLite repos table
-      //     (so runMigrations + the catalog must already be online) and
-      //     starts paused — `start()` triggers on the first subscriber.
-      //     LauncherService runs editor/terminal detection on /Applications
-      //     + PATH probe and caches for the app lifetime.
-      await processService.boot();
-
-      // 5b. Live filesystem watching. Started AFTER the catalog is open
-      //     because the watcher prunes known repo subtrees, and it can
-      //     only know them by reading the DB.
-      repoWatchService.onChange(broadcastCatalogChange);
-      repoWatchService.start();
-
-      // 5c. Task output stream.
-      taskService.onOutput(broadcastTaskOutput);
-
-      // 5d. Update checking. Checks once shortly after launch and stays
-      //     quiet otherwise; a packaged build only.
-      updaterService.onStatus(broadcastUpdateStatus);
-      updaterService.scheduleStartupCheck();
-      await launcherService.boot();
-
-      // 5b. Phase 3b — ClaudeService boot. Reads `~/.claude.json`, walks
-      //     `~/.claude/projects/<hash>/` to index sessions, and starts a
-      //     chokidar watcher that emits `claude:on:update` when any
-      //     project's session file changes. Idempotent.
-      await claudeService.boot();
-
-      // 6. IPC handlers — must exist before the renderer can call them.
-      registerIpcHandlers();
-
-      // 7. Subscribe to the scanner's progress events. Two consumers:
+      // 6. Subscriptions. Pure wiring — attaching a listener needs no service
+      //    to have booted, so this happens before the window rather than after.
+      //
+      //    Scanner progress has two consumers:
       //    (a) Fan to every renderer window via `webContents.send`.
       //    (b) Fire the "Scan complete" native notification on `done`.
       //    This is the canonical app-lifetime subscription — `src/main/ipc/scan.ts`
@@ -269,23 +291,42 @@ if (!gotSingleInstanceLock) {
         }
       });
 
-      // Phase 3a — fan ProcessService snapshot updates to every renderer.
-      // `update` events fire only when the (pid, port, repoSlug) triple
-      // set changes, so wire cost is minimal.
+      //    Phase 3a — fan ProcessService snapshot updates to every renderer.
+      //    `update` events fire only when the (pid, port, repoSlug) triple
+      //    set changes, so wire cost is minimal.
       processService.events.on("update", broadcastProcessUpdate);
 
-      // ATR-010 — auto-drive the macOS dock badge from the same
-      // ProcessService snapshot. Separate listener (not folded into the
-      // broadcast) so the badge logic is independently testable and one
-      // consumer failing can't starve the other.
+      //    ATR-010 — auto-drive the macOS dock badge from the same
+      //    ProcessService snapshot. Separate listener (not folded into the
+      //    broadcast) so the badge logic is independently testable and one
+      //    consumer failing can't starve the other.
       processService.events.on("update", driveDockBadge);
 
-      // Phase 3b — fan ClaudeService chokidar updates to every renderer.
-      // Renderer invalidates the matching `claude:projects` /
-      // `claude:repoState` / `claude:globalUsage` queries.
+      //    Phase 3b — fan ClaudeService chokidar updates to every renderer.
+      //    Renderer invalidates the matching `claude:projects` /
+      //    `claude:repoState` / `claude:globalUsage` queries.
       claudeService.events.on("update", broadcastClaudeUpdate);
 
-      // 8. Main window.
+      //    Task output stream.
+      taskService.onOutput(broadcastTaskOutput);
+
+      //    Update checking. Checks once shortly after launch and stays
+      //    quiet otherwise; a packaged build only.
+      updaterService.onStatus(broadcastUpdateStatus);
+      updaterService.scheduleStartupCheck();
+
+      // 7. IPC handlers — before the window, because the renderer's first call
+      //    has to find a handler to reach. A handler that needs a service
+      //    awaits that service's `boot()`, so nothing here depends on the boots
+      //    below having finished; see `bootServicesBehindTheWindow`.
+      registerIpcHandlers();
+
+      // 8. Main window — created BEFORE the services boot (ATR-055). It used to
+      //    be the last thing in this sequence, behind the process scan, editor
+      //    detection and the whole Claude index, none of which the first paint
+      //    needs: the renderer draws the shell and the catalog from SQLite
+      //    (migrated in step 4) and awaits a service only inside the panel that
+      //    shows that service's data.
       mainWindow = createMainWindow();
       mainWindow.on("closed", () => {
         mainWindow = null;
@@ -309,6 +350,9 @@ if (!gotSingleInstanceLock) {
           });
         }
       });
+
+      // 11. The services, behind the window they no longer hold up.
+      bootServicesBehindTheWindow();
     })
     .catch((err) => {
       // Boot errors otherwise vanish into UnhandledPromiseRejectionWarning

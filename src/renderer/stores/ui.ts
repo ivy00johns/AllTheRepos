@@ -93,7 +93,12 @@ interface UiActions {
 
 export type UiState = PersistedUiState & TransientUiState & UiActions;
 
-const PERSIST_KEY = "atr:ui:v1";
+/**
+ * Where this store is persisted, named so a caller that has to *forget* the
+ * saved state can remove exactly this key rather than a copy of the string
+ * (`browser-bridge.ts`, behind `?reset-edits`).
+ */
+export const PERSIST_KEY = "atr:ui:v1";
 
 export const useUiStore = create<UiState>()(
   persist(

@@ -99,10 +99,10 @@ test.describe("Phase 3b Claude flow", () => {
         // via the in-app navigation and renders its "Claude Usage"
         // heading. This still exercises the IPC + renderer.
         //
-        // NOTE: the renderer uses TanStack Router with createMemoryHistory,
-        // so `win.goto("/claude")` is a NO-OP — the URL bar changes but the
-        // router never sees it and the route never mounts. We MUST navigate
-        // via the in-app affordance. The top-bar (src/renderer/components/
+        // NOTE: the route lives in the URL hash, and the window is loaded
+        // from `file://`, so `win.goto("/claude")` asks for a document that
+        // does not exist rather than for the route. We navigate via the
+        // in-app affordance. The top-bar (src/renderer/components/
         // layout/top-bar.tsx) renders a `<Link to="/claude">` with
         // `aria-label="Claude usage"`, which surfaces as a link with that
         // accessible name.

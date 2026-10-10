@@ -75,11 +75,14 @@ need one, the scale is wrong, or the element is not what it looks like.
 **Canvas type.** The map's labels are painted into a canvas by cytoscape, which
 takes a number and knows nothing about classes, so no tier can reach them. Those
 steps are named too — `CANVAS_TYPE` in `graph-canvas.tsx`: node 10px, edge 9px, the
-focused node 12px, each with the rendered size its label is dropped below, since
-canvas type scales with zoom and is texture rather than reading at the default
-framing. They are deliberately smaller than the tiers. It is the only place in the
-renderer where a font size may be stated as a number, and the guard reports that
-form as well as the class-list one.
+focused node 12px, and a group name on the cluster-level map 12px — each with the
+rendered size its label is dropped below. They are deliberately smaller than the
+tiers, with one exception: the group step sits on the 12px floor, because at group
+level a name is the content rather than texture. Canvas type scales with zoom, so at
+the default framing it is texture rather than reading. That drop size is also what
+the map's opening zoom is clamped to — a map that opens below it opens with no names
+on it at all. `CANVAS_TYPE` is the only place in the renderer where a font size may
+be stated as a number, and the guard reports that form as well as the class-list one.
 
 The guard began as a floor — below 12px, the band the review measured — and the
 four `13px` runs were carved out as above it. That carve-out did not survive its

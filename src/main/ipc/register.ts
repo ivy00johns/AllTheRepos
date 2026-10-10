@@ -16,6 +16,7 @@
  * live" — handlers should not self-register at module-import time.
  */
 
+import { installIpcFaults } from "./_faults";
 import { registerAppHandlers } from "./app";
 import { registerCatalogHandlers } from "./catalog";
 import { registerClaudeHandlers } from "./claude";
@@ -38,6 +39,9 @@ import { registerGraphHandlers } from "./graph";
  * before re-registering.
  */
 export function registerIpcHandlers(): void {
+  // Test-only, inert without its environment switch (see `_faults.ts`). Installed
+  // before the first registration so it wraps every handler by construction.
+  installIpcFaults();
   registerSystemHandlers();
   registerCatalogHandlers();
   registerScanHandlers();

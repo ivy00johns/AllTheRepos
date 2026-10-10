@@ -56,13 +56,27 @@ const INHERITED_PROFILE_FILES = [
   "settings.json",
 ];
 
+/** The one file whose presence means this profile has already been initialised. */
+const PROFILE_DATABASE = "alltherepos.db";
+
 let warnedAboutMissingTemplate = false;
 
 /**
  * Copy the seeded catalog into a fresh profile. Returns true when anything was
  * copied — a launch with no template still works, it just starts empty.
+ *
+ * "Fresh" means the profile holds no database yet, not "this helper created the
+ * directory". A spec that launches twice on one `profileDir` wants the second
+ * launch to inherit what the first left — a database with the app's own writes
+ * in it, and the window's remembered route beside it — so re-copying the
+ * template over it would erase exactly the state under test. Gating on the
+ * database rather than on who made the directory also keeps a developer's
+ * hand-made profile from being silently overwritten.
  */
 function inheritSeededProfile(profileDir: string): boolean {
+  if (existsSync(join(profileDir, PROFILE_DATABASE))) {
+    return false;
+  }
   const template = process.env[TEMPLATE_PROFILE_ENV];
   if (!template) {
     if (!warnedAboutMissingTemplate) {
@@ -93,6 +107,22 @@ export interface LaunchedApp {
 
 export interface LaunchOptions {
   /**
+   * Run against this profile instead of a fresh one.
+   *
+   * For a spec that launches twice and needs the second launch to read what the
+   * first one wrote — main remembers the window's route in the profile, so "does
+   * the app come back where it was" is only answerable across two starts of the
+   * same directory. A reused directory is never re-seeded from the template: the
+   * first launch's database is the one under test, and copying the template over
+   * it is exactly the state the second launch is supposed to inherit.
+   */
+  profileDir?: string;
+  /**
+   * Leave the profile on disk when the app closes. The spec that named the
+   * directory removes it; nothing else does.
+   */
+  keepProfile?: boolean;
+  /**
    * Extra environment for this one app process.
    *
    * Per launch rather than by assigning to `process.env`, which would leak the
@@ -107,7 +137,9 @@ export interface LaunchOptions {
 export async function launchApp(
   options: LaunchOptions = {},
 ): Promise<LaunchedApp> {
-  const profileDir = mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
+  const ownsProfile = options.profileDir === undefined;
+  const profileDir =
+    options.profileDir ?? mkdtempSync(join(tmpdir(), "atr-e2e-profile-"));
   inheritSeededProfile(profileDir);
 
   let app: ElectronApplication;
@@ -123,8 +155,9 @@ export async function launchApp(
       },
     });
   } catch (error) {
-    // A launch that never produced an app should not leave its profile behind.
-    rmSync(profileDir, { recursive: true, force: true });
+    // A launch that never produced an app should not leave *its own* profile
+    // behind. One it was handed belongs to whoever asked for it.
+    if (ownsProfile) rmSync(profileDir, { recursive: true, force: true });
     throw error;
   }
 
@@ -134,7 +167,9 @@ export async function launchApp(
       try {
         await app.close();
       } finally {
-        rmSync(profileDir, { recursive: true, force: true });
+        if (ownsProfile && options.keepProfile !== true) {
+          rmSync(profileDir, { recursive: true, force: true });
+        }
       }
     },
   };

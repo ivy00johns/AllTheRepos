@@ -17,10 +17,6 @@
  */
 
 import * as React from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 import {
   Bot,
   Edit,
@@ -39,7 +35,7 @@ import {
   useOpenClaudeMd,
 } from "@renderer/hooks/use-claude";
 import { getAtr } from "@renderer/lib/atr";
-import { README_SANITIZE_SCHEMA } from "@renderer/lib/markdown";
+import { Markdown } from "@renderer/components/markdown";
 
 import { ClaudeAgentCard } from "./claude-agent-card";
 import { ClaudeEmptyState } from "./claude-empty-state";
@@ -168,16 +164,8 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
           CLAUDE.md
         </SectionHeading>
         {state.claudeMdContent ? (
-          <div className="prose prose-invert prose-sm max-w-none rounded-md border border-border bg-card p-4 font-sans prose-headings:font-mono prose-code:font-mono prose-code:text-accent prose-a:text-accent">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[
-                rehypeRaw,
-                [rehypeSanitize, README_SANITIZE_SCHEMA],
-              ]}
-            >
-              {state.claudeMdContent}
-            </ReactMarkdown>
+          <div className="rounded-md border border-border bg-card p-4">
+            <Markdown>{state.claudeMdContent}</Markdown>
           </div>
         ) : (
           <p className="rounded-md border border-dashed border-border bg-card/50 p-3 text-xs italic text-muted-foreground">

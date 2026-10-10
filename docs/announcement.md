@@ -29,7 +29,7 @@ This is pre-1.0 and it shows in specific, known ways:
 
 - The build is ad-hoc signed and not notarised, because notarisation needs an Apple Developer Program membership. macOS refuses the first launch, and you allow it once through **System Settings → Privacy & Security → Open Anyway**. The DMG carries those steps in `READ-ME-FIRST.txt`, because once the launch has been refused there is nothing on screen that could explain anything.
 - The updater checks for new versions anonymously, then hands you the release page. It does not install updates on an ad-hoc build, and it says so in Settings rather than offering an install macOS would refuse.
-- Cold start is about 22 seconds: the main window waits for every service to finish booting before it is created. It is measured and filed, and the fix is designed but not written.
+- Cold start was about 5 seconds on the machine this was built on, and it was mostly waiting: the window was created only after the process scan, the editor detection and the session index had all finished. The window now opens first and those boot behind it — measured, 5381ms to 1345ms — but the first paint after that still loads the whole renderer bundle at once, and there is no progress on it.
 - Apple silicon only. Linux and Windows are not started.
 - The source is private for now, the downloads live in a public releases-only repository, and there is no license file yet, so nothing here grants reuse rights.
 

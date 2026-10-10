@@ -114,6 +114,10 @@ export function registerLauncherHandlers(): void {
     IPC.LAUNCHER.OPEN_IN_EDITOR,
     async (event: IpcMainInvokeEvent, raw): Promise<LauncherResult> => {
       assertRendererFrame(event);
+      // The detection result decides which editor this opens. The window no
+      // longer waits for detection (ATR-055), so the first click of a launch
+      // could otherwise be answered from the defensive empty cache.
+      await launcherService.boot();
       return handleLauncherOpenInEditor(raw);
     },
   );
@@ -122,6 +126,7 @@ export function registerLauncherHandlers(): void {
     IPC.LAUNCHER.OPEN_IN_TERMINAL,
     async (event: IpcMainInvokeEvent, raw): Promise<LauncherResult> => {
       assertRendererFrame(event);
+      await launcherService.boot();
       return handleLauncherOpenInTerminal(raw);
     },
   );
@@ -138,6 +143,7 @@ export function registerLauncherHandlers(): void {
     IPC.LAUNCHER.OPEN_REMOTE,
     async (event: IpcMainInvokeEvent, raw): Promise<LauncherResult> => {
       assertRendererFrame(event);
+      await launcherService.boot();
       return handleLauncherOpenRemote(raw);
     },
   );

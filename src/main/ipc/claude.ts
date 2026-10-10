@@ -9,6 +9,15 @@
  * Every handler runs `assertRendererFrame(event)` first and parses
  * its raw input through the matching Zod schema before dispatching
  * to ClaudeService.
+ *
+ * Each registration also awaits `claudeService.boot()` before dispatching.
+ * The walk over every project's session files is the expensive part of a cold
+ * start and the window no longer waits for it (ATR-055), so a `claude:*` call
+ * on the first paint has to be able to wait for the walk that is already
+ * running — the service hands back the same promise, so this joins it rather
+ * than starting a second one. The `handle*` functions stay free of that
+ * concern, which is why the await lives here: they remain pure dispatch and
+ * the unit suite keeps testing them for exactly that.
  */
 
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
@@ -123,6 +132,7 @@ export function registerClaudeHandlers(): void {
     IPC.CLAUDE.INDEX,
     async (event: IpcMainInvokeEvent, raw): Promise<ClaudeIndexResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeIndex(raw);
     },
   );
@@ -131,6 +141,7 @@ export function registerClaudeHandlers(): void {
     IPC.CLAUDE.PROJECTS,
     async (event: IpcMainInvokeEvent, raw): Promise<ClaudeProjectsResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeProjects(raw);
     },
   );
@@ -139,6 +150,7 @@ export function registerClaudeHandlers(): void {
     IPC.CLAUDE.REPO_STATE,
     async (event: IpcMainInvokeEvent, raw): Promise<ClaudeRepoState> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeRepoState(raw);
     },
   );
@@ -150,6 +162,7 @@ export function registerClaudeHandlers(): void {
       raw,
     ): Promise<ClaudeSessionTranscriptResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeSessionTranscript(raw);
     },
   );
@@ -161,6 +174,7 @@ export function registerClaudeHandlers(): void {
       raw,
     ): Promise<ClaudeGlobalUsageResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeGlobalUsage(raw);
     },
   );
@@ -169,6 +183,7 @@ export function registerClaudeHandlers(): void {
     IPC.CLAUDE.LAUNCH,
     async (event: IpcMainInvokeEvent, raw): Promise<ClaudeLaunchResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeLaunch(raw);
     },
   );
@@ -180,6 +195,7 @@ export function registerClaudeHandlers(): void {
       raw,
     ): Promise<ClaudeOpenClaudeMdResult> => {
       assertRendererFrame(event);
+      await claudeService.boot();
       return handleClaudeOpenClaudeMd(raw);
     },
   );

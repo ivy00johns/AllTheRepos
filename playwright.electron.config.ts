@@ -56,6 +56,9 @@ export default defineConfig({
   // level, the first Tab stop, the hue of the live-status dot, and the absence
   // of Debug from the navigation — read off the running app rather than the
   // source.
+  // window-route-restore.spec.ts — the window comes back where it was left,
+  // asserted across two launches of one profile because that is the only place
+  // the claim is observable (`_launch-app.ts` gained the two options for it).
   // type-scale.spec.ts — the type-scale rule (ATR-072) on *every* screen: the
   // routes come from `src/renderer/routes/` and the view modes from the running
   // toolbar, so a screen added later cannot go unaudited. It is the spec that
@@ -65,8 +68,25 @@ export default defineConfig({
   // whether the screen moved, which no class list can answer. Its baselines are
   // committed, and it reads its modes off the toolbar for the same reason the
   // sweep does.
+  // accessibility.spec.ts — the five click-and-keyboard blockers the 2026-10-07
+  // review filed (ATR-059, 060, 065, 066, 069), measured on the rendered result:
+  // an accessible name is not something a source read can settle.
+  // detail-readme.spec.ts — the detail panel's README and folder rail: the
+  // markdown's computed style, a Tasks section that no longer opens itself, and
+  // the rail's "directly in this folder" row as the control it is.
+  // retry-and-loading.spec.ts — the failure and in-flight states (ATR-063, 064)
+  // on `repos.$slug`, `/settings` and `/processes`, forced from the test rather
+  // than waited for: a healthy machine never reaches either.
+  // viewport-fit.spec.ts — the two routes that were taller than the window they
+  // render in, at 1280x800, measured as `documentElement.scrollHeight` against
+  // `innerHeight`.
   testMatch:
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual)\.spec\.ts$/,
+    // Both passes' additions, since each one names a spec the other branch did
+    // not have: the UI/UX pass added accessibility, detail-readme,
+    // retry-and-loading and viewport-fit, and the graph pass added
+    // window-route-restore. Every name here has a spec beside it, and each one
+    // has its paragraph above.
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.

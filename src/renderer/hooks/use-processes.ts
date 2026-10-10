@@ -26,6 +26,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -47,6 +48,28 @@ const EMPTY_SNAPSHOT: ListProcessesResult = {
 };
 
 /**
+ * Write a snapshot into the cache **without papering over a failed read**.
+ *
+ * A push and a sweep are both cache writes, and `setQueryData` dispatches a
+ * `success`: it clears `state.error` and puts the query back to `success`. So a
+ * failing `process:list` used to set the error state, and then lose it to the
+ * next push from the main-side poller a tick later — the panel's "Try again"
+ * appeared and was wiped before anyone could press it, leaving a screen that
+ * said nothing about the read that was broken. (`setQueryData` has no manual
+ * flag in the public API; query-core only honours one on the private dispatch.)
+ *
+ * The rule is therefore: while the *read* is in error, the thing the panel is
+ * showing is that error, and a snapshot from another route into the cache does
+ * not replace it. The poll that owns the read is still running, so the moment
+ * the outage lifts the answer arrives on its own — or on the retry.
+ */
+function writeSnapshot(queryClient: QueryClient, snapshot: ListProcessesResult): void {
+  const state = queryClient.getQueryState<ListProcessesResult, Error>(PROCESSES_KEY);
+  if (state?.status === "error") return;
+  queryClient.setQueryData<ListProcessesResult>(PROCESSES_KEY, snapshot);
+}
+
+/**
  * Subscribes to push-style process snapshot events from the main
  * process for the lifetime of the renderer. Mount this exactly ONCE
  * at the top of the app tree (App.tsx) so the subscription survives
@@ -60,7 +83,7 @@ export function useProcessEventBus(): void {
     const atr = getAtr();
     if (!atr) return;
     const unsubscribe = atr.process.onUpdate((snapshot) => {
-      queryClient.setQueryData<ListProcessesResult>(PROCESSES_KEY, snapshot);
+      writeSnapshot(queryClient, snapshot);
     });
     return () => {
       unsubscribe();
@@ -147,7 +170,7 @@ export function useRefreshProcesses(): UseMutationResult<
       return atr.process.refresh();
     },
     onSuccess: (snapshot) => {
-      queryClient.setQueryData<ListProcessesResult>(PROCESSES_KEY, snapshot);
+      writeSnapshot(queryClient, snapshot);
     },
   });
 }

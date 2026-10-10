@@ -12,7 +12,7 @@
  */
 
 import * as React from "react";
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, useNavigate } from "@tanstack/react-router";
 import {
   Eye,
   FolderInput,
@@ -32,14 +32,97 @@ import { useGraph } from "@renderer/hooks/use-graph";
 import { useRepos } from "@renderer/hooks/use-repos";
 import { useSettings } from "@renderer/hooks/use-settings";
 import { cn } from "@renderer/lib/cn";
+import { UNGROUPED_CLUSTER_ID } from "@renderer/lib/graph-clusters";
 import { countEdgesBySignal } from "@renderer/lib/graph-signals";
+import {
+  focusRailOption,
+  railStop,
+  railTarget,
+} from "@renderer/lib/rail-keyboard";
 import { tildify } from "@renderer/lib/repo-tree";
 
 import { Route as RootRoute } from "./__root";
 
+/**
+ * What the map's address says.
+ *
+ * The map has three pieces of state worth surviving a reload — which group is
+ * open, which repo is selected, and which signals are switched off — and they
+ * live in the URL rather than in `useState` for one reason: a refresh dropped
+ * all three and put you back on the whole catalog, which on a 271-repo machine
+ * is a long way from where you were. `#/graph?cluster=3&repo=slug` is also the
+ * thing you can send to somebody.
+ *
+ * Signals are stored switched *off*, not on, so a signal added later is on by
+ * default and an untouched map has no query string at all.
+ */
+export interface GraphSearch {
+  /** Open group: a cluster id, or `ungrouped`. Absent means group level. */
+  cluster?: number | "ungrouped";
+  /** Selected repo. */
+  repo?: string;
+  /** Signals switched off, comma-joined. Absent means every signal is on. */
+  off?: string;
+}
+
+/**
+ * One search value as a string, however it arrived.
+ *
+ * Both spellings of the same address have to mean the same thing. A hand-typed
+ * `#/graph?cluster=0` is JSON-parsed out of the query string into the *number* 0
+ * (see the router's `parseSearch`), where a string is left alone; accepting
+ * only one of them is what made a pasted address open the group map instead of
+ * the group it named.
+ */
+function readParam(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+/**
+ * The address's cluster param, as the only two things it can mean.
+ *
+ * Normalised to a *number* rather than left as the string the query carried,
+ * because the router writes a string back through `JSON.stringify` when the
+ * text happens to parse as JSON — `"0"` came out as `cluster=%220%22`, and
+ * every subsequent link inherited the quoting. A number is written bare.
+ * A param that names no group is dropped here rather than carried.
+ */
+function readClusterParam(value: unknown): number | "ungrouped" | undefined {
+  if (value === "ungrouped") return "ungrouped";
+  const text = readParam(value);
+  if (text === undefined) return undefined;
+  const id = Number(text);
+  return Number.isInteger(id) && id >= 0 ? id : undefined;
+}
+
+/**
+ * Read the address, keeping only what this route understands.
+ *
+ * The top bar's search field writes `q` onto whatever route you are on, so the
+ * params arrive alongside keys the map knows nothing about — those are dropped
+ * here rather than carried around, and re-added by the router on the way out.
+ */
+function validateGraphSearch(search: Record<string, unknown>): GraphSearch {
+  return {
+    cluster: readClusterParam(search.cluster),
+    repo: readParam(search.repo),
+    off: readParam(search.off),
+  };
+}
+
+/** The validated cluster param as a selection: a group id, or group level. */
+function parseClusterParam(value: GraphSearch["cluster"]): number | null {
+  if (value === undefined) return null;
+  if (value === "ungrouped") return UNGROUPED_CLUSTER_ID;
+  return value;
+}
+
 export const Route = createRoute({
   getParentRoute: () => RootRoute,
   path: "/graph",
+  validateSearch: validateGraphSearch,
   component: GraphPage,
 });
 
@@ -82,12 +165,87 @@ function GraphPage() {
   const reposQuery = useRepos({ limit: 200 });
   const settingsQuery = useSettings();
 
-  const [enabled, setEnabled] = React.useState<Set<GraphSignal>>(
-    () => new Set(ALL_SIGNALS),
+  /*
+   * The map's view state, read from the address rather than held here. See
+   * `GraphSearch`: a reload used to reset the group, the selected repo and
+   * the signal filter together, and "where was I" is the whole question on a
+   * catalog this size.
+   */
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+
+  const selectedCluster = React.useMemo(
+    () => parseClusterParam(search.cluster),
+    [search.cluster],
   );
-  const [selectedSlug, setSelectedSlug] = React.useState<string | null>(null);
-  const [selectedCluster, setSelectedCluster] = React.useState<number | null>(
-    null,
+  const selectedSlug = search.repo ?? null;
+
+  const enabled = React.useMemo(() => {
+    const off = new Set(
+      (search.off ?? "")
+        .split(",")
+        .filter((signal): signal is GraphSignal =>
+          (ALL_SIGNALS as string[]).includes(signal),
+        ),
+    );
+    return new Set(ALL_SIGNALS.filter((signal) => !off.has(signal)));
+  }, [search.off]);
+
+  /**
+   * Write the map's address. The updater form is deliberate: the top bar's
+   * search field writes `q` onto whichever route you are on, so a navigation
+   * built from a snapshot of the query string would drop it.
+   *
+   * Opening a group or choosing a repo pushes an entry, so Back undoes it the
+   * way a person expects; flipping a signal filter replaces the current one,
+   * because six toggles you would never undo one at a time do not deserve six
+   * history entries.
+   */
+  const setSearch = React.useCallback(
+    (patch: GraphSearch, replace: boolean) => {
+      void navigate({
+        to: "/graph",
+        replace,
+        search: ((prev: Record<string, unknown>) => ({
+          ...prev,
+          ...patch,
+        })) as unknown as never,
+      });
+    },
+    [navigate],
+  );
+
+  /** Switch signals on and off, writing the *off* set to the address. */
+  const setEnabled = React.useCallback(
+    (next: Set<GraphSignal>) => {
+      const off = ALL_SIGNALS.filter((signal) => !next.has(signal));
+      setSearch({ off: off.length > 0 ? off.join(",") : undefined }, true);
+    },
+    [setSearch],
+  );
+
+  /** Open a group, or `null` for the group map. */
+  const openCluster = React.useCallback(
+    (clusterId: number | null) => {
+      setSearch(
+        {
+          cluster:
+            clusterId === null
+              ? undefined
+              : clusterId === UNGROUPED_CLUSTER_ID
+                ? "ungrouped"
+                : clusterId,
+          repo: undefined,
+        },
+        false,
+      );
+    },
+    [setSearch],
+  );
+
+  const setSelectedSlug = React.useCallback(
+    (slug: string | null) => setSearch({ repo: slug ?? undefined }, false),
+    [setSearch],
   );
   const [moveSlugs, setMoveSlugs] = React.useState<string[]>([]);
   const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
@@ -145,11 +303,107 @@ function GraphPage() {
     return new Set(cluster?.strays ?? []);
   }, [selectedCluster, data]);
 
+  /**
+   * Whether the map is showing groups rather than repos.
+   *
+   * Group level needs groups. A catalog whose repos relate to nothing has no
+   * clusters, and one bubble called "Ungrouped" holding the entire library
+   * would be a worse picture than the repos themselves — so the overview is
+   * offered only when there is something to group by, and an unrelated
+   * catalog opens exactly as it always did.
+   */
+  const atGroupLevel =
+    selectedCluster === null && (data?.clusters.length ?? 0) > 0;
+
+  /** Every repo named by a group of two or more. */
+  const groupedSlugs = React.useMemo(
+    () => new Set(data?.clusters.flatMap((cluster) => cluster.slugs) ?? []),
+    [data],
+  );
+
+  /**
+   * Repos in no group at all — related to nothing.
+   *
+   * Collected rather than dropped, so a map that claims to describe the
+   * catalog cannot quietly lose the repos it found nothing to say about.
+   */
+  const ungroupedSlugs = React.useMemo(
+    () =>
+      (data?.nodes ?? [])
+        .filter((node) => !groupedSlugs.has(node.slug))
+        .map((node) => node.slug),
+    [data, groupedSlugs],
+  );
+
+  /**
+   * Group-level map data, or null while repos are drawn.
+   *
+   * Memoised because the canvas re-runs its layout whenever this identity
+   * changes, so an object rebuilt on every render would re-arrange the map
+   * while you were still looking at it.
+   */
+  const overview = React.useMemo(
+    () =>
+      atGroupLevel && data
+        ? {
+            clusters: data.clusters,
+            // The uncapped set: the strongest-N cap exists to keep the flat
+            // map readable and is meaningless once links are aggregated.
+            edges,
+            ungroupedSlugs,
+            onSelectCluster: openCluster,
+          }
+        : null,
+    [atGroupLevel, data, edges, ungroupedSlugs, openCluster],
+  );
+
+  /**
+   * Repos in each group, off the group's own member list.
+   *
+   * The same source the bubbles are drawn from — `buildClusterOverview`
+   * reads `cluster.slugs` too — so the bubble you clicked and the repos you
+   * get cannot disagree about who is in the group. Filtering on each node's
+   * own `cluster` field instead is what said "271 repos" when you opened a
+   * group of 27.
+   */
+  const membersOf = React.useMemo(() => {
+    const members = new Map<number, Set<string>>();
+    for (const cluster of data?.clusters ?? []) {
+      members.set(cluster.id, new Set(cluster.slugs));
+    }
+    return members;
+  }, [data]);
+
   const visibleNodes = React.useMemo(() => {
     if (!data) return [];
     if (selectedCluster === null) return data.nodes;
-    return data.nodes.filter((n) => n.cluster === selectedCluster);
-  }, [data, selectedCluster]);
+    const members =
+      selectedCluster === UNGROUPED_CLUSTER_ID
+        ? new Set(ungroupedSlugs)
+        : membersOf.get(selectedCluster);
+    // An address naming a group that does not exist is not a place. Draw the
+    // map rather than an empty canvas nobody can explain.
+    if (!members) return data.nodes;
+    return data.nodes.filter((node) => members.has(node.slug));
+  }, [data, selectedCluster, membersOf, ungroupedSlugs]);
+
+  /**
+   * The group the map is inside, named.
+   *
+   * Read off the clusters rather than trusted from the address: an id alone is
+   * not an answer to "where am I", and the header used to say only
+   * "Relationships · 27 repos" whichever group you had opened.
+   */
+  const openGroup = React.useMemo(() => {
+    if (selectedCluster === null) return null;
+    if (selectedCluster === UNGROUPED_CLUSTER_ID) {
+      return ungroupedSlugs.length > 0
+        ? { id: selectedCluster, label: "Ungrouped" }
+        : null;
+    }
+    const cluster = data?.clusters.find((c) => c.id === selectedCluster);
+    return cluster ? { id: cluster.id, label: cluster.label } : null;
+  }, [selectedCluster, data, ungroupedSlugs]);
 
   /**
    * Edges to draw.
@@ -189,53 +443,90 @@ function GraphPage() {
     data?.nodes.find((n) => n.slug === slug)?.name ?? slug;
 
   /**
-   * Where the list's single tab stop sits. Clamped rather than trusted: the
-   * node set shrinks when a cluster is isolated or the filter changes, and an
-   * index past the end would leave the list with nothing tabbable at all.
+   * The keyboard path over whatever the map is currently drawing: the groups
+   * at group level, the repos once one has been opened.
+   *
+   * It follows the map deliberately. The list is the only path onto the canvas
+   * for a keyboard — cytoscape paints into untitled `<canvas>` elements and
+   * nothing on it can take focus — so a list describing something other than
+   * what is drawn would describe a picture that is not on screen.
    */
-  const rovingOption =
-    visibleNodes.length === 0
-      ? -1
-      : Math.min(rovingIndex, visibleNodes.length - 1);
+  const railItems = React.useMemo<
+    Array<{
+      key: string;
+      label: string;
+      meta: string;
+      selected: boolean;
+      pick: () => void;
+    }>
+  >(() => {
+    if (!atGroupLevel) {
+      return visibleNodes.map((node) => ({
+        key: node.slug,
+        label: node.name,
+        meta: `${node.degree}`,
+        selected: node.slug === selectedSlug,
+        pick: () => setSelectedSlug(node.slug),
+      }));
+    }
+    const items = (data?.clusters ?? []).map((cluster) => ({
+      key: `c${cluster.id}`,
+      label: cluster.label,
+      meta: `${cluster.size}`,
+      selected: false,
+      pick: () => openCluster(cluster.id),
+    }));
+    if (ungroupedSlugs.length > 0) {
+      items.push({
+        key: "ungrouped",
+        label: "Ungrouped",
+        meta: `${ungroupedSlugs.length}`,
+        selected: false,
+        pick: () => openCluster(UNGROUPED_CLUSTER_ID),
+      });
+    }
+    return items;
+  }, [atGroupLevel, data, ungroupedSlugs, visibleNodes, selectedSlug, openCluster]);
 
   /*
-   * Follow the map: selecting a node there (or in the link list below) moves
+   * Where the list's single tab stop sits, clamped to a list that may have
+   * shrunk since it was last set. The clamp, the key map and the cursor
+   * policy all live in `lib/rail-keyboard`, where they are testable without a
+   * window — see that file for why each is shaped the way it is.
+   */
+  const rovingOption = railStop(rovingIndex, railItems.length);
+
+  /*
+   * Follow the map: selecting a node on it (or in the link list below) moves
    * the tab stop to match. Focus is never taken — only which option is
    * tabbable — so this cannot fight the mouse.
    */
   React.useEffect(() => {
-    if (!selectedSlug) return;
-    const index = visibleNodes.findIndex((node) => node.slug === selectedSlug);
+    const index = railItems.findIndex((item) => item.selected);
     if (index >= 0) setRovingIndex(index);
-  }, [selectedSlug, visibleNodes]);
+  }, [railItems]);
 
-  /** Move the tab stop, focus it, and select — the keyboard's tap. */
-  const selectNodeOption = (index: number) => {
-    const node = visibleNodes[index];
-    if (!node) return;
+  /** Move the tab stop, focus it, and pick — the keyboard's tap. */
+  const selectRailItem = (index: number) => {
+    const item = railItems[index];
+    if (!item) return;
     setRovingIndex(index);
-    setSelectedSlug(node.slug);
-    nodeOptionRefs.current[index]?.focus();
+    item.pick();
+    focusRailOption(index, {
+      optionAt: (at) => nodeOptionRefs.current[at] ?? null,
+      activeElement: () => document.activeElement,
+      fallback: () => document.body,
+      afterFrame: (again) => {
+        window.requestAnimationFrame(again);
+      },
+    });
   };
 
-  const handleNodeOptionKeyDown = (
-    event: React.KeyboardEvent,
-    index: number,
-  ) => {
-    const last = visibleNodes.length - 1;
-    let target: number | null = null;
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      target = index >= last ? 0 : index + 1;
-    } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      target = index <= 0 ? last : index - 1;
-    } else if (event.key === "Home") {
-      target = 0;
-    } else if (event.key === "End") {
-      target = last;
-    }
-    if (target === null || target < 0) return;
+  const handleRailKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const target = railTarget(event.key, index, railItems.length - 1);
+    if (target === null) return;
     event.preventDefault();
-    selectNodeOption(target);
+    selectRailItem(target);
   };
 
   /*
@@ -272,22 +563,62 @@ function GraphPage() {
               Relationships
             </h1>
 
+            {/*
+              Where am I. Opening a group used to leave the header reading
+              "Relationships" and a repo count, which is how you end up on a
+              screenful of dots with no idea which group you are inside or how
+              to leave it. The trail names the group and offers the way back.
+            */}
+            {openGroup ? (
+              <nav
+                aria-label="Map location"
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                <button
+                  type="button"
+                  onClick={() => openCluster(null)}
+                  className="atr-label cursor-pointer font-mono uppercase tracking-wider text-muted-foreground underline-offset-2 transition-colors duration-150 hover:text-foreground hover:underline"
+                >
+                  Groups
+                </button>
+                <span aria-hidden className="atr-label text-muted-foreground">
+                  /
+                </span>
+                <span className="atr-truncate font-mono atr-label text-foreground">
+                  {openGroup.label}
+                </span>
+                <span className="atr-meta shrink-0 tabular-nums">
+                  {visibleNodes.length}{" "}
+                  {visibleNodes.length === 1 ? "repo" : "repos"}
+                </span>
+              </nav>
+            ) : null}
+
             <div className="ml-auto flex items-center gap-2">
               {selectedCluster !== null ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setSelectedCluster(null)}
+                  onClick={() => openCluster(null)}
+                  title="Back to the group map"
                 >
                   <Eye aria-hidden />
-                  Show everything
+                  {(data?.clusters.length ?? 0) > 0
+                    ? "All groups"
+                    : "Show everything"}
                 </Button>
               ) : null}
               <span className="atr-meta tabular-nums">
-                {visibleNodes.length} repos ·{" "}
-                {selectedCluster === null && edges.length > OVERVIEW_EDGE_CAP
-                  ? `strongest ${visibleEdges.length} of ${edges.length} links`
-                  : `${visibleEdges.length} links`}
+                {atGroupLevel
+                  ? `${data?.clusters.length ?? 0} groups · ${
+                      data?.nodes.length ?? 0
+                    } repos · ${edges.length} links`
+                  : `${visibleNodes.length} repos · ${
+                      selectedCluster === null &&
+                      edges.length > OVERVIEW_EDGE_CAP
+                        ? `strongest ${visibleEdges.length} of ${edges.length} links`
+                        : `${visibleEdges.length} links`
+                    }`}
               </span>
               <Button
                 variant="ghost"
@@ -325,14 +656,12 @@ function GraphPage() {
                     title={`${SIGNAL_HINTS[signal]} · ${count} ${
                       count === 1 ? "link" : "links"
                     }`}
-                    onClick={() =>
-                      setEnabled((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(signal)) next.delete(signal);
-                        else next.add(signal);
-                        return next;
-                      })
-                    }
+                    onClick={() => {
+                      const next = new Set(enabled);
+                      if (next.has(signal)) next.delete(signal);
+                      else next.add(signal);
+                      setEnabled(next);
+                    }}
                   >
                     <span>{SIGNAL_LABELS[signal]}</span>
                     <span className="atr-micro font-mono tabular-nums text-muted-foreground">
@@ -388,6 +717,7 @@ function GraphPage() {
               highlightSlugs={highlight}
               onSelect={setSelectedSlug}
               onOpen={(slug) => setSelectedSlug(slug)}
+              overview={overview}
             />
           )}
         </div>
@@ -401,51 +731,52 @@ function GraphPage() {
         */}
         <section className="border-b border-border p-4">
           <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
-            Repositories
+            {atGroupLevel ? "Groups" : "Repositories"}
           </h2>
           <p className="atr-label mt-1 leading-snug text-muted-foreground">
-            The map is painted on a canvas, so no dot on it can take focus. Pick
-            one here instead — arrow keys move through the list, and Enter or
-            Space selects the same node.
+            {atGroupLevel
+              ? "The map opens on groups — repos that belong together. It is painted on a canvas, so nothing on it can take focus: open a group from this list instead and the map follows. Arrow keys move, Enter or Space opens."
+              : "The map is painted on a canvas, so no dot on it can take focus. Pick one here instead — arrow keys move through the list, and Enter or Space selects the same node."}
           </p>
 
           <div
             role="listbox"
-            aria-label="Repositories on the map"
+            aria-label={
+              atGroupLevel ? "Groups on the map" : "Repositories on the map"
+            }
             className="mt-3 flex max-h-64 flex-col gap-0.5 overflow-y-auto"
           >
-            {visibleNodes.map((node, index) => (
+            {railItems.map((item, index) => (
               <button
-                key={node.slug}
+                key={item.key}
                 type="button"
                 role="option"
-                aria-selected={node.slug === selectedSlug}
+                aria-selected={item.selected}
                 tabIndex={index === rovingOption ? 0 : -1}
                 ref={(element) => {
                   nodeOptionRefs.current[index] = element;
                 }}
-                onKeyDown={(event) => handleNodeOptionKeyDown(event, index)}
-                onClick={() => {
-                  setRovingIndex(index);
-                  setSelectedSlug(node.slug);
-                }}
+                onKeyDown={(event) => handleRailKeyDown(event, index)}
+                onClick={() => selectRailItem(index)}
                 className="atr-rail-row px-2 py-1"
               >
                 <span className="atr-truncate font-mono atr-label text-foreground">
-                  {node.name}
+                  {item.label}
                 </span>
                 <span className="atr-meta ml-auto shrink-0 tabular-nums">
-                  {node.degree}
+                  {item.meta}
                 </span>
               </button>
             ))}
           </div>
 
-          {visibleNodes.length === 0 ? (
+          {railItems.length === 0 ? (
             <p className="atr-label mt-2 text-muted-foreground">
               {graph.isPending
                 ? "Reading the catalog…"
-                : "No repositories to show."}
+                : atGroupLevel
+                  ? "No groups to show."
+                  : "No repositories to show."}
             </p>
           ) : null}
         </section>
@@ -532,7 +863,7 @@ function GraphPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setSelectedCluster(
+                      openCluster(
                         selectedCluster === cluster.id ? null : cluster.id,
                       )
                     }
