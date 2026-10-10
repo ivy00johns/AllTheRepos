@@ -48,7 +48,7 @@ import { isPackagedBuild } from "@renderer/lib/atr";
 import type { ActionScope } from "@shared/types";
 
 /**
- * Map a pathname (TanStack memory history) to the scope it represents
+ * Map a pathname (the router's current location) to the scope it represents
  * for action filtering.
  *
  * The catalog `/` page and the standalone repo detail page both want

@@ -9,11 +9,17 @@
  *
  *   1. App launches and the catalog route renders without crashing.
  *   2. Layout chrome (top bar + search input + nav links) is visible.
- *   3. Settings route is reachable via in-app navigation. Note that
- *      because the renderer uses TanStack Router's memory history we
- *      navigate by clicking the in-app link, not by URL.
+ *   3. Settings route is reachable via in-app navigation. The router keeps
+ *      its route in the URL hash, so `#/settings` resolves, but the link is
+ *      what a person clicks.
  *   4. No red console errors during catalog load + nav. Yellow / info
  *      messages are tolerated.
+ *   5. A reload comes back where it was — the route, and the map's own state
+ *      (the repo it was describing, the signal that was switched off). That
+ *      is the promise the hash history was adopted for, and it is the one
+ *      nothing else asserts; two specs in `workstream-b.spec.ts` depended on
+ *      the *opposite* behaviour (a reload resetting the router to `/`, which
+ *      is how memory history worked) and only CI noticed when it changed.
  *
  * We intentionally do NOT trigger a scan — a real scan needs disk +
  * Ollama and would be brittle. Scan logic is separately covered by
@@ -139,6 +145,88 @@ test.describe("Phase 1 catalog flow", () => {
           "\n  - ",
         )}`,
       ).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * The other half of (3): the address is not just resolvable on the way in,
+   * it is what the window comes back to.
+   *
+   * Asserted on the running app rather than read off `router.tsx` because the
+   * claim is about a real `location` in a real window: `createHashHistory`
+   * only keeps the route if Electron hands the renderer a URL it can write a
+   * fragment to, which is exactly what changed the day this was adopted.
+   */
+  test("a reload comes back on the same route, with the map's state", async () => {
+    const { app, close } = await launchApp();
+    try {
+      const win = await app.firstWindow();
+      await win.waitForLoadState("domcontentloaded");
+
+      const appTitle = win.getByRole("link", { name: /^AllTheRepos$/i });
+      await expect(appTitle).toBeVisible({ timeout: 20_000 });
+      const banner = win.getByRole("banner");
+
+      // ----- A route with no state: the route itself survives. -----
+      await banner.getByRole("link", { name: /^settings$/i }).click();
+      const settingsHeading = win.getByRole("heading", { name: /^Settings$/i });
+      await expect(settingsHeading).toBeVisible({ timeout: 15_000 });
+
+      await win.reload();
+      await win.waitForLoadState("domcontentloaded");
+
+      expect(
+        new URL(win.url()).hash.startsWith("#/settings"),
+        `the reload did not come back to settings — the address is ${win.url()}`,
+      ).toBe(true);
+      await expect(settingsHeading).toBeVisible({ timeout: 20_000 });
+
+      // ----- The map: the address it writes is the state it comes back to. -----
+      await banner.getByRole("link", { name: /^map$/i }).click();
+      const listbox = win.getByRole("listbox", {
+        name: "Repositories on the map",
+      });
+      await expect(listbox).toBeVisible({ timeout: 20_000 });
+      const options = listbox.getByRole("option");
+      await expect(options).toHaveCount(3, { timeout: 20_000 });
+
+      // The degree rides on the option's text, as the ATR-069 spec found first.
+      const chosen = options.nth(1);
+      const name = (await chosen.innerText()).replace(/\s*\d+$/, "").trim();
+      await chosen.click();
+
+      const signal = win
+        .getByRole("group", { name: "Relationship signals" })
+        .getByRole("button", { name: /name family/i });
+      await signal.click();
+      await expect(signal).toHaveAttribute("aria-pressed", "false");
+
+      const address = new URL(win.url()).hash;
+      expect(
+        address,
+        "the map wrote no address for the reload to come back to",
+      ).toContain("repo=");
+      expect(address).toContain("off=");
+
+      await win.reload();
+      await win.waitForLoadState("domcontentloaded");
+
+      // The same address...
+      expect(new URL(win.url()).hash).toBe(address);
+      // ...and the same screen: the inspector still describes the repo that was
+      // selected, and the signal that was switched off is still off.
+      await expect(
+        win.getByRole("heading", { name }).first(),
+        "the map did not come back describing the repo it was on",
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        win
+          .getByRole("group", { name: "Relationship signals" })
+          .getByRole("button", { name: /name family/i }),
+        "the signal filter did not survive the reload",
+      ).toHaveAttribute("aria-pressed", "false");
     } finally {
       await close();
     }

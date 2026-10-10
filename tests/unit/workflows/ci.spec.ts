@@ -306,3 +306,51 @@ describe("the one leg the Electron suite runs on", () => {
     );
   });
 });
+
+/**
+ * The machine is checked before the code is, on the one runner that can do it
+ * cheaply.
+ *
+ * A runner whose Node is outside `engines.node`, whose native modules are built
+ * for the other runtime, or whose macOS SDK its own linker refuses takes the
+ * unit suite down in a way that reads nothing like the cause: `Cannot find
+ * module 'better-sqlite3'` repeated across thirty tests that have nothing to do
+ * with the change under review, with the real line — `NODE_MODULE_VERSION 135`,
+ * `tapi error: malformed file` — somewhere in the middle of it. `pnpm run doctor`
+ * is that diagnosis as one step and one line, and this is what keeps it a step
+ * rather than a script somebody remembers to run.
+ *
+ * Two spellings matter here and neither is cosmetic. The step is `pnpm run
+ * doctor`, because pnpm's own `doctor` subcommand shadows the bare form and
+ * would print nothing about this machine while exiting 0 — the same shadowing
+ * `tests/unit/scripts/doctor.spec.ts` pins in `package.json`. And it belongs to
+ * the *fast* job, not to either of the Mac jobs: the toolchain question is asked
+ * of the machine that runs the unit suite, which is the Linux runner, and a
+ * check that only ran where somebody already packages a Mac build would arrive
+ * after the failures it exists to prevent.
+ */
+describe("the machine check, before the code check", () => {
+  const checkCommands = commands(jobBlock("check"));
+
+  test("runs the doctor on the fast job, spelled so it is not pnpm's own", () => {
+    expect(checkCommands).toContain("pnpm run doctor");
+    // The bare form is pnpm's command, so its absence is part of the assertion.
+    expect(checkCommands).not.toMatch(/pnpm doctor(?![\.\w])/);
+  });
+
+  test("runs it before the suite it is diagnosing", () => {
+    // A doctor that ran after the failure would still be one step and one line,
+    // but it would be a footnote to a red suite rather than the answer to it.
+    expect(checkCommands.indexOf("pnpm run doctor")).toBeLessThan(
+      checkCommands.indexOf("pnpm badges"),
+    );
+  });
+
+  test("costs the Mac jobs nothing, because they are not where it applies", () => {
+    // It would work there, and it would compile a three-line addon to prove an
+    // SDK. That is a question about the machine that packages the app, and it is
+    // not the question this step was added to answer.
+    expect(commands(jobBlock("e2e"))).not.toContain("pnpm run doctor");
+    expect(refusalCommands).not.toContain("pnpm run doctor");
+  });
+});

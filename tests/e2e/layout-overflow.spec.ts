@@ -301,9 +301,8 @@ test.describe("window fits the route", () => {
     await expect(lastCard).toBeInViewport();
 
     // ----- The map. -----
-    // The renderer uses TanStack Router's memory history, so navigate the way a
-    // person does: click the destination. Scope to the banner — the sidebar and
-    // the notice stack carry links of their own.
+    // Navigate the way a person does: click the destination. Scope to the
+    // banner — the sidebar and the notice stack carry links of their own.
     const topBar = win.getByRole("banner");
     await topBar.getByRole("link", { name: /^map$/i }).click();
     const signals = win.getByRole("group", { name: "Relationship signals" });

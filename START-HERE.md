@@ -35,8 +35,9 @@ state, not history.
 
 **Next:** the tail — scanner discovery (**ATR-033**), the silent 200-repo cap (**ATR-042**),
 group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
-(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). Before any of that, unblock the
-build: **ATR-057** breaks native ABI flips on this machine. New since Wave 5: ATR-056/057/058,
+(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). The build is no longer gated on
+a person: **ATR-057**'s bad Command Line Tools SDK is resolved rather than exported, by
+`pnpm install` and by every script that flips the ABI. New since Wave 5: ATR-056/057/058,
 and the 2026-10-07 UI/UX intake — **fully applied 2026-10-08**: **ATR-059…069** (four P1s, seven
 P2s) closed first, **ATR-075** found and closed with them, then the last five P3s
 (**ATR-070…074**) proved on the running app by `tests/e2e/workstream-c.spec.ts`.
@@ -79,17 +80,25 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
 
 ## Gotchas (this machine)
 
-- **Native rebuilds are broken (ATR-057).** The **2026-09-22** Command Line Tools update
-  installed SDK 27.0 (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21
-  rejects (`tapi error: malformed file`). Any `node-gyp` rebuild fails, so an **ABI flip dies**
-  and `pnpm test` / `test:full` fail unless the tree already matches. Workaround:
-  `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`.
+- **Native rebuilds needed a hand-set SDK (ATR-057) — now arranged by the tree.** The
+  **2026-09-22** Command Line Tools update installed SDK 27.0
+  (`…/CommandLineTools/SDKs/MacOSX.sdk → MacOSX27.0.sdk`), which clang 21 rejects
+  (`tapi error: malformed file`). The SDK on this machine is still that one, but nothing needs
+  exporting: `pnpm install` runs `scripts/point-sdkroot.mjs`, which links a candidate before
+  accepting it and writes the one that works into gyp's `~/.gyp/include.gypi` — the file gyp
+  includes into every `.gyp` it reads, so it reaches a bare `pnpm rebuild <native module>`,
+  whose build belongs to the dependency. `scripts/ensure-native-abi.mjs` resolves the same SDK
+  and passes it to the rebuilds `pnpm test` / `test:full` start. Delete
+  `~/.gyp/include.gypi` to go back to exporting `SDKROOT` by hand. It is written before the
+  dependencies are: pnpm's `pnpm:devPreinstall` hook runs at the top of the install, ahead of
+  the dependency build that needs it, with `preinstall` kept for the check afterwards. Only
+  `pnpm install --ignore-scripts` leaves a person to export `SDKROOT` themselves.
 
-- ~~**`pnpm test` needs host-ABI natives.**~~ **Automated (ATR-016)** — though the flip
-  itself is what ATR-057 breaks, so the suites can be run in any order only while the tree
-  already matches. Every test script now runs `scripts/ensure-native-abi.mjs` first and
-  rebuilds only on a real mismatch. Only `better-sqlite3` actually flips —
-  `find-git-repositories` ships per-ABI builds and works under both runtimes.
+- ~~**`pnpm test` needs host-ABI natives.**~~ **Automated (ATR-016)** — and no longer gated
+  on the tree already matching, since ATR-057's SDK is resolved by the scripts rather than by
+  a person. Every test script runs `scripts/ensure-native-abi.mjs` first and rebuilds only on
+  a real mismatch. Only `better-sqlite3` actually flips — `find-git-repositories` ships per-ABI
+  builds and works under both runtimes.
 - **Bare `node`/`npx`/`npm` recurse** (broken nvm wrapper in the dotfiles). Use `~/.nvm/versions/node/v22.22.3/bin/node`, or fix the dotfile (ATR-024).
 - **Commits don't sign non-interactively** — 1Password SSH-agent signing fails headless; this session's commits used `--no-gpg-sign` (ATR-025).
 
