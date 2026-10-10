@@ -97,6 +97,15 @@ const cannotLink: ProbeResult = { ok: false, detail: "tapi error: malformed file
 
 /** A recorder of what the script asked of the machine. */
 function harness({
+  /*
+   * The machine every case below describes is a macOS one, and it is injected
+   * here for the same reason the home directory and the resolver are: `run()`
+   * defaults `platform` to `process.platform`, so leaving it out made these
+   * cases pass on the Mac they were written on and fail on a Linux CI runner,
+   * where `run()` answered "nothing to point at on linux" and returned before
+   * reaching any of the behaviour they assert (ATR-057).
+   */
+  platform = "darwin",
   existing = null as string | null,
   probe = (_options?: { sdkPath?: string | null }) => cannotLink,
   resolved = {
@@ -117,6 +126,7 @@ function harness({
   const point = vi.fn((_options?: { sdkPath?: string; home?: string }) => verdict);
 
   const code = script.run({
+    platform,
     home: HOME,
     read: () => existing,
     probe: (options) => {
@@ -249,6 +259,7 @@ describe("pointing a plain native rebuild at an SDK that links", () => {
 
     expect(
       script.run({
+        platform: "darwin",
         home: HOME,
         dryRun: true,
         read: () => null,
