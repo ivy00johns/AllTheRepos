@@ -186,6 +186,24 @@ jobs:
       # run just produced. It went stale by hand three times before this.
       - name: Unit suite, and the totals the badge is drawn from
         run: pnpm badges
+      # The suite again, on a platform this runner is not. The last spec to pass
+      # only on its author's Mac — `point-sdkroot.spec.ts`, which drove `run()`
+      # without a platform and so inherited `process.platform` — was found by the
+      # step above, after a push. This asks that question of every spec, and it
+      # can be asked before pushing: `pnpm unit-platform:check` points a Mac at
+      # Linux, which is what this runner is, and points this runner at darwin,
+      # which is what most of these specs were written on. Two of them load
+      # `sqlite-vec` directly and cannot run on a platform the host is not, since
+      # the extension is a per-platform package; they are exempt in
+      # `scripts/check-unit-platform.mjs`, with the reason, and an exemption that
+      # stops being needed fails the step. A failure is asked once more before it
+      # is a verdict — two listener-binding tests failed on a machine under load
+      # and passed minutes later having asserted nothing about the platform — and
+      # whatever the second run clears is printed, so a passing retry is visible
+      # rather than silent. Pure Node, no network, and no second macOS minute —
+      # the runner is already Linux.
+      - name: The unit suite again, on a platform this runner is not
+        run: pnpm unit-platform:check
       # Committed rather than checked, so the badge cannot be left stale by
       # forgetting to run anything. Only on main: a pull request's branch is not
       # what the README describes, and a fork cannot write anyway.
