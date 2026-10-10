@@ -17,14 +17,18 @@
  * the point of it: the run a developer makes says what the Linux runner will
  * say, before the push rather than after.
  *
- * Two specs are exempt, and they are the honest kind. They load `sqlite-vec`,
+ * Three specs are exempt, and they are the honest kind. Two load `sqlite-vec`,
  * whose per-platform npm package *is* the binary, so a faked platform asks for a
  * `.dylib` that is not installed beside the `.so` that is, and the store reports
  * itself unavailable — which is the correct answer to a question about a
- * platform nobody built for. They are named below with that reason, and the list
- * carries the rule the rest of this repository's suppressions carry: an
- * exemption that stops being needed fails the gate, because one that suppresses
- * nothing is a line the next reader has to re-derive and cannot.
+ * platform nobody built for. The third imports `electron.vite.config`, and
+ * reaching Vite at all loads rollup, whose native binding is a per-platform npm
+ * package for the same reason. None of the three can be repaired by naming a
+ * platform: the reader that breaks is a binary loader, not an assertion. They
+ * are named below with that reason, and the list carries the rule the rest of
+ * this repository's suppressions carry: an exemption that stops being needed
+ * fails the gate, because one that suppresses nothing is a line the next reader
+ * has to re-derive and cannot.
  *
  * What it deliberately does not do is read the spec files. A grep for
  * `process.platform` would find the four specs that pin the platform on purpose
@@ -91,11 +95,11 @@ export const CONFIG = "vitest.other-platform.config.ts";
  *
  * The bar for an entry is that the spec is about a *binary*, not about the
  * code: `sqlite-vec` resolves its extension by platform and ships the compiled
- * library as a per-platform npm package, so there is no arrangement of the
- * source under which the darwin extension loads on a Linux runner or the
- * reverse. Everything else — a menu that is macOS-only, a dock badge that
- * no-ops off darwin — pins `process.platform` itself and is covered by the
- * faked run like any other spec.
+ * library as a per-platform npm package, and rollup resolves its own binding the
+ * same way, so there is no arrangement of the source under which the darwin
+ * library loads on a Linux runner or the reverse. Everything else — a menu that
+ * is macOS-only, a dock badge that no-ops off darwin — pins `process.platform`
+ * itself and is covered by the faked run like any other spec.
  */
 export const SPECS_THAT_NEED_THE_HOST = [
   {
@@ -105,6 +109,10 @@ export const SPECS_THAT_NEED_THE_HOST = [
   {
     file: "tests/unit/main/services/vector-store-packaged.spec.ts",
     why: "Walks the packaged extension path for the platform it is on. Under a faked platform it looks for the other platform's package inside the bundle, which is a question about a build nobody made.",
+  },
+  {
+    file: "tests/unit/scripts/export-catalog.spec.ts",
+    why: "Imports `electron.vite.config`, which reaches Vite and so rollup, whose native binding is itself a per-platform package: under a faked platform rollup asks for `@rollup/rollup-linux-arm64-musl`, which a Mac does not have installed. The spec cannot load, so it has asserted nothing about the platform by the time it fails.",
   },
 ];
 
