@@ -131,6 +131,21 @@ jobs:
       # the skill's default `skipPaths`.
       - name: The prose, and the AI tells it must not carry
         run: pnpm lint:prose
+      # A screen a person installed must not explain the tooling around it. The
+      # `/debug` page said the route "exists so the Phase 0 Playwright E2E keeps
+      # passing as Phase 1 lands", and the tray popover said "(Phase 3 will
+      # populate this list)" over its dev-server list — both readable by anyone who
+      # installed the app, neither about them, and neither caught by any gate,
+      # because no gate read a rendered sentence. `scripts/check-shipped-copy.mjs`
+      # reads the positions a person can actually read in every `.tsx` under
+      # `src/renderer` — JSX text, a string literal in a JSX attribute, a string
+      # literal child — and fails on a test runner, a component workbench, a phase
+      # label, a tracker id or a marker left for the author. A comment and a string
+      # in a `.ts` file are out of scope deliberately: the reasoning belongs in the
+      # first, and the second is data as often as copy. Pure Node, no build, no
+      # network, so it belongs in the fast job.
+      - name: The copy a screen may carry, and the tooling it must not name
+        run: pnpm shipped-copy:check
       # The first-launch instructions are rendered from one source
       # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
       # paragraph and the CI warning. This fails if that file has drifted from what

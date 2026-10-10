@@ -38,6 +38,7 @@
     "versions:check": "node scripts/check-doc-versions.mjs",
     "platforms:check": "node scripts/check-platforms.mjs",
     "ci-cost:check": "node scripts/check-ci-cost.mjs",
+    "shipped-copy:check": "node scripts/check-shipped-copy.mjs",
     "unit-platform:check": "node scripts/check-unit-platform.mjs",
     "first-launch:write": "node scripts/first-launch.mjs --write",
     "first-launch:check": "node scripts/first-launch.mjs --check && node scripts/check-first-launch-advice.mjs",
