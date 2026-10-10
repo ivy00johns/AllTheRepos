@@ -24,10 +24,18 @@
  * somebody's own and is reported, never overwritten: the difference between a
  * convenience and a program editing a file another person keeps is that line.
  *
- * It exits 0 whatever it finds, and that is deliberate: `preinstall` runs this
- * on every install, and an install that worked should not fail because a
- * convenience could not be arranged. What it found is printed instead, and
- * `pnpm run doctor` is where the state of this machine is a verdict.
+ * It exits 0 whatever it finds, and that is deliberate: this runs on every
+ * install, and an install that worked should not fail because a convenience
+ * could not be arranged. What it found is printed instead, and `pnpm run doctor`
+ * is where the state of this machine is a verdict.
+ *
+ * Both of the hooks in `package.json` point here, and the pair is the point:
+ * `pnpm:devPreinstall` is run by pnpm at the top of the install, *before* it
+ * resolves or builds a single dependency, while `preinstall` runs after — so a
+ * machine that has never built these natives gets the SDK in place before the
+ * dependency that needs it compiles, and every later install is checked again
+ * afterwards. Neither is a duplicate of the other, and `--ignore-scripts` skips
+ * both, which is the one case a person is on their own.
  *
  * Usage:
  *   node scripts/point-sdkroot.mjs             # point it, if it needs pointing

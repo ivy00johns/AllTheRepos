@@ -1097,8 +1097,8 @@ describe("the SDK a dependency's own build hook gets", () => {
       toolchain.gypIncludeContents("/SDKs/MacOSX26.5.sdk"),
     );
 
-    // Second time is a no-op, which is what a `preinstall` on every install
-    // has to be.
+    // Second time is a no-op, which is what a hook that runs on every install
+    // has to be — `pnpm:devPreinstall` and `preinstall` both point at this.
     const again = toolchain.pointGypAtSdk({
       sdkPath: "/SDKs/MacOSX26.5.sdk",
       home,

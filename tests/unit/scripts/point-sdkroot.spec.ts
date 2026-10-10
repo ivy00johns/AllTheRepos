@@ -18,14 +18,14 @@
  *     the one that would otherwise cost a compile on every single install;
  *   - a file it did not write is reported and left alone, and the person reading
  *     the line is told the one edit that would fix it;
- *   - it exits 0 whether or not it arranged anything, because `preinstall` runs
- *     on every install and an install that worked is not a failure because a
- *     convenience could not be arranged.
+ *   - it exits 0 whether or not it arranged anything, because an install that
+ *     worked is not a failure because a convenience could not be arranged.
  *
  * The spec drives `run()` with the machine, the resolver and the writer all
  * injected, so it never reads or writes a real home directory.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 
 import { beforeAll, describe, expect, test, vi } from "vitest";
@@ -135,6 +135,38 @@ function harness({
 
   return { code, asked, point, output: lines.join("\n") };
 }
+
+describe("the hooks that run this on an install", () => {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+  ) as { scripts: Record<string, string> };
+
+  test("pnpm's pre-install hook points here, so it beats the dependency build", () => {
+    /*
+     * The wiring is load-bearing and nothing in this file can observe it, so it
+     * is asserted rather than assumed. `pnpm:devPreinstall` is run by pnpm at
+     * the top of the install, before it builds anything; `preinstall` is not,
+     * which is the difference between a machine that has never built these
+     * natives installing cleanly and one that dies in a node-gyp link on an SDK
+     * its own tools cannot read (ATR-057).
+     */
+    expect(manifest.scripts["pnpm:devPreinstall"]).toBe(
+      "node scripts/point-sdkroot.mjs",
+    );
+    // Kept as well: it is the hook every other installer knows, it runs after
+    // the dependencies, and covering both ends costs one link probe.
+    expect(manifest.scripts.preinstall).toBe("node scripts/point-sdkroot.mjs");
+  });
+
+  test("the script it names is the one this spec drives", () => {
+    // A hook pointing at a path that does not exist is an install that fails at
+    // the first step on somebody else's machine.
+    const hook = manifest.scripts["pnpm:devPreinstall"];
+    const named = hook.slice(hook.indexOf("scripts/")).trim();
+    expect(fs.existsSync(path.join(ROOT, named))).toBe(true);
+    expect(fs.realpathSync(path.join(ROOT, named))).toBe(fs.realpathSync(SCRIPT));
+  });
+});
 
 describe("pointing a plain native rebuild at an SDK that links", () => {
   test("it does nothing on a platform whose linker has no such problem", () => {

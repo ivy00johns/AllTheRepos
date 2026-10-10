@@ -89,9 +89,10 @@ Tests: `pnpm test` (unit, host ABI) · `pnpm test:electron-e2e` · `pnpm test:fu
   includes into every `.gyp` it reads, so it reaches a bare `pnpm rebuild <native module>`,
   whose build belongs to the dependency. `scripts/ensure-native-abi.mjs` resolves the same SDK
   and passes it to the rebuilds `pnpm test` / `test:full` start. Delete
-  `~/.gyp/include.gypi` to go back to exporting `SDKROOT` by hand. The exception is the first
-  install on a machine that has never built these natives: pnpm compiles a dependency before
-  the root `preinstall` runs, so that one attempt still wants the export.
+  `~/.gyp/include.gypi` to go back to exporting `SDKROOT` by hand. It is written before the
+  dependencies are: pnpm's `pnpm:devPreinstall` hook runs at the top of the install, ahead of
+  the dependency build that needs it, with `preinstall` kept for the check afterwards. Only
+  `pnpm install --ignore-scripts` leaves a person to export `SDKROOT` themselves.
 
 - ~~**`pnpm test` needs host-ABI natives.**~~ **Automated (ATR-016)** — and no longer gated
   on the tree already matching, since ATR-057's SDK is resolved by the scripts rather than by

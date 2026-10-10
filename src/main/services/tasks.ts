@@ -37,6 +37,9 @@ import type { RepoTask, TaskOutputEvent } from "@shared/types";
 /** Scripts that are noise in a task list — lifecycle hooks, not commands. */
 const NPM_LIFECYCLE = new Set([
   "preinstall",
+  // pnpm's own pre-install hook, which this repository uses to put the machine's
+  // SDK where a node-gyp build finds it (ATR-057). A hook, not a command.
+  "pnpm:devPreinstall",
   "install",
   "postinstall",
   "prepublish",

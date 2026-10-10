@@ -285,7 +285,7 @@ The artifacts deliberately do **not** land in this repository. They go to [`ivy0
 <details>
 <summary><b>Native rebuilds fail on Xcode 26 with <code>tapi error: malformed file</code></b></summary>
 
-A Command Line Tools update can leave the SDK the linker picks by default unreadable to Xcode's `clang` (`tapi error: malformed file`). Once the tree is installed, nothing has to be exported by hand: `pnpm install` runs `scripts/point-sdkroot.mjs`, which asks the linker whether a build links as the machine stands and, when it does not, resolves an SDK that does and writes it into gyp's own `~/.gyp/include.gypi`. Every `node-gyp` build on the machine reads that file, which is why it reaches the two commands a person types — a bare `pnpm rebuild <native module>`, whose build belongs to the dependency and runs with the environment it inherits, and `pnpm test`. Delete `~/.gyp/include.gypi` to opt out, or run `node scripts/point-sdkroot.mjs` to write it without an install.
+A Command Line Tools update can leave the SDK the linker picks by default unreadable to Xcode's `clang` (`tapi error: malformed file`). Nothing has to be exported by hand: `pnpm install` runs `scripts/point-sdkroot.mjs` — through pnpm's `pnpm:devPreinstall`, which runs *before* the dependencies it installs, and again as `preinstall` afterwards — and that script asks the linker whether a build links as the machine stands, then, when it does not, resolves an SDK that does and writes it into gyp's own `~/.gyp/include.gypi`. Every `node-gyp` build on the machine reads that file, which is why it reaches the two commands a person types — a bare `pnpm rebuild <native module>`, whose build belongs to the dependency and runs with the environment it inherits, and `pnpm test`. Delete `~/.gyp/include.gypi` to opt out, or run `node scripts/point-sdkroot.mjs` to write it without an install.
 
 If you would rather choose the SDK yourself, the export still works — it is the first candidate the resolver asks when it has to point anything:
 
@@ -293,7 +293,7 @@ If you would rather choose the SDK yourself, the export still works — it is th
 export SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
 ```
 
-The one install that still needs a hand is the first one on a machine that has never built these natives: pnpm compiles a dependency before it runs this project's `preinstall`, so there is nothing to point yet — export `SDKROOT` for that attempt, or install once and let the file take over. Tracked as ATR-057 in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
+That includes the first install on a machine that has never built these natives, which is the case that needs the early hook: pnpm runs a dependency's build script before the root `preinstall`, so a `preinstall` alone would arrive after the build that needed pointing. `pnpm:devPreinstall` runs before pnpm resolves or builds anything at all. The only case left to a person is `pnpm install --ignore-scripts`, which skips both hooks. Tracked as ATR-057 in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
 </details>
 
 <details>

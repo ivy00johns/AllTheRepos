@@ -47,9 +47,11 @@ describe("detectTasks", () => {
         scripts: {
           dev: "vite",
           build: "vite build",
-          // Lifecycle hooks run themselves; listing them is noise.
+          // Lifecycle hooks run themselves; listing them is noise — including
+          // pnpm's devPreinstall, which this repository gives real work.
           postinstall: "patch-package",
           prepare: "husky",
+          "pnpm:devPreinstall": "node scripts/point-sdkroot.mjs",
         },
       }),
     );

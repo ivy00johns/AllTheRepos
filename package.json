@@ -4,6 +4,7 @@
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
+    "pnpm:devPreinstall": "node scripts/point-sdkroot.mjs",
     "preinstall": "node scripts/point-sdkroot.mjs",
     "dev": "pnpm electron:dev",
     "build": "pnpm electron:build",
