@@ -21,9 +21,14 @@
  * the database out of it, so a spec starts with a small synthetic catalog
  * without paying for a migrate-and-seed boot of its own.
  *
- * `close()` — not `app.close()` — is what deletes the temp profile.
+ * `close()` — not `app.close()` — is what deletes the temp profile, and it is
+ * also what makes teardown deterministic: it bounds the wait for the app to
+ * quit and kills whatever is still standing afterwards, because
+ * `app.close()` alone can wait forever on a window that will not close. See
+ * {@link CLOSE_GRACE_MS}.
  */
 
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -99,6 +104,171 @@ function inheritSeededProfile(profileDir: string): boolean {
   return copied;
 }
 
+// ---------------------------------------------------------------------------
+// Teardown
+// ---------------------------------------------------------------------------
+
+/**
+ * How long `app.close()` may take before the app is killed outright.
+ *
+ * `ElectronApplication.close()` is not bounded, and what it waits on is the
+ * process exiting: Playwright asks the app to quit and then awaits that exit
+ * with no timeout. An app that will not quit — a `before-quit` handler holding
+ * a confirmation open, a window that never acknowledges — leaves that await
+ * pending, and there is no path out of it. Measured while hammering the suite:
+ * one stuck app spent the test's whole 60s budget, and then the worker spent a
+ * second 60s failing to close it, reported as `Test timeout of 60000ms
+ * exceeded` followed by `Worker teardown timeout of 60000ms exceeded` — two
+ * timeouts, and no window named in either.
+ *
+ * The number is a compromise: longer than a well-behaved app takes to quit
+ * (tens of milliseconds across this suite) and short enough that a stuck one
+ * costs seconds rather than minutes.
+ */
+const CLOSE_GRACE_MS = 5_000;
+
+/** How long a process that was just killed gets to actually disappear. */
+const DEATH_GRACE_MS = 5_000;
+
+/**
+ * The pids this worker has launched and not yet seen die.
+ *
+ * A spec's `finally` is the normal way out, but it is not the only path: an
+ * exception thrown before the `try` block, or a worker Playwright tears down
+ * mid-test, skips it entirely and leaves the window open with nobody left to
+ * close it. `close()` removes its own entry, and process exit reaps whatever
+ * is left.
+ */
+const openAppPids = new Set<number>();
+
+function delay(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+/** Whether a pid still exists. Signal 0 asks without delivering anything. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means it exists and is not ours to signal.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Children of every process, from one snapshot of the table.
+ *
+ * Electron's window, GPU and utility processes are children of the app's main
+ * process, so killing the main one on its own leaves the rest to notice their
+ * parent is gone — which is how a run stopped mid-test ends up leaving a
+ * handful of Electron processes behind. Windows has no `ps`; there the app is
+ * killed by itself, which is what that platform's process model expects.
+ */
+function childrenByParent(): Map<number, number[]> {
+  const children = new Map<number, number[]>();
+  if (process.platform === "win32") return children;
+
+  const table = execFileSync("ps", ["-Ao", "pid=,ppid="], { encoding: "utf8" });
+  for (const line of table.split("\n")) {
+    const [pidText, parentText] = line.trim().split(/\s+/);
+    const pid = Number(pidText);
+    const parent = Number(parentText);
+    if (!Number.isInteger(pid) || !Number.isInteger(parent)) continue;
+    const siblings = children.get(parent);
+    if (siblings) siblings.push(pid);
+    else children.set(parent, [pid]);
+  }
+  return children;
+}
+
+/**
+ * SIGKILL a process and everything below it.
+ *
+ * Deepest first, so a child cannot be re-parented out of reach in between.
+ * SIGKILL cannot be caught, blocked or deferred, which is the point: by the
+ * time this runs, the app has already declined a polite request.
+ */
+function killProcessTree(rootPid: number): void {
+  const children = childrenByParent();
+  const pending = [rootPid];
+  const seen = new Set<number>();
+  const tree: number[] = [];
+
+  while (pending.length > 0) {
+    const pid = pending.pop() as number;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    tree.push(pid);
+    for (const child of children.get(pid) ?? []) pending.push(child);
+  }
+
+  for (const pid of tree.reverse()) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone, or a pid that was never ours.
+    }
+  }
+}
+
+/**
+ * Kill anything still open on the way out, synchronously.
+ *
+ * Registered on `exit` only, and deliberately not on `SIGTERM`/`SIGINT`:
+ * listening for those suppresses Node's default termination for them, and
+ * Playwright installs its own handling for exactly that case. Everything used
+ * here is synchronous — `ps` and `kill` both are — so it can run from an exit
+ * handler.
+ */
+process.once("exit", () => {
+  for (const pid of openAppPids) killProcessTree(pid);
+  openAppPids.clear();
+});
+
+/** Wait for a killed process to disappear, so the caller is not racing it. */
+async function waitForDeath(pid: number): Promise<void> {
+  const deadline = Date.now() + DEATH_GRACE_MS;
+  while (isAlive(pid) && Date.now() < deadline) await delay(25);
+}
+
+/**
+ * Close an app within a bound, and leave nothing of it running.
+ *
+ * On return the process is either gone — the graceful path resolves when
+ * Playwright sees it exit — or was killed and confirmed dead. A caller can
+ * therefore read "`close()` returned" as "no window from this launch is still
+ * on the machine".
+ */
+async function closeApp(
+  app: ElectronApplication,
+  profileDir: string,
+  options: { removeProfile: boolean },
+): Promise<void> {
+  const pid = app.process().pid;
+
+  try {
+    const closed = app.close().then(
+      () => true,
+      () => false,
+    );
+    const graceful = await Promise.race([
+      closed,
+      delay(CLOSE_GRACE_MS).then(() => false),
+    ]);
+
+    if (!graceful && pid !== undefined) {
+      killProcessTree(pid);
+      await waitForDeath(pid);
+    }
+  } finally {
+    if (pid !== undefined) openAppPids.delete(pid);
+    if (options.removeProfile) {
+      rmSync(profileDir, { recursive: true, force: true });
+    }
+  }
+}
+
 export interface LaunchedApp {
   app: ElectronApplication;
   /** Close the app, then delete the temp profile it ran against. */
@@ -161,16 +331,15 @@ export async function launchApp(
     throw error;
   }
 
+  const pid = app.process().pid;
+  if (pid !== undefined) openAppPids.add(pid);
+
   return {
     app,
     async close(): Promise<void> {
-      try {
-        await app.close();
-      } finally {
-        if (ownsProfile && options.keepProfile !== true) {
-          rmSync(profileDir, { recursive: true, force: true });
-        }
-      }
+      await closeApp(app, profileDir, {
+        removeProfile: ownsProfile && options.keepProfile !== true,
+      });
     },
   };
 }

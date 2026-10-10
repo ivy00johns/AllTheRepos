@@ -80,13 +80,18 @@ export default defineConfig({
   // viewport-fit.spec.ts — the two routes that were taller than the window they
   // render in, at 1280x800, measured as `documentElement.scrollHeight` against
   // `innerHeight`.
+  // harness-teardown.spec.ts — the harness's own contract rather than the
+  // app's: a launch closes within a bound, and an app that refuses to quit is
+  // killed instead of waited on. It is here because that promise is what keeps
+  // one stuck window from costing a run two stacked 60s timeouts, which is
+  // what it did cost before `_launch-app.ts` learned to stop waiting.
   testMatch:
     // Both passes' additions, since each one names a spec the other branch did
     // not have: the UI/UX pass added accessibility, detail-readme,
     // retry-and-loading and viewport-fit, and the graph pass added
     // window-route-restore. Every name here has a spec beside it, and each one
     // has its paragraph above.
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|harness-teardown)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
