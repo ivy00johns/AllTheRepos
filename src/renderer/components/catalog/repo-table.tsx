@@ -233,6 +233,11 @@ export function RepoTable({
                     <div className="flex min-w-0 items-center gap-1.5">
                       <button
                         type="button"
+                        // Selection is announced the way the card's title button
+                        // announces it: the row's own control reports the state,
+                        // so a screen reader hears which project is selected in
+                        // the table as well as in the grid.
+                        aria-pressed={selectedSlug === repo.slug ? "true" : "false"}
                         onClick={(event) => {
                           // The row would otherwise handle the same click
                           // twice.

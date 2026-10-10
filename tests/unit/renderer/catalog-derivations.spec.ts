@@ -28,6 +28,7 @@ import {
   buildRepoTree,
   commonRoot,
   isArchivedPath,
+  isDirectlyIn,
   isUnder,
   owningRoot,
   tildify,
@@ -302,6 +303,20 @@ describe("buildRepoTree", () => {
   it("recognises put-away folders anywhere in the path", () => {
     expect(isArchivedPath("/Users/j/Repos/_archive/duplicates/x")).toBe(true);
     expect(isArchivedPath("/Users/j/Repos/ai/agents/x")).toBe(false);
+  });
+
+  it("isDirectlyIn is the folder itself, not its subtree", () => {
+    // The rail's "directly in this folder" row narrows to these; the
+    // difference from `isUnder` is the whole point of the row.
+    expect(isDirectlyIn("/Users/j/Repos/a", "/Users/j/Repos")).toBe(true);
+    expect(isDirectlyIn("/Users/j/Repos/ai/a", "/Users/j/Repos")).toBe(false);
+    expect(isDirectlyIn("/Users/j/Repos/ai/a", "/Users/j/Repos/ai")).toBe(
+      true,
+    );
+    // A sibling whose name merely shares the prefix is not inside it.
+    expect(isDirectlyIn("/Users/j/ReposX/a", "/Users/j/Repos")).toBe(false);
+    // A trailing slash on the folder does not change the answer.
+    expect(isDirectlyIn("/Users/j/Repos/a", "/Users/j/Repos/")).toBe(true);
   });
 });
 

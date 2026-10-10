@@ -48,6 +48,7 @@ import {
 } from "@renderer/lib/ownership";
 import {
   isArchivedPath,
+  isDirectlyIn,
   isUnder,
   owningRoot,
   tildify,
@@ -86,6 +87,12 @@ interface CatalogSearch {
  */
 const UBIQUITOUS_TAG_SHARE = 0.25;
 
+/** A failed git sync, phrased the way the notice strip reads. */
+function syncFailed(verb: "Fetch" | "Pull", error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `${verb} failed — ${detail}`;
+}
+
 export function CatalogShell({
   initialRepos,
   groups,
@@ -110,6 +117,7 @@ export function CatalogShell({
   const [rootNotice, setRootNotice] = React.useState<string | null>(null);
 
   const selectedDir = useCatalogView((s) => s.selectedDir);
+  const selectedDirExact = useCatalogView((s) => s.selectedDirExact);
   const setSelectedDir = useCatalogView((s) => s.setSelectedDir);
   const ownershipFilter = useCatalogView((s) => s.ownershipFilter);
   const includeArchived = useCatalogView((s) => s.includeArchived);
@@ -294,7 +302,14 @@ export function CatalogShell({
       ) {
         return false;
       }
-      if (selectedDir && !isUnder(repo.fullPath, selectedDir)) return false;
+      if (selectedDir) {
+        // "directly in this folder" narrows to the folder's own repos;
+        // selecting the folder itself takes the whole subtree.
+        const inScope = selectedDirExact
+          ? isDirectlyIn(repo.fullPath, selectedDir)
+          : isUnder(repo.fullPath, selectedDir);
+        if (!inScope) return false;
+      }
       if (ownershipFilter.length > 0) {
         const kind = ownershipKindBySlug.get(repo.slug);
         if (!kind || !ownershipFilter.includes(kind)) return false;
@@ -322,6 +337,7 @@ export function CatalogShell({
     includeArchived,
     favoritesOnly,
     selectedDir,
+    selectedDirExact,
     ownershipFilter,
     ownershipKindBySlug,
     activeGroup,
@@ -555,20 +571,34 @@ export function CatalogShell({
     [],
   );
 
+  /**
+   * Both sync handlers replace the notice whatever happens.
+   *
+   * The strip is the only feedback either button gives and it is set before the
+   * work starts, so a rejection that is not caught leaves it counting forever
+   * ("Fetching 5…") while the error goes to the console. A refusal is an answer
+   * too, and the strip is where an answer belongs.
+   */
   const handleFetch = React.useCallback(async () => {
     const slugs = syncTargets();
     if (slugs.length === 0) return;
     setSyncNotice(`Fetching ${slugs.length}…`);
-    const result = await fetchRepos.mutateAsync(slugs);
-    setSyncNotice(summarise(result));
+    try {
+      setSyncNotice(summarise(await fetchRepos.mutateAsync(slugs)));
+    } catch (error) {
+      setSyncNotice(syncFailed("Fetch", error));
+    }
   }, [syncTargets, fetchRepos, summarise]);
 
   const handlePull = React.useCallback(async () => {
     const slugs = syncTargets();
     if (slugs.length === 0) return;
     setSyncNotice(`Pulling ${slugs.length}…`);
-    const result = await pullRepos.mutateAsync(slugs);
-    setSyncNotice(summarise(result));
+    try {
+      setSyncNotice(summarise(await pullRepos.mutateAsync(slugs)));
+    } catch (error) {
+      setSyncNotice(syncFailed("Pull", error));
+    }
   }, [syncTargets, pullRepos, summarise]);
 
   const openMoveForSelection = React.useCallback(() => {
@@ -583,7 +613,11 @@ export function CatalogShell({
     [displayedRepos],
   );
 
-  const scopeLabel = selectedDir ? tildify(selectedDir) : null;
+  const scopeLabel = selectedDir
+    ? selectedDirExact
+      ? `${tildify(selectedDir)} (top level)`
+      : tildify(selectedDir)
+    : null;
 
   /*
    * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root

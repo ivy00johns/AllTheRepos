@@ -169,6 +169,20 @@ export function isUnder(path: string, ancestor: string): boolean {
   return path.startsWith(ancestor.endsWith("/") ? ancestor : `${ancestor}/`);
 }
 
+/**
+ * True when `path` sits *directly* inside `dir` — one level, not deeper.
+ *
+ * `isUnder` answers "is this inside the folder"; this answers "is this in
+ * the folder itself". The rail's "directly in this folder" row needs the
+ * second question: selecting the folder shows the whole subtree, and this
+ * is what lets the row narrow the catalog to the repos sitting at its top
+ * level alone.
+ */
+export function isDirectlyIn(path: string, dir: string): boolean {
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  return parent === dir.replace(/\/+$/, "");
+}
+
 /** Every ancestor path of `path` up to and including `root`. */
 export function ancestorsOf(path: string, root: string): string[] {
   const out: string[] = [];

@@ -5,8 +5,17 @@ import ReactDOM from "react-dom/client";
 import { App } from "@renderer/App";
 import { SpotlightApp } from "@renderer/components/spotlight/spotlight-app";
 import { TrayPopoverApp } from "@renderer/components/tray-popover/tray-popover-app";
+import { installBrowserBridge } from "@renderer/lib/browser-bridge";
 import { queryClient } from "@renderer/lib/query-client";
 import "@renderer/styles/globals.css";
+
+/*
+ * Opening the dev server URL in a plain browser is a supported way to look at
+ * the UI, so stand in for the preload bridge when Electron has not mounted it.
+ * This is a no-op under Electron, which always provides the real one — see
+ * `lib/browser-bridge.ts`.
+ */
+installBrowserBridge();
 
 /**
  * Same React bundle, three windows. Each Electron BrowserWindow loads
