@@ -109,16 +109,47 @@ async function stashHandlers(
   expect(result.missing, "no handler registered for these channels").toEqual([]);
 }
 
-/** Make one read fail, in front of its real handler. */
+/**
+ * Make one read fail, in front of its real handler, and count the attempts.
+ *
+ * The count exists because the renderer polls this channel on a 5s heartbeat,
+ * so "the panel recovered" cannot be attributed to a button — but "the click
+ * asked for a read" can. See {@link failedReads}.
+ */
 async function failHandler(
   app: ElectronApplication,
   channel: string,
 ): Promise<void> {
   await app.evaluate(({ ipcMain }, name) => {
+    const globals = globalThis as unknown as {
+      __atrFailedReads?: Record<string, number>;
+    };
+    const counts = (globals.__atrFailedReads ??= {});
+    counts[name] = 0;
     ipcMain.removeHandler(name);
     ipcMain.handle(name, () => {
+      counts[name] += 1;
       throw new Error("simulated IPC failure");
     });
+  }, channel);
+}
+
+/**
+ * How many reads the replacement from {@link failHandler} has failed so far.
+ *
+ * Counting *failed* reads is enough to see a retry because the panel is only
+ * on screen while reads fail: every read taken while that handler is installed
+ * is a failed one.
+ */
+async function failedReads(
+  app: ElectronApplication,
+  channel: string,
+): Promise<number> {
+  return app.evaluate((_electron, name) => {
+    const globals = globalThis as unknown as {
+      __atrFailedReads?: Record<string, number>;
+    };
+    return globals.__atrFailedReads?.[name] ?? 0;
   }, channel);
 }
 
@@ -438,11 +469,47 @@ test("processes shows a skeleton while it reads and a retry when it cannot (ATR-
       "a failed process snapshot offered no way out — this is the finding",
     ).toBeVisible();
 
-    // The 5s heartbeat is a second route back to a healthy view, so recovery is
-    // asserted after restoring rather than attributed to the button alone; the
-    // settings test above is where the retry is provably the only way out.
-    await restoreHandler(app, CHANNEL.processes);
+    // The retry, taken *before* the real handler comes back.
+    //
+    // Restoring it first and then clicking is what made this spec flaky, and
+    // the failure was legible once CI printed the call log: the locator
+    // resolved to `<button disabled aria-busy="true">`, and the run ended with
+    // the element detached. Both come from a read reaching the real handler,
+    // which is a real `lsof` sweep — seconds long on a runner, and on a loaded
+    // machine. While one is in flight `query.isFetching` disables the button,
+    // and when it lands the error clears and the panel holding the button
+    // unmounts, so the click had nothing to press and waited out its 30s.
+    // Sampled on this machine, restoring the handler puts the button in exactly
+    // that state about four seconds later, for the three the sweep takes, and
+    // the panel is gone at the end of it. Which read gets there first is up to
+    // the machine — the 5s poll, or the retry the QueryClient schedules after a
+    // failure (`retry: 1`) — and the spec was relying on neither being in
+    // flight.
+    //
+    // Clicking while every read still fails removes the race rather than
+    // narrowing it: the panel cannot unmount while reads fail, and the worst
+    // the poll can do is blink the button out for the length of a failed read,
+    // which is a round trip of a throw.
+    //
+    // What the click then has to prove is that it asked for a read, so that is
+    // counted instead of inferred from the panel going away.
+    const before = await failedReads(app, CHANNEL.processes);
+    await expect(
+      retry,
+      "the retry was disabled although no read was in flight",
+    ).toBeEnabled();
     await retry.click();
+    await expect
+      .poll(() => failedReads(app, CHANNEL.processes), {
+        message: "clicking Try again asked for no new read",
+      })
+      .toBeGreaterThan(before);
+
+    // Recovery, once reads work again. The 5s heartbeat is a second route back
+    // to a healthy view, so this asserts that the view returns rather than
+    // crediting the button with it; the settings test above is where the retry
+    // is provably the only way out.
+    await restoreHandler(app, CHANNEL.processes);
     await expect(
       win.getByText("Failed to read process snapshot"),
     ).toBeHidden({ timeout: 20_000 });
