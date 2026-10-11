@@ -1,0 +1,84 @@
+<template>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+<style>
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("assets/fonts/IBMPlexSans-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("assets/fonts/IBMPlexSans-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+#root { position: absolute; inset: 0; overflow: hidden; font-family: "IBM Plex Sans", sans-serif; color: #F8FAFC; }
+#f01-ground { position: absolute; inset: 0; background: #0F172A;
+  background-image: radial-gradient(rgba(148, 163, 184, 0.16) 1px, transparent 1px);
+  background-size: 34px 34px; }
+#f01-layers { position: absolute; inset: 0; z-index: 5; }
+.f01-col { position: absolute; top: 0; width: 420px; }
+.f01-label { font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 26px; line-height: 62px; color: #F8FAFC; opacity: 0.13; white-space: nowrap; }
+#f01-prompt { position: absolute; left: 0; right: 0; top: 372px; text-align: center; }
+#f01-path { display: inline-block; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 78px; letter-spacing: -0.01em; color: #F8FAFC; }
+#f01-name { color: #22C55E; }
+#f01-caret { display: inline-block; width: 6px; height: 66px; margin-left: 10px; vertical-align: -8px; background: #22C55E; }
+#f01-roots { position: absolute; left: 0; right: 0; top: 500px; text-align: center; font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 25px; color: #94A3B8; letter-spacing: 0.02em; }
+#f01-roots span { margin: 0 16px; }
+#f01-note { position: absolute; right: 268px; top: 486px; padding: 10px 22px; border-radius: 100px; background: rgba(148, 163, 184, 0.10); border: 1px solid rgba(148, 163, 184, 0.28); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 22px; color: #94A3B8; }
+#f01-rule { position: absolute; left: 660px; top: 470px; width: 600px; height: 1px; background: rgba(34, 197, 94, 0.5); transform-origin: 0 50%; }
+</style>
+<div data-hf-id="hf-x1it" id="root" data-composition-id="01-cold-open" data-width="1920" data-height="1080" data-duration="11.892">
+<div data-hf-id="hf-dy50" id="f01-ground" class="clip" data-start="0" data-duration="11.892" data-track-index="0"></div>
+<div data-hf-id="hf-wbm2" id="f01-layers" class="clip" data-start="0" data-duration="11.892" data-track-index="1">
+  <div data-hf-id="hf-aol3" id="f01-col1" class="f01-col" style="left: 150px" data-layout-allow-overflow="">
+    <div data-hf-id="hf-q5a9" class="f01-label">site-backup-2019</div>
+    <div data-hf-id="hf-udef" class="f01-label">old-prototype-v2</div>
+    <div data-hf-id="hf-ws3u" class="f01-label">client-portal</div>
+    <div data-hf-id="hf-5xre" class="f01-label">untitled-folder-3</div>
+    <div data-hf-id="hf-70hc" class="f01-label">final-final-v4</div>
+  </div>
+  <div data-hf-id="hf-u185" id="f01-col2" class="f01-col" style="left: 780px" data-layout-allow-overflow="">
+    <div data-hf-id="hf-7u7m" class="f01-label">dashboard-clone</div>
+    <div data-hf-id="hf-gt45" class="f01-label">test-scratch</div>
+    <div data-hf-id="hf-z8s8" class="f01-label">invoice-thing</div>
+    <div data-hf-id="hf-fa3x" class="f01-label">v2-old-prototype</div>
+    <div data-hf-id="hf-y8sn" class="f01-label">lighthouse-ui</div>
+  </div>
+  <div data-hf-id="hf-yp8l" id="f01-col3" class="f01-col" style="left: 1410px" data-layout-allow-overflow="">
+    <div data-hf-id="hf-zhcb" class="f01-label">tmp-of-tmp</div>
+    <div data-hf-id="hf-yz9c" class="f01-label">prototype-old</div>
+    <div data-hf-id="hf-a95k" class="f01-label">notes-and-stuff</div>
+    <div data-hf-id="hf-ne1x" class="f01-label">do-not-delete</div>
+    <div data-hf-id="hf-v4h6" class="f01-label">archive-2023</div>
+  </div>
+  <div data-hf-id="hf-vm27" id="f01-prompt">
+    <span data-hf-id="hf-6lqa" id="f01-path">~/Code/<span data-hf-id="hf-jy7j" id="f01-name"></span></span><span data-hf-id="hf-jqhv" id="f01-caret"></span>
+  </div>
+  <div data-hf-id="hf-cdu3" id="f01-rule"></div>
+  <div data-hf-id="hf-zsn4" id="f01-roots"><span data-hf-id="hf-rwbv">~/work</span><span data-hf-id="hf-kfrg">~/projects</span><span data-hf-id="hf-p0e9">~/oss</span><span data-hf-id="hf-tnm9">~/sandbox</span></div>
+  <div data-hf-id="hf-033y" id="f01-note">not on disk yet</div>
+</div>
+</div>
+<script>
+(function () {
+  const tl = gsap.timeline({ paused: true });
+  // One continuous move for the whole frame: the wall of half-remembered names drifts up.
+  tl.fromTo("#f01-col1", { y: 130 }, { y: -190, duration: 5.261, ease: "none" }, 0);
+  tl.fromTo("#f01-col2", { y: 210 }, { y: -140, duration: 5.261, ease: "none" }, 0);
+  tl.fromTo("#f01-col3", { y: 60 }, { y: -250, duration: 5.261, ease: "none" }, 0);
+  // Scene 1 — the empty prompt and its caret.
+  tl.fromTo("#f01-prompt", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.335, ease: "power3.out" }, 0.239);
+  tl.fromTo("#f01-caret", { opacity: 0 }, { opacity: 1, duration: 0.005 }, 0.43);
+  tl.to("#f01-caret", { opacity: 0.15, duration: 0.191, repeat: 5, yoyo: true, ease: "power2.inOut" }, 0.454);
+  // Scene 2 — the name resolves to the wrong repo, four times, in place.
+  tl.set("#f01-name", { textContent: "old-prototype-v2" }, 1.913);
+  tl.set("#f01-name", { textContent: "old-project-v2" }, 2.583);
+  tl.set("#f01-name", { textContent: "prototype-old" }, 3.157);
+  tl.to("#f01-col1", { opacity: 0.06, duration: 0.574, ease: "power2.out" }, 2.009);
+  tl.to("#f01-col2", { opacity: 0.06, duration: 0.574, ease: "power2.out" }, 2.057);
+  tl.to("#f01-col3", { opacity: 0.06, duration: 0.574, ease: "power2.out" }, 2.104);
+  // Scene 3 — the folders it might be in, then the name gives up.
+  tl.fromTo("#f01-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.239, ease: "power3.out" }, 3.97);
+  tl.fromTo("#f01-roots", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.287, ease: "power3.out" }, 4.113);
+  tl.set("#f01-name", { textContent: "?" }, 4.974);
+  // Scene 4 — held read: the prompt, the roots, the wall, nothing else.
+  tl.fromTo("#f01-note", { opacity: 0, x: 14 }, { opacity: 1, x: 0, duration: 0.287, ease: "power3.out" }, 5.022);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["01-cold-open"] = tl;
+})();
+</script>
+</template>

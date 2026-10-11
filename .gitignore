@@ -48,3 +48,13 @@ dist-electron/
 release/
 *.dmg
 .electron-builder-cache/
+
+# HyperFrames demo video: renders, snapshots, caches and regenerable audio/capture outputs stay local
+demo/renders/
+demo/snapshots/
+demo/.hyperframes/
+demo/.media/
+demo/.thumbnails/
+demo/.waveform-cache/
+demo/assets/captures/
+demo/assets/voice/

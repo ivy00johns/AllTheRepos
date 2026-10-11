@@ -1,0 +1,56 @@
+<template>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+<style>
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("assets/fonts/IBMPlexSans-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+#root { position: absolute; inset: 0; overflow: hidden; font-family: "IBM Plex Sans", sans-serif; color: #F8FAFC; }
+#f07-ground { position: absolute; inset: 0; background: #0F172A;
+  background-image: radial-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 34px 34px; }
+#f07-layer { position: absolute; inset: 0; z-index: 5; }
+#f07-frame { position: absolute; left: 294px; top: 64px; width: 1332px; height: 832px; border-radius: 16px; border: 1.5px solid rgba(34, 197, 94, 0.22); box-sizing: border-box; }
+#f07-reveal { position: absolute; left: 294px; top: 64px; width: 1332px; height: 832px; border-radius: 16px; background: #0F172A; }
+#f07-eyebrow { position: absolute; left: 294px; top: 16px; padding: 7px 20px; border-radius: 100px; background: rgba(34, 197, 94, 0.10); border: 1px solid rgba(34, 197, 94, 0.30); font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 21px; letter-spacing: 0.08em; text-transform: uppercase; color: #22C55E; }
+#f07-links { position: absolute; right: 294px; top: 16px; padding: 10px 26px; border-radius: 100px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(148, 163, 184, 0.28); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 23px; color: #94A3B8; }
+#f07-nodeA { position: absolute; left: 420px; top: 640px; padding: 11px 22px; border-radius: 100px; background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.5); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 21px; color: #22C55E; }
+#f07-nodeB { position: absolute; left: 1120px; top: 480px; padding: 11px 22px; border-radius: 100px; background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.5); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 21px; color: #22C55E; }
+#f07-edge { position: absolute; left: 552px; top: 668px; width: 600px; height: 2px; background: #22C55E; transform-origin: 0 50%; }
+#f07-callout { position: absolute; left: 342px; top: 792px; padding: 13px 26px; border-radius: 100px; background: #22C55E; color: #0F172A; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 24px; }
+</style>
+<div data-hf-id="hf-hk07" id="root" data-composition-id="07-graph" data-width="1920" data-height="1080" data-duration="16.564">
+<div data-hf-id="hf-375b" id="f07-ground" class="clip" data-start="0" data-duration="16.564" data-track-index="0"></div>
+<!-- approved frame video hoisted by assemble-index -->
+<div data-hf-id="hf-xkbu" id="f07-layer" class="clip" data-start="0" data-duration="16.564" data-track-index="1">
+  <div data-hf-id="hf-111u" id="f07-frame"></div>
+  <div data-hf-id="hf-pblk" id="f07-reveal"></div>
+  <div data-hf-id="hf-erl5" id="f07-eyebrow">the map</div>
+  <div data-hf-id="hf-k7ya" id="f07-links">23 curated links</div>
+  <div data-hf-id="hf-yxqp" id="f07-nodeA">lighthouse-ui</div>
+  <div data-hf-id="hf-cx3f" id="f07-nodeB">atlas-kit</div>
+  <div data-hf-id="hf-480k" id="f07-edge"></div>
+  <div data-hf-id="hf-8n6s" id="f07-callout">MCP server · local</div>
+</div>
+</div>
+<script>
+(function () {
+  const tl = gsap.timeline({ paused: true });
+  tl.set("#f07-reveal", { opacity: 0 }, 0);
+  // Scene 1 — the map, laid out behind the chrome.
+  tl.fromTo("#f07-eyebrow", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.462, ease: "power3.out" }, 0);
+  // Scene 2 — the drawn edge: two known repos, one line between them.
+  tl.fromTo("#f07-nodeA", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.462, ease: "power3.out" }, 2.403);
+  tl.fromTo("#f07-nodeB", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.462, ease: "power3.out" }, 3.143);
+  tl.fromTo("#f07-edge", { scaleX: 0 }, { scaleX: 1, duration: 0.786, ease: "power3.inOut" }, 3.697);
+  tl.to("#f07-edge", { opacity: 0, duration: 0.647, ease: "power2.out" }, 5.916);
+  tl.to("#f07-nodeA", { opacity: 0.45, duration: 0.647, ease: "power2.out" }, 5.916);
+  tl.to("#f07-nodeB", { opacity: 0.45, duration: 0.647, ease: "power2.out" }, 5.916);
+  // Scene 3 — the shape, counted.
+  tl.fromTo("#f07-links", { opacity: 0, x: 18 }, { opacity: 1, x: 0, duration: 0.508, ease: "power3.out" }, 7.025);
+  // Scene 4 — the half your agents see.
+  tl.fromTo("#f07-callout", { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.508, ease: "power3.out" }, 10.723);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["07-graph"] = tl;
+})();
+</script>
+</template>
