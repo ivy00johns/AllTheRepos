@@ -61,7 +61,6 @@ export interface RepoGridProps {
   onSelect: (slug: string) => void;
   onToggleChecked: (slug: string, additive: boolean) => void;
   onOpenEditor: (slug: string) => void;
-  onDragStart?: (slug: string, event: React.DragEvent) => void;
   loading?: boolean;
   /** Rendered when nothing matches — worded by the caller. */
   emptyTitle?: string;
@@ -191,7 +190,6 @@ export function RepoGrid({
   onSelect,
   onToggleChecked,
   onOpenEditor,
-  onDragStart,
   loading,
   emptyTitle = "Nothing here",
   emptyHint = "Try a different folder, or clear the filters.",
@@ -237,7 +235,6 @@ export function RepoGrid({
               onSelect={onSelect}
               onToggleChecked={onToggleChecked}
               onOpenEditor={onOpenEditor}
-              onDragStart={onDragStart}
             />
           ) : (
             <div
@@ -258,7 +255,6 @@ export function RepoGrid({
                     onSelect={onSelect}
                     onToggleChecked={onToggleChecked}
                     onOpenEditor={onOpenEditor}
-                    onDragStart={onDragStart}
                   />
                 </div>
               ))}

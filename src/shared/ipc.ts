@@ -57,30 +57,14 @@ export const IPC = {
      * the renderer then draws deterministic generated art.
      */
     COVER: "catalog:cover",
-    /** Preflight a relocation: per-repo verdict, nothing touched. */
-    MOVE_CHECK: "catalog:moveCheck",
-    /** Execute a relocation on disk and update the catalog. */
-    MOVE: "catalog:move",
-    /** Reverse a journaled move batch. */
-    MOVE_UNDO: "catalog:moveUndo",
-    /** Describe the most recent move batch, for the undo affordance. */
-    MOVE_LAST: "catalog:moveLast",
     /**
      * Push-style stream from main → renderer. Fired when the filesystem
-     * watcher notices repos appearing, moving or disappearing under a
-     * scan root. Payload conforms to `CatalogChangeEventSchema`.
+     * watcher notices repos appearing or disappearing under a scan root.
+     * Payload conforms to `CatalogChangeEventSchema`.
      */
     ON_CHANGED: "catalog:on:changed",
     /** Pin / unpin a repo. */
     SET_FAVORITE: "catalog:setFavorite",
-    /** Preflight a folder rename/move: which repos travel, what blocks it. */
-    FOLDER_CHECK: "catalog:folderCheck",
-    /** Rename a folder in place. */
-    FOLDER_RENAME: "catalog:folderRename",
-    /** Move a folder into a different parent. */
-    FOLDER_MOVE: "catalog:folderMove",
-    /** Create an empty folder inside a scan root. */
-    FOLDER_CREATE: "catalog:folderCreate",
   },
 
   /** Scan namespace — scanner job lifecycle + progress stream. */

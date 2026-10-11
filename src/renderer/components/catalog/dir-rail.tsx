@@ -7,9 +7,10 @@
  * invent, and it was previously discarded in favour of a single "All
  * repos" row.
  *
- * Folders are also drop targets — dragging repos onto one stages a real
- * move on disk (see `move-dialog.tsx`), which is what makes this a place
- * you can reorganise from rather than just look at.
+ * It is a map, not a filing cabinet. Nothing here moves, renames or
+ * creates a directory: the rail reads the tree the scanner found and
+ * narrows the catalog to it. The only actions a folder offers are about
+ * scanning.
  */
 
 import * as React from "react";
@@ -25,10 +26,7 @@ import {
   Layers,
   Sparkles,
   FolderSearch,
-  FolderPlus,
-  FolderInput,
   MoreHorizontal,
-  PenLine,
   RefreshCw,
   FolderMinus,
   Plus,
@@ -46,7 +44,6 @@ import {
 } from "@renderer/components/ui/dropdown-menu";
 import { cn } from "@renderer/lib/cn";
 
-import type { FolderDialogRequest } from "./folder-dialog";
 import {
   ancestorsOf,
   buildRepoForest,
@@ -69,12 +66,6 @@ interface DirRailProps {
   onSelectGroup: (id: number | null) => void;
   /** Slug of the repo currently open in the detail panel, for auto-reveal. */
   revealSlug?: string | null;
-  /** Called when repos are dropped onto a folder. */
-  onDropRepos?: (slugs: string[], targetDir: string) => void;
-  /** Called when a folder is dropped onto another folder. */
-  onDropFolder?: (fromPath: string, targetParent: string) => void;
-  /** Called to open the create/rename/move folder dialog. */
-  onRequestFolderOp?: (request: FolderDialogRequest) => void;
   /** Rescan a single root on demand. */
   onRescan?: (path: string) => void;
   /** Begin removing a root from the watch list. */
@@ -108,89 +99,22 @@ const OWNERSHIP_VIEW_ICONS = {
   external: CloudOff,
 } as const;
 
-
-/**
- * Per-folder actions.
- *
- * Opened by the hover-revealed "⋯" button AND by right-click, because on
- * a desktop app right-click is the reflex — but a menu that ONLY appears
- * on right-click is undiscoverable, so the button has to exist too.
- */
-function FolderMenu({
-  path,
-  canRestructure,
-  onRequest,
-  open,
-  onOpenChange,
-}: {
-  path: string;
-  canRestructure: boolean;
-  onRequest: (request: FolderDialogRequest) => void;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const setOpen = onOpenChange;
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Actions for ${path.split("/").pop()}`}
-          onClick={(e) => e.stopPropagation()}
-          className={cn(
-            "shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity duration-150",
-            "hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100",
-            open && "opacity-100",
-          )}
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        <DropdownMenuItem
-          onSelect={() => onRequest({ mode: "create", path })}
-        >
-          <FolderPlus className="h-3.5 w-3.5" aria-hidden />
-          New folder inside
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={!canRestructure}
-          onSelect={() => onRequest({ mode: "rename", path })}
-        >
-          <PenLine className="h-3.5 w-3.5" aria-hidden />
-          Rename…
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!canRestructure}
-          onSelect={() => onRequest({ mode: "move", path })}
-        >
-          <FolderInput className="h-3.5 w-3.5" aria-hidden />
-          Move to…
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-
 /**
  * Scan-root actions.
  *
- * Deliberately different verbs from a normal folder: a root can't be
- * renamed or moved (that would desync it from settings), but it CAN be
- * rescanned on demand or dropped from the watch list.
+ * A root can't be renamed or moved — that would desync it from settings
+ * and would mean writing to disk — but it CAN be rescanned on demand or
+ * dropped from the watch list. Dropping a root changes what this app
+ * looks at; it never changes what is on the disk.
  */
 function ScanRootMenu({
   path,
-  onRequest,
   onRescan,
   onStopScanning,
   open,
   onOpenChange,
 }: {
   path: string;
-  onRequest: (request: FolderDialogRequest) => void;
   onRescan: (path: string) => void;
   onStopScanning: (path: string) => void;
   open: boolean;
@@ -217,10 +141,6 @@ function ScanRootMenu({
           <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           Scan now
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onRequest({ mode: "create", path })}>
-          <FolderPlus className="h-3.5 w-3.5" aria-hidden />
-          New folder inside
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => onStopScanning(path)}
@@ -241,98 +161,26 @@ function DirRow({
   expanded,
   onToggle,
   onSelect,
-  onDropRepos,
-  onDropFolder,
-  onRequestFolderOp,
 }: {
   node: TreeNode;
   selectedDir: string | null;
   expanded: Set<string>;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
-  onDropRepos?: (slugs: string[], targetDir: string) => void;
-  onDropFolder?: (fromPath: string, targetParent: string) => void;
-  onRequestFolderOp?: (request: FolderDialogRequest) => void;
 }) {
-  const [dropActive, setDropActive] = React.useState(false);
-  const [menuOpen, setMenuOpen] = React.useState(false);
   const isOpen = expanded.has(node.path);
   const isSelected = selectedDir === node.path;
   const hasChildren = node.children.length > 0;
   const archived = isArchivedPath(node.path);
-
-  /**
-   * A row accepts two payloads: a set of repos, or another folder. The
-   * folder case has to reject drops onto itself or its own descendants —
-   * the service blocks those too, but letting the row light up as a valid
-   * target first would be a lie.
-   */
-  const acceptsFolder = (fromPath: string) =>
-    Boolean(onDropFolder) &&
-    fromPath !== node.path &&
-    !isUnder(node.path, fromPath) &&
-    node.path !== fromPath.slice(0, fromPath.lastIndexOf("/"));
-
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setDropActive(false);
-
-    const folderPath = event.dataTransfer.getData("application/x-atr-folder");
-    if (folderPath) {
-      if (acceptsFolder(folderPath)) onDropFolder?.(folderPath, node.path);
-      return;
-    }
-
-    const raw = event.dataTransfer.getData("application/x-atr-repos");
-    if (!raw || !onDropRepos) return;
-    try {
-      const slugs = JSON.parse(raw) as string[];
-      if (Array.isArray(slugs) && slugs.length > 0) {
-        onDropRepos(slugs, node.path);
-      }
-    } catch {
-      // Malformed payload — a drag from outside the app. Ignore rather
-      // than surfacing a parse error the user can do nothing about.
-    }
-  };
 
   const FolderIcon = archived ? Archive : isOpen ? FolderOpen : Folder;
 
   return (
     <li>
       <div
-        className={cn(
-          "atr-rail-row group/row",
-          dropActive && "bg-accent/15 ring-1 ring-inset ring-accent",
-        )}
+        className="atr-rail-row group/row"
         data-selected={isSelected ? "true" : "false"}
-        draggable
-        onDragStart={(e) => {
-          e.stopPropagation();
-          e.dataTransfer.setData("application/x-atr-folder", node.path);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onContextMenu={(e) => {
-          if (!onRequestFolderOp) return;
-          e.preventDefault();
-          setMenuOpen(true);
-        }}
         style={{ paddingLeft: `${4 + node.depth * 12}px` }}
-        onDragOver={(e) => {
-          const types = e.dataTransfer.types;
-          // `getData` is unreadable during dragover, so a folder drag is
-          // accepted optimistically here and re-validated on drop.
-          const isFolder = types.includes("application/x-atr-folder");
-          const isRepos = types.includes("application/x-atr-repos");
-          if (!isFolder && !isRepos) return;
-          if (isRepos && !onDropRepos) return;
-          if (isFolder && !onDropFolder) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDropActive(true);
-        }}
-        onDragLeave={() => setDropActive(false)}
-        onDrop={handleDrop}
       >
         <button
           type="button"
@@ -394,16 +242,6 @@ function DirRow({
           ) : null}
           <CountBadge count={node.totalRepos} />
         </button>
-
-        {onRequestFolderOp ? (
-          <FolderMenu
-            path={node.path}
-            canRestructure
-            onRequest={onRequestFolderOp}
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
-          />
-        ) : null}
       </div>
 
       {isOpen && hasChildren ? (
@@ -416,9 +254,6 @@ function DirRow({
               expanded={expanded}
               onToggle={onToggle}
               onSelect={onSelect}
-              onDropRepos={onDropRepos}
-              onDropFolder={onDropFolder}
-              onRequestFolderOp={onRequestFolderOp}
             />
           ))}
         </ul>
@@ -451,9 +286,6 @@ function ScanRootRow({
   onToggle,
   onSelect,
   onSelectExact,
-  onDropRepos,
-  onDropFolder,
-  onRequestFolderOp,
   onRescan,
   onStopScanning,
 }: {
@@ -464,13 +296,9 @@ function ScanRootRow({
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onSelectExact: (path: string) => void;
-  onDropRepos?: (slugs: string[], targetDir: string) => void;
-  onDropFolder?: (fromPath: string, targetParent: string) => void;
-  onRequestFolderOp?: (request: FolderDialogRequest) => void;
   onRescan?: (path: string) => void;
   onStopScanning?: (path: string) => void;
 }) {
-  const [dropActive, setDropActive] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const isOpen = expanded.has(node.path);
   const isSelected = selectedDir === node.path;
@@ -479,52 +307,8 @@ function ScanRootRow({
   return (
     <li>
       <div
-        className={cn(
-          "atr-rail-row group/row mt-0.5",
-          dropActive && "bg-accent/15 ring-1 ring-inset ring-accent",
-        )}
+        className="atr-rail-row group/row mt-0.5"
         data-selected={isSelected ? "true" : "false"}
-        onDragOver={(e) => {
-          const types = e.dataTransfer.types;
-          const isFolder = types.includes("application/x-atr-folder");
-          const isRepos = types.includes("application/x-atr-repos");
-          if (node.isOutsideScanRoots) return;
-          if (!isFolder && !isRepos) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDropActive(true);
-        }}
-        onDragLeave={() => setDropActive(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDropActive(false);
-          if (node.isOutsideScanRoots) return;
-          const folderPath = e.dataTransfer.getData(
-            "application/x-atr-folder",
-          );
-          if (folderPath) {
-            // Dropping onto the root means "move to the top level"; a
-            // folder already there has nowhere to go.
-            const currentParent = folderPath.slice(
-              0,
-              folderPath.lastIndexOf("/"),
-            );
-            if (currentParent !== node.path && folderPath !== node.path) {
-              onDropFolder?.(folderPath, node.path);
-            }
-            return;
-          }
-          const raw = e.dataTransfer.getData("application/x-atr-repos");
-          if (!raw || !onDropRepos) return;
-          try {
-            const slugs = JSON.parse(raw) as string[];
-            if (Array.isArray(slugs) && slugs.length > 0) {
-              onDropRepos(slugs, node.path);
-            }
-          } catch {
-            // Drag from outside the app — nothing sensible to do.
-          }
-        }}
       >
         <button
           type="button"
@@ -573,11 +357,9 @@ function ScanRootRow({
           <CountBadge count={node.totalRepos} />
         </button>
 
-        {onRequestFolderOp && onRescan && onStopScanning &&
-        !node.isOutsideScanRoots ? (
+        {onRescan && onStopScanning && !node.isOutsideScanRoots ? (
           <ScanRootMenu
             path={node.path}
-            onRequest={onRequestFolderOp}
             onRescan={onRescan}
             onStopScanning={onStopScanning}
             open={menuOpen}
@@ -615,9 +397,6 @@ function ScanRootRow({
                 expanded={expanded}
                 onToggle={onToggle}
                 onSelect={onSelect}
-                onDropRepos={onDropRepos}
-                onDropFolder={onDropFolder}
-                onRequestFolderOp={onRequestFolderOp}
               />
             ))}
             {node.repos.length > 0 ? (
@@ -667,9 +446,6 @@ export function DirRail({
   activeGroupId,
   onSelectGroup,
   revealSlug,
-  onDropRepos,
-  onDropFolder,
-  onRequestFolderOp,
   onRescan,
   onStopScanning,
   onAddScanPath,
@@ -870,9 +646,6 @@ export function DirRail({
               const already = selectedDir === path && selectedDirExact;
               setSelectedDir(already ? null : path, true);
             }}
-            onDropRepos={onDropRepos}
-            onDropFolder={onDropFolder}
-            onRequestFolderOp={onRequestFolderOp}
             onRescan={onRescan}
             onStopScanning={onStopScanning}
           />

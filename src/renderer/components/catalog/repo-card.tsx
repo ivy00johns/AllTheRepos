@@ -55,7 +55,6 @@ export interface RepoCardProps {
   onSelect?: (slug: string) => void;
   onToggleChecked?: (slug: string, additive: boolean) => void;
   onOpenEditor?: (slug: string) => void;
-  onDragStart?: (slug: string, event: React.DragEvent) => void;
 }
 
 /** Tags worth showing: distinctive ones first, ubiquitous ones dropped. */
@@ -83,7 +82,6 @@ export function RepoCard({
   onSelect,
   onToggleChecked,
   onOpenEditor,
-  onDragStart,
 }: RepoCardProps) {
   const { processes } = useProcessesForRepo(repo.slug);
   const gallery = variant === "gallery";
@@ -143,8 +141,6 @@ export function RepoCard({
     <article
       data-repo-slug={repo.slug}
       data-selected={selected ? "true" : "false"}
-      draggable
-      onDragStart={(event) => onDragStart?.(repo.slug, event)}
       onClick={handleClick}
       className={cn(
         "atr-surface group relative flex overflow-hidden rounded-lg shadow-card",
