@@ -15,22 +15,24 @@
  * the Claude views, the process list with its port chips, and settings all
  * render without Electron.
  *
- * Writes are the other half. {@link "../../lib/demo-store"} owns a mutable copy
- * of that library, and this bridge routes every write the app can honour in a
- * browser — favourite, tags, curated links, moves, folder renames, scan roots —
- * through it, so a click that changes the catalog changes it here too and the
- * next read shows it. Those writes are saved to this browser's `localStorage`,
- * so they are still there after a reload: a review that forgot the favourite it
- * just set on every refresh was not much of a review. `?reset-edits` on the URL
- * starts from the catalog alone: it drops the saved edits *and* the saved view
- * (scope, sort, folder, filters), because a filter alone can hide every row. The rules the main process enforces are
- * enforced there, including the ones that make a write fail: a dirty tree still
- * blocks a move.
+ * Writes are the other half — and they are all of the same kind: the app's own
+ * notes about a repo. {@link "../../lib/demo-store"} owns a mutable copy of that
+ * library, and this bridge routes the writes the app can honour in a browser —
+ * favourite, tags, curated links, scan roots — through it, so a click that
+ * changes the catalog changes it here too and the next read shows it. Those
+ * writes are saved to this browser's `localStorage`, so they are still there
+ * after a reload: a review that forgot the favourite it just set on every
+ * refresh was not much of a review. `?reset-edits` on the URL starts from the
+ * catalog alone: it drops the saved edits *and* the saved view (scope, sort,
+ * folder, filters), because a filter alone can hide every row.
+ *
+ * Nothing here — and nothing in the app it stands in for — moves, renames,
+ * copies or deletes a repository. The bridge answers the same contract the
+ * preload does, and that contract has no such call in it.
  *
  * What a browser tab genuinely cannot do is refused, with a reason, rather than
- * pretended: nothing runs a process, opens an editor, installs an update or
- * creates a folder on a disk that is not there. Nothing here can make the UI
- * claim something was saved that was not.
+ * pretended: nothing runs a process, opens an editor or installs an update.
+ * Nothing here can make the UI claim something was saved that was not.
  *
  * Safety: it installs ONLY when `window.atr` is absent. Electron always mounts
  * the real bridge (dev and packaged alike), so this can never shadow real IPC;
@@ -61,17 +63,10 @@ import {
   enablePersistence,
   loadExportedCatalog,
   type CatalogSource,
-  folderCheck,
-  folderMove,
-  folderRename,
   forgetRepo,
   graph,
   groups,
   listRepos,
-  move,
-  moveCheck,
-  moveLast,
-  moveUndo,
   relations,
   removeLink,
   removeScanPath,
@@ -144,6 +139,42 @@ const refused = (): never => {
 const noSubscription = () => () => {};
 
 const now = () => Date.now();
+
+/**
+ * Which library a browser tab ended up reading, and who is watching for that.
+ *
+ * `installBrowserBridge` is a no-op under Electron — the preload bridge is
+ * always there — so nothing below is reached in the app, and a marker built on
+ * it cannot appear in one. In a tab the answer is not known until
+ * `loadExportedCatalog` settles: an export may exist at {@link EXPORT_URL}, in
+ * which case the tab is reading this machine's own catalog and must not be
+ * marked, and it may not, in which case every read is answered from the demo
+ * library — invented repos, invented processes, and an invented update. A
+ * screen full of those has to say so, which is why the answer is published here
+ * rather than guessed at the point of display.
+ */
+let servedLibrary: CatalogSource | null = null;
+const servedLibraryListeners = new Set<(source: CatalogSource) => void>();
+
+/** The library this tab is reading; null while that is still being decided. */
+export function servedCatalogSource(): CatalogSource | null {
+  return servedLibrary;
+}
+
+/** Watch for the library this tab reads. Returns the unsubscribe lambda. */
+export function subscribeToServedCatalogSource(
+  listener: (source: CatalogSource) => void,
+): () => void {
+  servedLibraryListeners.add(listener);
+  return () => {
+    servedLibraryListeners.delete(listener);
+  };
+}
+
+function publishServedLibrary(source: CatalogSource): void {
+  servedLibrary = source;
+  for (const listener of servedLibraryListeners) listener(source);
+}
 
 /**
  * The honest answers for machine state a browser tab cannot read.
@@ -258,50 +289,11 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       // demo library instead would show a feature the app does not have yet.
       smartFilter: async () => [] as never,
       cover: async () => ({ src: null, source: null, relativePath: null }) as never,
-      moveCheck: async ({ slugs, targetDir }) => {
-        await ready;
-        return moveCheck(slugs, targetDir) as never;
-      },
-      move: async ({ slugs, targetDir }) => {
-        await ready;
-        return move(slugs, targetDir) as never;
-      },
-      moveUndo: async ({ batchId }) => {
-        await ready;
-        return moveUndo(batchId) as never;
-      },
-      moveLast: async () => {
-        await ready;
-        return moveLast() as never;
-      },
       onChanged: noSubscription as never,
       setFavorite: async ({ slug, favorite }) => {
         await ready;
         return setFavorite(slug, favorite) as never;
       },
-      folderCheck: async ({ fromPath, toPath }) => {
-        await ready;
-        return folderCheck(fromPath, toPath) as never;
-      },
-      folderRename: async ({ fromPath, newName }) => {
-        await ready;
-        return folderRename(fromPath, newName) as never;
-      },
-      folderMove: async ({ fromPath, parentPath }) => {
-        await ready;
-        return folderMove(fromPath, parentPath) as never;
-      },
-      // The demo tree is derived from the repos' paths, so there is no empty
-      // folder to put anywhere. `FolderOpResult` has an `error` field, so the
-      // refusal is expressible and keeps the shape a caller can read.
-      folderCreate: async ({ parentPath, name }) => ({
-        ok: false,
-        fromPath: "",
-        toPath: `${parentPath}/${name}`,
-        movedRepos: 0,
-        batchId: null,
-        error: "The browser bridge has no folders of its own — create one by moving a repo into it.",
-      }) as never,
     },
     scan: {
       // `StartScanResult` is `{ jobId, status: "running", startedAt }` — there is
@@ -630,12 +622,17 @@ export function installBrowserBridge(): boolean {
   // export is a fetch, and the first catalog read happens on mount, so a tab
   // that did not wait would paint the demo library and swap it a frame later.
   const ready = loadExportedCatalog(EXPORT_URL);
+  // Published when it settles, not at install time: an export that exists means
+  // this tab is reading the machine's own catalog, and marking that as invented
+  // would be its own lie.
+  void ready.then(publishServedLibrary);
   window.atr = buildBridge(ready);
   console.info(
     "[browser-bridge] No Electron preload bridge found — installing the dev " +
       "bridge so every route renders in a browser tab: catalog, repo detail, " +
-      "/graph, /claude, /processes and /settings. Writes that change the " +
-      "catalog — favourites, tags, curated links, moves, folder renames, scan " +
+      "/graph, /claude, /processes and /settings. Reads only: no call in this " +
+      "bridge moves, renames, copies or deletes a repository, and neither does " +
+      "the app. Writes about a repo — favourites, tags, curated links, scan " +
       "roots — are applied to a copy this browser keeps in localStorage, so they " +
       "survive a reload; add ?reset-edits to the URL to start from the catalog " +
       "alone. The rest are refused with a reason. \n" +

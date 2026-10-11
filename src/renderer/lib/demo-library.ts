@@ -1657,7 +1657,9 @@ export const DEMO_UPDATE: UpdateStatus = {
   newVersion: "0.1.9",
   releaseUrl:
     "https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.9",
-  message: "Checked 12 minutes ago — a newer release is published.",
+  message:
+    "Checked 12 minutes ago — a newer release is published. This is demo data: " +
+    "there is no such release, and nothing on this screen was read from a feed.",
   checkedAt: iso(LOADED_AT - 12 * 60_000),
   canInstall: false,
   signature: "ad-hoc",

@@ -45,7 +45,7 @@ interface Fixtures {
   otherSlug: string;
   /** The folder `slug` lives in. */
   folder: string;
-  /** A path that is deliberately not a scan root, so a move cannot happen. */
+  /** A path that is deliberately not a scan root, for the scan-path entries. */
   outside: string;
 }
 
@@ -77,11 +77,6 @@ const TABLE: Record<string, Check> = {
   "catalog.search": returns(schemas.SearchReposResultSchema, (b) => b.catalog.search({ q: "a" })),
   "catalog.smartFilter": returns(schemas.SmartFilterResultSchema, (b) => b.catalog.smartFilter({ prompt: "recent" })),
   "catalog.cover": returns(schemas.CoverResultSchema, (b, f) => b.catalog.cover({ slug: f.slug })),
-  "catalog.moveLast": returns(schemas.MoveLastResultSchema, (b) => b.catalog.moveLast({})),
-  "catalog.moveCheck": returns(schemas.MoveCheckResultSchema, (b, f) =>
-    b.catalog.moveCheck({ slugs: [f.slug], targetDir: f.outside })),
-  "catalog.folderCheck": returns(schemas.FolderCheckResultSchema, (b, f) =>
-    b.catalog.folderCheck({ fromPath: f.folder, toPath: `${f.folder}-checked` })),
 
   // --- scan -----------------------------------------------------------------
   // `StartScanResult` has no field that can say "not started", so a tab refuses.
@@ -195,14 +190,6 @@ const TABLE: Record<string, Check> = {
   "catalog.setTags": returns(schemas.SetRepoTagsResultSchema, (b, f) =>
     b.catalog.setTags({ slug: f.slug, tags: ["contract"] })),
   "catalog.rescan": returns(schemas.RescanRepoResultSchema, (b, f) => b.catalog.rescan({ slug: f.slug })),
-  "catalog.move": returns(schemas.MoveResultSchema, (b, f) => b.catalog.move({ slugs: [f.slug], targetDir: f.outside })),
-  "catalog.moveUndo": returns(schemas.MoveResultSchema, (b) => b.catalog.moveUndo({})),
-  "catalog.folderRename": returns(schemas.FolderOpResultSchema, (b, f) =>
-    b.catalog.folderRename({ fromPath: `${f.folder}-absent`, newName: "contract" })),
-  "catalog.folderMove": returns(schemas.FolderOpResultSchema, (b, f) =>
-    b.catalog.folderMove({ fromPath: `${f.folder}-absent`, parentPath: f.folder })),
-  "catalog.folderCreate": returns(schemas.FolderOpResultSchema, (b, f) =>
-    b.catalog.folderCreate({ parentPath: f.folder, name: "contract-folder" })),
   "catalog.onChanged": { kind: "subscribes", call: (b) => b.catalog.onChanged(() => {}) },
   // Pointed at the last repo in the catalog rather than the fixture, so the
   // entries above never race the one row this removes.
@@ -292,5 +279,49 @@ describe("the browser bridge answers to the contract its callers read", () => {
     // And an entry for a method that no longer exists would keep passing while
     // checking nothing.
     expect(Object.keys(TABLE).filter((path) => !exposed.includes(path))).toEqual([]);
+  });
+
+  /*
+   * This app reads your repositories; it does not move, rename, copy or delete
+   * them. That is a property of the contract, not of the stub, so it is checked
+   * on the bridge a browser tab talks to: no method may be named like a file
+   * operation unless it is one of the three below, each of which touches only
+   * the app's own data or the clipboard.
+   */
+  const NOT_FILE_OPERATIONS: Record<string, string> = {
+    "catalog.delete": "drops a catalog row; the repo on disk is untouched",
+    "settings.removeScanPath":
+      "drops a folder from the scan list — the code in it stays where it is",
+    "groups.rename": "renames a group label in the app's own database",
+    "groups.delete": "drops a group label; nothing on disk",
+    "launcher.copyPath": "copies a path string to the clipboard",
+  };
+
+  it("exposes nothing that could move, rename, copy or delete a repo", () => {
+    const fileOperationWords = /(move|rename|relocate|copy|folder|duplicate|trash|delete|remove)/i;
+
+    const named = (paths: string[]) =>
+      paths
+        .filter((path) => fileOperationWords.test(path))
+        .filter((path) => !(path in NOT_FILE_OPERATIONS));
+
+    const exposed: string[] = [];
+    for (const [namespace, members] of Object.entries(bridge as unknown as Record<string, unknown>)) {
+      if (typeof members !== "object" || members === null) continue;
+      for (const [method, value] of Object.entries(members as Record<string, unknown>)) {
+        if (typeof value === "function") exposed.push(`${namespace}.${method}`);
+      }
+    }
+
+    expect(named(exposed)).toEqual([]);
+
+    // And the exceptions above have to be real, or this test would keep passing
+    // while excusing a method that no longer exists.
+    expect(exposed).toEqual(expect.arrayContaining(Object.keys(NOT_FILE_OPERATIONS)));
+
+    // The real bridge has to agree: `AtrBridge` is the type the preload and the
+    // renderer share, so a method added there without an implementation here
+    // would fail this file's coverage check above rather than reach the UI.
+    expect(named(Object.keys(TABLE))).toEqual([]);
   });
 });

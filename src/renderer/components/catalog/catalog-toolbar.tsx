@@ -11,7 +11,6 @@ import * as React from "react";
 import {
   Archive,
   ArrowDownUp,
-  FolderInput,
   LayoutGrid,
   Rows3,
   Image as ImageIcon,
@@ -125,7 +124,6 @@ interface CatalogToolbarProps {
   /** Label describing the active scope, e.g. a folder name. */
   scopeLabel: string | null;
   onClearScope: () => void;
-  onMoveSelection: () => void;
   /** Fast-forward the selection, or everything shown when none is picked. */
   onPull: () => void;
   /** Refresh ahead/behind for the same set. Never touches a working tree. */
@@ -139,7 +137,6 @@ export function CatalogToolbar({
   archivedCount,
   scopeLabel,
   onClearScope,
-  onMoveSelection,
   onPull,
   onFetch,
   syncing,
@@ -284,14 +281,6 @@ export function CatalogToolbar({
         {selection.length > 0 ? (
           <div className="flex items-center gap-1.5">
             <span className="atr-meta">{selection.length} selected</span>
-            <button
-              type="button"
-              onClick={onMoveSelection}
-              className="flex h-8 cursor-pointer items-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-accent-foreground transition-opacity duration-150 hover:opacity-90"
-            >
-              <FolderInput className="h-3.5 w-3.5" aria-hidden />
-              Move…
-            </button>
             <button
               type="button"
               onClick={clearSelection}
