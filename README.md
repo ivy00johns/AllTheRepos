@@ -91,6 +91,8 @@ pnpm electron:dev                  # rebuilds natives, then launches the app
 
 ## 🖥️ The App
 
+▶️ **[Watch the demo video (about 90 seconds)](https://github.com/ivy00johns/alltherepos-releases/releases/latest)** — the scan, search, triage, links and graph, shown on the demo library below.
+
 <div align="center">
 
 <img src="docs/images/command-palette.png" alt="The ⌘K command palette over the catalog" width="900" />
