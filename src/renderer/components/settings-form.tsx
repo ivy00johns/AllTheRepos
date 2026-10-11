@@ -11,8 +11,9 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-import type { Settings, UpdateStatus } from "@shared/types";
+import type { Settings, UpdateStatus, TestEmbeddingResult } from "@shared/types";
 
+import { requireAtr } from "@renderer/lib/atr";
 import { LauncherDefaults } from "@renderer/components/launcher/launcher-defaults";
 import { cn } from "@renderer/lib/cn";
 import { Button } from "@renderer/components/ui/button";
@@ -77,6 +78,20 @@ const INSTALL_REFUSAL: Record<UpdateStatus["signature"], string> = {
 export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const [settings, setSettings] = React.useState<Settings>(initialSettings);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [testing, setTesting] = React.useState(false);
+  const [connection, setConnection] = React.useState<TestEmbeddingResult | null>(null);
+  const testConnection = async () => {
+    setTesting(true);
+    setConnection(null);
+    try {
+      setConnection(await requireAtr().settings.testEmbedding({ baseUrl: settings.ollamaBaseUrl, model: settings.ollamaEmbedModel }));
+    } catch (error) {
+      setConnection({ ok: false, dimensions: 0, durationMs: 0, message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setTesting(false);
+    }
+  };
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
   const [newPath, setNewPath] = React.useState("");
   const [newIdentity, setNewIdentity] = React.useState("");
@@ -153,31 +168,46 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
     const nextPaths = settings.scanPaths.includes(p)
       ? settings.scanPaths
       : [...settings.scanPaths, p];
-    const next = await updateSettings({ scanPaths: nextPaths });
-    setSettings(next);
-    setNewPath("");
+    try {
+      setError(null);
+      const next = await updateSettings({ scanPaths: nextPaths });
+      setSettings((current) => ({ ...current, scanPaths: next.scanPaths }));
+      setNewPath("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleRemovePath = async (p: string) => {
     const nextPaths = settings.scanPaths.filter((x) => x !== p);
-    const next = await updateSettings({ scanPaths: nextPaths });
-    setSettings(next);
+    try {
+      setError(null);
+      const next = await updateSettings({ scanPaths: nextPaths });
+      setSettings((current) => ({ ...current, scanPaths: next.scanPaths }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleSave = async () => {
     setSaving(true);
+    setError(null);
+    setSavedAt(null);
     try {
       // `defaultEditor` / `defaultTerminal` are deliberately absent: the
       // editor & terminal section persists each change as it is made, so
       // re-sending a snapshot from here could only overwrite a newer value
       // with a stale one.
       const next = await updateSettings({
+        identities: settings.identities,
         ollamaBaseUrl: settings.ollamaBaseUrl,
         ollamaEmbedModel: settings.ollamaEmbedModel,
         openaiEmbedModel: settings.openaiEmbedModel,
       });
       setSettings(next);
       setSavedAt(Date.now());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
@@ -199,6 +229,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      {error ? <p role="alert" className="rounded-md border border-destructive p-3 text-sm text-destructive">{error}</p> : null}
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
         <div>
           <h2 className="font-mono text-base font-semibold">Scan paths</h2>
@@ -305,6 +336,11 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         </div>
       </section>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="outline" disabled={testing} onClick={() => void testConnection()}>{testing ? "Testing…" : "Test Ollama connection"}</Button>
+        {connection ? <p role="status" className={cn("text-xs", connection.ok ? "text-accent" : "text-warning")}>{connection.message}{connection.durationMs > 0 ? ` · ${connection.durationMs}ms` : ""}</p> : null}
+      </div>
+
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
         <div>
           <h2 className="font-mono text-base font-semibold">
@@ -324,7 +360,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         </div>
         <LauncherDefaults
           settings={settings}
-          onUpdated={(next) => setSettings(next)}
+          onUpdated={(next) => setSettings((current) => ({ ...current, defaultEditor: next.defaultEditor, defaultTerminal: next.defaultTerminal }))}
         />
       </section>
 

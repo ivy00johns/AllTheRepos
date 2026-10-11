@@ -66,18 +66,6 @@ import type {
   TaskOutputEvent,
   CoverInput,
   CoverResult,
-  MoveInput,
-  MoveCheckResult,
-  MoveResult,
-  MoveUndoInput,
-  MoveLastInput,
-  MoveLastResult,
-  FolderCheckInput,
-  FolderCheckResult,
-  FolderRenameInput,
-  FolderMoveInput,
-  FolderCreateInput,
-  FolderOpResult,
   PickScanPathInput,
   PickScanPathResult,
   AddScanPathInput,
@@ -152,6 +140,9 @@ import type {
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  TagCleanupApplyInput,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
   ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
@@ -160,6 +151,8 @@ import type {
   TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
+  TestEmbeddingInput,
+  TestEmbeddingResult,
 } from "@shared/types";
 
 /**
@@ -176,31 +169,21 @@ export interface AtrBridge {
     search(input: SearchReposInput): Promise<SearchReposResult>;
     rescan(input: RescanRepoInput): Promise<RescanRepoResult>;
     setTags(input: SetRepoTagsInput): Promise<SetRepoTagsResult>;
+    /** Read-only: heuristic tag changes a re-tag would make. */
+    tagCleanupPreview(): Promise<TagCleanupPreviewResult>;
+    /** Accept or reject tag-cleanup proposals, one decision per repo. */
+    tagCleanupApply(
+      input: TagCleanupApplyInput,
+    ): Promise<TagCleanupApplyResult>;
     /** ATR-028: drop one catalog row; the repo on disk is untouched. */
     delete(input: DeleteRepoInput): Promise<DeleteRepoResult>;
     smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
     /** Resolve a repo's own cover artwork; `src: null` when it has none. */
     cover(input: CoverInput): Promise<CoverResult>;
-    /** Preflight a relocation — reads only, nothing is moved. */
-    moveCheck(input: MoveInput): Promise<MoveCheckResult>;
-    /** Relocate repos on disk and update their catalog rows. */
-    move(input: MoveInput): Promise<MoveResult>;
-    /** Reverse a journaled move batch; defaults to the most recent. */
-    moveUndo(input: MoveUndoInput): Promise<MoveResult>;
-    /** Describe the most recent move batch, for the undo affordance. */
-    moveLast(input: MoveLastInput): Promise<MoveLastResult>;
     /** Subscribe to live catalog changes; returns an unsubscribe lambda. */
     onChanged(callback: (event: CatalogChangeEvent) => void): () => void;
     /** Pin or unpin a repo. */
     setFavorite(input: SetFavoriteInput): Promise<SetFavoriteResult>;
-    /** Preflight a folder rename/move — reads only. */
-    folderCheck(input: FolderCheckInput): Promise<FolderCheckResult>;
-    /** Rename a folder in place. */
-    folderRename(input: FolderRenameInput): Promise<FolderOpResult>;
-    /** Move a folder into a different parent. */
-    folderMove(input: FolderMoveInput): Promise<FolderOpResult>;
-    /** Create an empty folder inside a scan root. */
-    folderCreate(input: FolderCreateInput): Promise<FolderOpResult>;
   };
   scan: {
     start(input: StartScanInput): Promise<StartScanResult>;
@@ -263,6 +246,7 @@ export interface AtrBridge {
   };
 
   settings: {
+    testEmbedding(input: TestEmbeddingInput): Promise<TestEmbeddingResult>;
     get(): Promise<GetSettingsResult>;
     update(input: UpdateSettingsInput): Promise<UpdateSettingsResult>;
     /** Open the native folder picker; returns a path without saving it. */

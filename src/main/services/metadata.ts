@@ -16,7 +16,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import simpleGit, { type SimpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
+import { catalogGit } from "@main/security/catalog-git";
 import gitUrlParse from "git-url-parse";
 
 import type { LanguageBytes } from "@shared/types";
@@ -235,7 +236,7 @@ export async function readRepoMetadata(
       : gitDir,
   );
 
-  const git: SimpleGit = simpleGit({ baseDir: root });
+  const git: SimpleGit = catalogGit(root);
 
   let remoteUrl: string | null = null;
   try {

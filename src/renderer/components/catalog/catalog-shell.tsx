@@ -18,7 +18,7 @@
 
 import * as React from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { RefreshCw, Undo2 } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 import type { Group, Repo, RepoDetail } from "@shared/types";
 
@@ -31,7 +31,6 @@ import {
 } from "@renderer/hooks/use-actions";
 import { useCatalogLive } from "@renderer/hooks/use-catalog-live";
 import { useCovers } from "@renderer/hooks/use-cover";
-import { useLastMove, useUndoMove } from "@renderer/hooks/use-move";
 import {
   useAddScanPath,
   usePickScanPath,
@@ -54,13 +53,12 @@ import {
   tildify,
 } from "@renderer/lib/repo-tree";
 import { useCatalogView } from "@renderer/stores/catalog-view";
+import { useUiStore } from "@renderer/stores/ui";
 
 import { CatalogToolbar } from "./catalog-toolbar";
 import { DetailPanel } from "./detail-panel";
 import { DirRail } from "./dir-rail";
-import { FolderDialog, type FolderDialogRequest } from "./folder-dialog";
 import { ScanRootDialog } from "./scan-root-dialog";
-import { MoveDialog } from "./move-dialog";
 import { RepoGrid } from "./repo-grid";
 
 interface CatalogShellProps {
@@ -104,15 +102,12 @@ export function CatalogShell({
 
   const querySlug = search.repo ?? null;
   const queryQ = search.q ?? "";
+  const dirtyOnly = search.dirty === "true";
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const queryGroupId = search.groupId ? Number(search.groupId) : null;
 
   const [detail, setDetail] = React.useState<RepoDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
-  const [moveOpen, setMoveOpen] = React.useState(false);
-  const [moveTarget, setMoveTarget] = React.useState<string | null>(null);
-  const [pendingMoveSlugs, setPendingMoveSlugs] = React.useState<string[]>([]);
-  const [folderRequest, setFolderRequest] =
-    React.useState<FolderDialogRequest | null>(null);
   const [removingRoot, setRemovingRoot] = React.useState<string | null>(null);
   const [rootNotice, setRootNotice] = React.useState<string | null>(null);
 
@@ -126,7 +121,6 @@ export function CatalogShell({
   const order = useCatalogView((s) => s.order);
   const selection = useCatalogView((s) => s.selection);
   const toggleSelected = useCatalogView((s) => s.toggleSelected);
-  const clearSelection = useCatalogView((s) => s.clearSelection);
 
   const settingsQuery = useSettings();
   const catalogLive = useCatalogLive();
@@ -137,8 +131,6 @@ export function CatalogShell({
   const pickScanPath = usePickScanPath();
   const addScanPath = useAddScanPath();
   const rescanPath = useRescanPath();
-  const lastMove = useLastMove();
-  const undoMove = useUndoMove();
 
   // ---------------------------------------------------------------------
   // Derivations
@@ -176,8 +168,8 @@ export function CatalogShell({
 
   /**
    * Configured scan roots. Everything positional in the catalog — the
-   * rail tree, folder labels, the move dialog's destinations — is
-   * anchored on these rather than on the common ancestor of whatever
+   * rail tree, folder labels — is anchored on these rather than on the
+   * common ancestor of whatever
    * repos happen to be catalogued, so the structure doesn't shift as the
    * catalog grows.
    */
@@ -294,6 +286,7 @@ export function CatalogShell({
     const scopeIsArchived = selectedDir ? isArchivedPath(selectedDir) : false;
 
     return base.filter((repo) => {
+      if (dirtyOnly && !repo.isDirty) return false;
       if (favoritesOnly && !repo.isFavorite) return false;
       if (
         !includeArchived &&
@@ -319,6 +312,9 @@ export function CatalogShell({
           const f = activeGroup.smartFilter;
           if (f) {
             if (f.language && repo.primaryLanguage !== f.language) return false;
+            if (f.tagsInclude?.some((tag) => !repo.tags.some((t) => t.value === tag))) return false;
+            if (f.tagsExclude?.some((tag) => repo.tags.some((t) => t.value === tag))) return false;
+            if (f.sinceDays !== undefined && (activityOf(lastTouched(repo)).days ?? Infinity) > f.sinceDays) return false;
             if (f.dirtyOnly && !repo.isDirty) return false;
             if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote) {
               return false;
@@ -336,6 +332,7 @@ export function CatalogShell({
     initialRepos,
     includeArchived,
     favoritesOnly,
+    dirtyOnly,
     selectedDir,
     selectedDirExact,
     ownershipFilter,
@@ -434,10 +431,15 @@ export function CatalogShell({
       return;
     }
     setDetailLoading(true);
+    setDetail(null);
     void loadRepoDetail(querySlug).then((loaded) => {
       if (cancelled) return;
       setDetail(loaded);
       setDetailLoading(false);
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      setDetailLoading(false);
+      useUiStore.getState().pushNotice(`Could not load repository: ${error instanceof Error ? error.message : String(error)}`);
     });
     return () => {
       cancelled = true;
@@ -457,58 +459,6 @@ export function CatalogShell({
     },
     [launchInEditor],
   );
-
-  /**
-   * Dragging a repo carries the whole current selection when the dragged
-   * repo is part of it, and just itself otherwise — the behaviour every
-   * file manager has, and the one that makes bulk reorg feel natural.
-   */
-  const handleDragStart = React.useCallback(
-    (slug: string, event: React.DragEvent) => {
-      const payload = selection.includes(slug) ? selection : [slug];
-      event.dataTransfer.setData(
-        "application/x-atr-repos",
-        JSON.stringify(payload),
-      );
-      event.dataTransfer.effectAllowed = "move";
-    },
-    [selection],
-  );
-
-  const handleDropRepos = React.useCallback(
-    (slugs: string[], targetDir: string) => {
-      setPendingMoveSlugs(slugs);
-      setMoveTarget(targetDir);
-      setMoveOpen(true);
-    },
-    [],
-  );
-
-  /** Dropping a folder onto another opens the same dialog a menu would. */
-  const handleDropFolder = React.useCallback(
-    (fromPath: string, targetParent: string) => {
-      setFolderRequest({ mode: "move", path: fromPath, targetParent });
-    },
-    [],
-  );
-
-  /**
-   * Every directory in the catalog, offered as a move destination.
-   * Derived from repo paths plus the scan roots, so a freshly created
-   * empty folder is selectable as soon as a scan picks it up.
-   */
-  const folderOptions = React.useMemo(() => {
-    const paths = new Set<string>(scanPaths);
-    for (const repo of initialRepos) {
-      let dir = repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
-      const owner = owningRoot(repo.fullPath, scanPaths);
-      while (dir && owner && dir.length > owner.length) {
-        paths.add(dir);
-        dir = dir.slice(0, dir.lastIndexOf("/"));
-      }
-    }
-    return [...paths].sort();
-  }, [initialRepos, scanPaths]);
 
   /**
    * Pick a folder and start watching it.
@@ -601,12 +551,6 @@ export function CatalogShell({
     }
   }, [syncTargets, pullRepos, summarise]);
 
-  const openMoveForSelection = React.useCallback(() => {
-    setPendingMoveSlugs(selection);
-    setMoveTarget(selectedDir);
-    setMoveOpen(true);
-  }, [selection, selectedDir]);
-
   const checkedSlugs = React.useMemo(() => new Set(selection), [selection]);
   const slugs = React.useMemo(
     () => displayedRepos.map((r) => r.slug),
@@ -636,24 +580,26 @@ export function CatalogShell({
    */
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
-      <DirRail
+      {!sidebarCollapsed ? <DirRail
         repos={initialRepos}
         groups={groups}
         ownershipBySlug={ownershipKindBySlug}
         scanPaths={scanPaths}
         activeGroupId={queryGroupId}
-        onSelectGroup={(id) =>
-          updateParams({ groupId: id === null ? null : String(id) })
-        }
+        onSelectGroup={(id) => {
+          setSelectedDir(null);
+          useCatalogView.getState().clearOwnership();
+          useCatalogView.getState().setFavoritesOnly(false);
+          updateParams({ groupId: id === null ? null : String(id), dirty: null, q: null, repo: null });
+        }}
+        dirtyOnly={dirtyOnly}
+        onToggleDirty={() => updateParams({ dirty: dirtyOnly ? null : "true" })}
         revealSlug={querySlug}
-        onDropRepos={handleDropRepos}
-        onDropFolder={handleDropFolder}
-        onRequestFolderOp={setFolderRequest}
         onRescan={handleRescan}
         onStopScanning={setRemovingRoot}
         onAddScanPath={() => void handleAddScanPath()}
         addingScanPath={pickScanPath.isPending || addScanPath.isPending}
-      />
+      /> : null}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/*
@@ -665,13 +611,17 @@ export function CatalogShell({
           {scopeLabel ? `Catalog — ${scopeLabel}` : "Catalog"}
         </h1>
 
+        {activeGroup ? <div role="status" className="flex items-center gap-2 border-b border-border bg-accent/10 px-4 py-2 text-xs">
+          <span>Group: <strong>{activeGroup.name}</strong> · {displayedRepos.length} repos</span>
+          <button type="button" className="ml-auto text-accent hover:underline" onClick={() => updateParams({ groupId: null })}>Clear group</button>
+        </div> : null}
+
         <CatalogToolbar
           shownCount={displayedRepos.length}
           totalCount={totalCount || initialRepos.length}
           archivedCount={archivedCount}
           scopeLabel={scopeLabel}
           onClearScope={() => setSelectedDir(null)}
-          onMoveSelection={openMoveForSelection}
           onPull={() => void handlePull()}
           onFetch={() => void handleFetch()}
           syncing={fetchRepos.isPending || pullRepos.isPending}
@@ -755,21 +705,6 @@ export function CatalogShell({
           </div>
         ) : null}
 
-        {lastMove.data ? (
-          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-4 py-1.5">
-            <span className="atr-meta">Last change: {lastMove.data.label}</span>
-            <button
-              type="button"
-              onClick={() => undoMove.mutate(undefined)}
-              disabled={undoMove.isPending}
-              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised disabled:opacity-50"
-            >
-              <Undo2 className="h-3 w-3" aria-hidden />
-              Undo
-            </button>
-          </div>
-        ) : null}
-
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <RepoGrid
             repos={displayedRepos}
@@ -783,7 +718,6 @@ export function CatalogShell({
             onSelect={selectRepo}
             onToggleChecked={toggleSelected}
             onOpenEditor={openInEditor}
-            onDragStart={handleDragStart}
             loading={isSearching && searchQuery.isPending}
             emptyTitle={
               isSearching ? `Nothing matches “${trimmedQuery}”` : "Nothing here"
@@ -812,31 +746,6 @@ export function CatalogShell({
         path={removingRoot}
         onOpenChange={(open) => {
           if (!open) setRemovingRoot(null);
-        }}
-      />
-
-      <FolderDialog
-        request={folderRequest}
-        onOpenChange={(open) => {
-          if (!open) setFolderRequest(null);
-        }}
-        folderOptions={folderOptions}
-        onDone={() => void lastMove.refetch()}
-      />
-
-      <MoveDialog
-        open={moveOpen}
-        onOpenChange={(open) => {
-          setMoveOpen(open);
-          if (!open) setPendingMoveSlugs([]);
-        }}
-        slugs={pendingMoveSlugs}
-        repos={initialRepos}
-        scanPaths={scanPaths}
-        initialTarget={moveTarget}
-        onMoved={() => {
-          clearSelection();
-          void lastMove.refetch();
         }}
       />
 

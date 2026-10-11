@@ -19,6 +19,8 @@ import {
 
 import { IPC } from "@shared/ipc";
 import {
+  TestEmbeddingInputSchema,
+  TestEmbeddingResultSchema,
   GetSettingsInputSchema,
   GetSettingsResultSchema,
   UpdateSettingsInputSchema,
@@ -41,6 +43,7 @@ import type {
   CountUnderResult,
 } from "@shared/types";
 
+import { ollamaEmbed } from "@main/services/embedding";
 import { getSettings, updateSettings } from "@main/services/settings";
 import { scanRootService } from "@main/services/scan-roots";
 import { repoWatchService } from "@main/services/watch";
@@ -81,7 +84,7 @@ export async function handleSettingsPickScanPath(
   const result = await dialog.showOpenDialog(window!, {
     title: "Choose a folder to scan",
     buttonLabel: "Scan this folder",
-    properties: ["openDirectory", "createDirectory"],
+    properties: ["openDirectory"],
   });
   const picked = result.canceled ? null : (result.filePaths[0] ?? null);
   return PickScanPathResultSchema.parse({ path: picked });
@@ -112,10 +115,22 @@ export async function handleSettingsCountUnder(
   });
 }
 
+export async function handleTestEmbedding(raw: unknown) {
+  const input = TestEmbeddingInputSchema.parse(raw);
+  const started = Date.now();
+  try {
+    const vector = await ollamaEmbed({ ...input, input: "AllTheRepos connection test" });
+    return TestEmbeddingResultSchema.parse({ ok: true, dimensions: vector.length, durationMs: Date.now() - started, message: `Connected to Ollama · ${vector.length} dimensions` });
+  } catch (error) {
+    return TestEmbeddingResultSchema.parse({ ok: false, dimensions: 0, durationMs: Date.now() - started, message: `${error instanceof Error ? error.message : String(error)}. Check Ollama is running and run ollama pull ${input.model}.` });
+  }
+}
+
 /** Register every `settings:*` handler. Idempotent. */
 export function registerSettingsHandlers(): void {
   const channels = [
     IPC.SETTINGS.GET,
+    IPC.SETTINGS.TEST_EMBEDDING,
     IPC.SETTINGS.UPDATE,
     IPC.SETTINGS.PICK_SCAN_PATH,
     IPC.SETTINGS.ADD_SCAN_PATH,
@@ -125,6 +140,11 @@ export function registerSettingsHandlers(): void {
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
   }
+
+  ipcMain.handle(IPC.SETTINGS.TEST_EMBEDDING, async (event, raw) => {
+    assertRendererFrame(event);
+    return handleTestEmbedding(raw);
+  });
 
   ipcMain.handle(
     IPC.SETTINGS.GET,

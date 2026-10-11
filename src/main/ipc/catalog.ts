@@ -35,20 +35,11 @@ import {
   SmartFilterResultSchema,
   CoverInputSchema,
   CoverResultSchema,
-  MoveInputSchema,
-  MoveCheckResultSchema,
-  MoveResultSchema,
-  MoveUndoInputSchema,
-  MoveLastInputSchema,
-  MoveLastResultSchema,
-  FolderCheckInputSchema,
-  FolderCheckResultSchema,
-  FolderRenameInputSchema,
-  FolderMoveInputSchema,
-  FolderCreateInputSchema,
-  FolderOpResultSchema,
   SetFavoriteInputSchema,
   SetFavoriteResultSchema,
+  TagCleanupApplyInputSchema,
+  TagCleanupApplyResultSchema,
+  TagCleanupPreviewResultSchema,
 } from "@shared/schemas";
 import type {
   DeleteRepoResult,
@@ -59,20 +50,16 @@ import type {
   SetRepoTagsResult,
   SmartFilterResult,
   CoverResult,
-  MoveCheckResult,
-  MoveResult,
-  MoveLastResult,
-  FolderCheckResult,
-  FolderOpResult,
   SetFavoriteResult,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
 } from "@shared/types";
 
 import { setRepoFavorite } from "@main/db/queries";
 import { catalogService } from "@main/services/catalog";
 import { coverService } from "@main/services/cover";
-import { folderService } from "@main/services/folder";
-import { moveService } from "@main/services/move";
 import { searchService } from "@main/services/search";
+import { applyTagCleanup, previewTagCleanup } from "@main/services/tag-cleanup";
 
 import { assertRendererFrame } from "./_frame";
 
@@ -118,6 +105,19 @@ export async function handleCatalogDelete(
   return DeleteRepoResultSchema.parse(result);
 }
 
+/** Read-only: the heuristic tag changes a re-tag would make. Takes no input. */
+export async function handleCatalogTagCleanupPreview(): Promise<TagCleanupPreviewResult> {
+  return TagCleanupPreviewResultSchema.parse(previewTagCleanup());
+}
+
+/** Accept or reject tag-cleanup proposals. Writes only the decided repos. */
+export async function handleCatalogTagCleanupApply(
+  raw: unknown,
+): Promise<TagCleanupApplyResult> {
+  const input = TagCleanupApplyInputSchema.parse(raw);
+  return TagCleanupApplyResultSchema.parse(applyTagCleanup(input));
+}
+
 export async function handleCatalogSetTags(
   raw: unknown,
 ): Promise<SetRepoTagsResult> {
@@ -149,79 +149,6 @@ export async function handleCatalogCover(raw: unknown): Promise<CoverResult> {
   return CoverResultSchema.parse(result);
 }
 
-/** Preflight a relocation. Reads only — nothing on disk is touched. */
-export async function handleCatalogMoveCheck(
-  raw: unknown,
-): Promise<MoveCheckResult> {
-  const input = MoveInputSchema.parse(raw);
-  const result = await moveService.check(input.slugs, input.targetDir);
-  return MoveCheckResultSchema.parse(result);
-}
-
-/** Execute a relocation. Re-runs the preflight internally. */
-export async function handleCatalogMove(raw: unknown): Promise<MoveResult> {
-  const input = MoveInputSchema.parse(raw);
-  const result = await moveService.move(input.slugs, input.targetDir);
-  return MoveResultSchema.parse(result);
-}
-
-/** Reverse a journaled move batch; defaults to the most recent one. */
-export async function handleCatalogMoveUndo(
-  raw: unknown,
-): Promise<MoveResult> {
-  const input = MoveUndoInputSchema.parse(raw);
-  const result = await moveService.undo(input.batchId);
-  return MoveResultSchema.parse(result);
-}
-
-/** Describe the most recent move batch so the UI can offer an undo. */
-export async function handleCatalogMoveLast(
-  raw: unknown,
-): Promise<MoveLastResult> {
-  MoveLastInputSchema.parse(raw);
-  const result = await moveService.lastBatch();
-  return MoveLastResultSchema.parse(result);
-}
-
-/**
- * Preflight a folder rename or move. Reads only — reports which repos
- * would travel with the folder and anything that blocks the operation.
- */
-export async function handleCatalogFolderCheck(
-  raw: unknown,
-): Promise<FolderCheckResult> {
-  const input = FolderCheckInputSchema.parse(raw);
-  const result = await folderService.check(input.fromPath, input.toPath);
-  return FolderCheckResultSchema.parse(result);
-}
-
-/** Rename a folder in place, re-pointing every catalog row beneath it. */
-export async function handleCatalogFolderRename(
-  raw: unknown,
-): Promise<FolderOpResult> {
-  const input = FolderRenameInputSchema.parse(raw);
-  const result = await folderService.rename(input.fromPath, input.newName);
-  return FolderOpResultSchema.parse(result);
-}
-
-/** Move a folder into a different parent, keeping its name. */
-export async function handleCatalogFolderMove(
-  raw: unknown,
-): Promise<FolderOpResult> {
-  const input = FolderMoveInputSchema.parse(raw);
-  const result = await folderService.moveInto(input.fromPath, input.parentPath);
-  return FolderOpResultSchema.parse(result);
-}
-
-/** Create an empty folder inside a scan root. */
-export async function handleCatalogFolderCreate(
-  raw: unknown,
-): Promise<FolderOpResult> {
-  const input = FolderCreateInputSchema.parse(raw);
-  const result = await folderService.create(input.parentPath, input.name);
-  return FolderOpResultSchema.parse(result);
-}
-
 /** Pin or unpin a repo. Returns the updated row, or null if unknown. */
 export async function handleCatalogSetFavorite(
   raw: unknown,
@@ -245,15 +172,9 @@ export function registerCatalogHandlers(): void {
     IPC.CATALOG.DELETE,
     IPC.CATALOG.SMART_FILTER,
     IPC.CATALOG.COVER,
-    IPC.CATALOG.MOVE_CHECK,
-    IPC.CATALOG.MOVE,
-    IPC.CATALOG.MOVE_UNDO,
-    IPC.CATALOG.MOVE_LAST,
-    IPC.CATALOG.FOLDER_CHECK,
-    IPC.CATALOG.FOLDER_RENAME,
-    IPC.CATALOG.FOLDER_MOVE,
-    IPC.CATALOG.FOLDER_CREATE,
     IPC.CATALOG.SET_FAVORITE,
+    IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+    IPC.CATALOG.TAG_CLEANUP_APPLY,
   ] as const;
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
@@ -300,6 +221,22 @@ export function registerCatalogHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+    async (event: IpcMainInvokeEvent): Promise<TagCleanupPreviewResult> => {
+      assertRendererFrame(event);
+      return handleCatalogTagCleanupPreview();
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CATALOG.TAG_CLEANUP_APPLY,
+    async (event: IpcMainInvokeEvent, raw): Promise<TagCleanupApplyResult> => {
+      assertRendererFrame(event);
+      return handleCatalogTagCleanupApply(raw);
+    },
+  );
+
+  ipcMain.handle(
     IPC.CATALOG.DELETE,
     async (event: IpcMainInvokeEvent, raw): Promise<DeleteRepoResult> => {
       assertRendererFrame(event);
@@ -320,70 +257,6 @@ export function registerCatalogHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<CoverResult> => {
       assertRendererFrame(event);
       return handleCatalogCover(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.MOVE_CHECK,
-    async (event: IpcMainInvokeEvent, raw): Promise<MoveCheckResult> => {
-      assertRendererFrame(event);
-      return handleCatalogMoveCheck(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.MOVE,
-    async (event: IpcMainInvokeEvent, raw): Promise<MoveResult> => {
-      assertRendererFrame(event);
-      return handleCatalogMove(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.MOVE_UNDO,
-    async (event: IpcMainInvokeEvent, raw): Promise<MoveResult> => {
-      assertRendererFrame(event);
-      return handleCatalogMoveUndo(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.MOVE_LAST,
-    async (event: IpcMainInvokeEvent, raw): Promise<MoveLastResult> => {
-      assertRendererFrame(event);
-      return handleCatalogMoveLast(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.FOLDER_CHECK,
-    async (event: IpcMainInvokeEvent, raw): Promise<FolderCheckResult> => {
-      assertRendererFrame(event);
-      return handleCatalogFolderCheck(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.FOLDER_RENAME,
-    async (event: IpcMainInvokeEvent, raw): Promise<FolderOpResult> => {
-      assertRendererFrame(event);
-      return handleCatalogFolderRename(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.FOLDER_MOVE,
-    async (event: IpcMainInvokeEvent, raw): Promise<FolderOpResult> => {
-      assertRendererFrame(event);
-      return handleCatalogFolderMove(raw);
-    },
-  );
-
-  ipcMain.handle(
-    IPC.CATALOG.FOLDER_CREATE,
-    async (event: IpcMainInvokeEvent, raw): Promise<FolderOpResult> => {
-      assertRendererFrame(event);
-      return handleCatalogFolderCreate(raw);
     },
   );
 

@@ -66,6 +66,16 @@ The tactical ledger. Every open item, ID'd, prioritized, and sourced. Status at 
 
 ## Open / remaining
 
+### User-requested addition (2026-10-10)
+
+**ATR-076 · P1 · tags · ◐ partial:** Steps 1–2 shipped 2026-10-10 (deterministic purpose/framework tags, format-only languages dropped, six-tag cap, README not read). Steps 3–5 open: cleanup preview, Ollama cleanup, and the 100-repo benchmark. Make generated tags describe repository purpose,
+not incidental file formats such as `json`. Ship deterministic evidence-based rules
+first, then optional local Ollama cleanup using a generation model (not the embedding
+model). Preserve manual tags, preview batch changes, retain provenance and rejected
+suggestions, and measure usefulness on a representative catalog. See the
+[implementation plan](plans/2026-10-10-useful-repo-tags.md). Requested directly by the
+user during the audit; this entry authorizes planning, not an unreviewed model rollout.
+
 | ID      | P   | Area        | Summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Status    |
 | ------- | --- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | ATR-033 | P1  | scanner     | **Discovery: root-is-a-repo / nested repos** — the native walker prunes a subtree at the first `.git`, so a scan root that is itself a git repo indexes 1 repo and hides everything beneath it. Pre-expand roots / keep queuing subdirs after a repo hit. [SC-1]                                                                                                                                                                                                                                                                                           | open      |

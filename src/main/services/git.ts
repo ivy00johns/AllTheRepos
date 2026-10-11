@@ -7,7 +7,8 @@
  * `shell.openExternal` directly (Phase 1 contract).
  */
 
-import simpleGit, { type SimpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
+import { catalogGit } from "@main/security/catalog-git";
 
 import type {
   GitBranch,
@@ -44,7 +45,7 @@ class GitService {
       throw new Error(`git:status: repo not found (slug=${slug})`);
     }
 
-    const git: SimpleGit = simpleGit({ baseDir: fullPath });
+    const git: SimpleGit = catalogGit(fullPath);
 
     let isDirty = false;
     let currentBranch: string | null = null;
@@ -91,7 +92,7 @@ class GitService {
       throw new Error(`git:branches: repo not found (slug=${slug})`);
     }
 
-    const git: SimpleGit = simpleGit({ baseDir: fullPath });
+    const git: SimpleGit = catalogGit(fullPath);
 
     let branchSummary: Awaited<ReturnType<SimpleGit["branchLocal"]>>;
     try {

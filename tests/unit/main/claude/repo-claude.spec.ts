@@ -78,6 +78,14 @@ describe("parseFrontmatter", () => {
     expect(out.body).toContain("Body content here");
   });
 
+  it.each(["js", "javascript"])("never evaluates %s frontmatter from a repository", (language) => {
+    const marker = "__atr_frontmatter_executed__";
+    const source = `---${language}\n(globalThis.${marker} = true, { name: 'unsafe' })\n---\nbody`;
+    const out = parseFrontmatter(source);
+    expect((globalThis as Record<string, unknown>)[marker]).toBeUndefined();
+    expect(out).toEqual({ data: {}, body: source });
+  });
+
   it("returns empty data for an empty source", () => {
     const out = parseFrontmatter("");
     expect(out.data).toEqual({});

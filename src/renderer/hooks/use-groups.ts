@@ -22,6 +22,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { readAllRepos } from "./use-repos";
 import { getAtr } from "@renderer/lib/atr";
 import { queryKeys } from "@renderer/lib/query-client";
 import type {
@@ -83,10 +84,7 @@ export function useGroupMemberSlugs(
           "Preload bridge unavailable — cannot fetch group members.",
         );
       }
-      const result = await atr.catalog.list({
-        groupId: groupId as number,
-        limit: 200,
-      });
+      const result = await readAllRepos({ groupId: groupId as number });
       return new Set(result.items.map((r) => r.slug));
     },
     enabled:

@@ -44,7 +44,15 @@ export interface ParsedFrontmatter {
  */
 export function parseFrontmatter(source: string): ParsedFrontmatter {
   try {
-    const parsed = matter(source);
+    // Files from a repository are data, never programs. gray-matter otherwise
+    // honours `---js` / `---javascript` by evaluating it in the main process.
+    const parsed = matter(source, {
+      engines: {
+        javascript: () => {
+          throw new Error("Executable frontmatter is not supported");
+        },
+      },
+    });
     const data =
       parsed.data &&
       typeof parsed.data === "object" &&

@@ -30,7 +30,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { clipboard, shell } from "electron";
-import simpleGit from "simple-git";
+import { catalogGit } from "@main/security/catalog-git";
 
 import type {
   DetectedEditorZ as DetectedEditor,
@@ -700,7 +700,7 @@ class LauncherService {
     }
     let originUrl: string;
     try {
-      const git = simpleGit({ baseDir: repoPath });
+      const git = catalogGit(repoPath);
       const raw = await git.remote(["get-url", "origin"]);
       const trimmed = typeof raw === "string" ? raw.trim() : "";
       if (!trimmed) {
@@ -774,7 +774,7 @@ export function buildEditorUrl(
   scheme: string,
   absolutePath: string,
 ): string | null {
-  const encodedPath = encodeURI(absolutePath);
+  const encodedPath = absolutePath.split("/").map(encodeURIComponent).join("/");
   const encodedFileParam = encodeURIComponent(absolutePath);
   const ensureLeadingSlash = (s: string): string =>
     s.startsWith("/") ? s : `/${s}`;
@@ -861,12 +861,18 @@ function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+/** Quote a path for the terminal shell before quoting the AppleScript string. */
+export function terminalCdCommand(repoPath: string, command?: string): string {
+  const quoted = "'" + repoPath.replace(/'/g, "'\\''") + "'";
+  return `cd -- ${quoted}${command ? ` && ${command}` : ""}`;
+}
+
 async function openInAppleTerminal(
   repoPath: string,
   command: string | undefined,
 ): Promise<LauncherResult> {
   if (command && command.length > 0) {
-    const script = `tell application "Terminal" to do script "cd \\"${escapeForAppleScript(repoPath)}\\" && ${escapeForAppleScript(command)}"`;
+    const script = `tell application "Terminal" to do script "${escapeForAppleScript(terminalCdCommand(repoPath, command))}"`;
     await spawnDetached("osascript", ["-e", script]);
     await spawnDetached("osascript", [
       "-e",
@@ -882,11 +888,7 @@ async function openInIterm2(
   repoPath: string,
   command: string | undefined,
 ): Promise<LauncherResult> {
-  const cdLine = `write text "cd \\"${escapeForAppleScript(repoPath)}\\""`;
-  const cdAndRunLine =
-    command && command.length > 0
-      ? `write text "cd \\"${escapeForAppleScript(repoPath)}\\" && ${escapeForAppleScript(command)}"`
-      : cdLine;
+  const cdAndRunLine = `write text "${escapeForAppleScript(terminalCdCommand(repoPath, command))}"`;
   const script = [
     `tell application "iTerm"`,
     `  activate`,

@@ -369,6 +369,42 @@ export const SetRepoTagsInputSchema = z.object({
 export const SetRepoTagsResultSchema = RepoSchema;
 
 // ---------------------------------------------------------------------------
+// catalog:tagCleanup:preview / catalog:tagCleanup:apply
+// ---------------------------------------------------------------------------
+
+export const TagCleanupProposalSchema = z.object({
+  slug: SlugSchema,
+  name: z.string(),
+  current: z.array(z.string()),
+  proposed: z.array(z.string()),
+  added: z.array(z.string()),
+  removed: z.array(z.string()),
+});
+
+export const TagCleanupPreviewResultSchema = z.object({
+  proposals: z.array(TagCleanupProposalSchema),
+  scanned: z.number().int().nonnegative(),
+  unreadable: z.number().int().nonnegative(),
+});
+
+export const TagCleanupApplyInputSchema = z.object({
+  decisions: z
+    .array(
+      z.object({
+        slug: SlugSchema,
+        decision: z.enum(["accept", "reject"]),
+      }),
+    )
+    .max(1000),
+});
+
+export const TagCleanupApplyResultSchema = z.object({
+  accepted: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  skipped: z.array(z.string()),
+});
+
+// ---------------------------------------------------------------------------
 // catalog:smartFilter (Phase 4 — contract locked in Phase 1)
 // ---------------------------------------------------------------------------
 
@@ -390,145 +426,6 @@ export const CoverResultSchema = z.object({
   src: z.string().nullable(),
   source: z.enum(["readme", "file"]).nullable(),
   relativePath: z.string().nullable(),
-});
-
-// ---------------------------------------------------------------------------
-// catalog:move* — relocation on disk
-// ---------------------------------------------------------------------------
-
-export const MoveBlockerSchema = z.enum([
-  "missing",
-  "dirty",
-  "running-process",
-  "destination-exists",
-  "target-outside-roots",
-  "target-inside-source",
-  "same-location",
-  "cross-device",
-  "unknown-repo",
-]);
-
-/**
- * Batch size is capped so a runaway selection can't ask the main process
- * to stat and rename thousands of directories in one synchronous-feeling
- * IPC call.
- */
-export const MoveInputSchema = z.object({
-  slugs: z.array(z.string().min(1)).min(1).max(500),
-  targetDir: z.string().min(1),
-});
-
-export const MoveCheckEntrySchema = z.object({
-  slug: z.string(),
-  name: z.string(),
-  fromPath: z.string(),
-  toPath: z.string(),
-  ok: z.boolean(),
-  blockers: z.array(MoveBlockerSchema),
-});
-
-export const MoveCheckResultSchema = z.object({
-  targetDir: z.string(),
-  entries: z.array(MoveCheckEntrySchema),
-  movableCount: z.number().int().nonnegative(),
-  blockedCount: z.number().int().nonnegative(),
-});
-
-export const MoveEntryResultSchema = z.object({
-  slug: z.string(),
-  moved: z.boolean(),
-  fromPath: z.string(),
-  toPath: z.string(),
-  error: z.string().nullable(),
-});
-
-export const MoveResultSchema = z.object({
-  targetDir: z.string(),
-  entries: z.array(MoveEntryResultSchema),
-  movedCount: z.number().int().nonnegative(),
-  failedCount: z.number().int().nonnegative(),
-  batchId: z.string().nullable(),
-});
-
-export const MoveUndoInputSchema = z.object({
-  batchId: z.string().min(1).optional(),
-});
-
-export const MoveLastInputSchema = z.object({});
-
-export const MoveLastResultSchema = z
-  .object({
-    batchId: z.string(),
-    at: z.string(),
-    count: z.number().int().nonnegative(),
-    /** What sort of operation it was, so undo can be described honestly. */
-    kind: z.enum(["repos", "folder", "create"]),
-    /** Ready-made summary for the undo affordance, e.g. "moved 3 repos". */
-    label: z.string(),
-  })
-  .nullable();
-
-// ---------------------------------------------------------------------------
-// catalog:folder* — restructuring directories, not just repos
-// ---------------------------------------------------------------------------
-
-export const FolderBlockerSchema = z.enum([
-  "missing",
-  "not-a-directory",
-  "invalid-name",
-  "destination-exists",
-  "target-outside-roots",
-  "target-inside-source",
-  "same-location",
-  "is-scan-root",
-  "dirty-repos",
-  "running-processes",
-]);
-
-export const FolderCheckInputSchema = z.object({
-  fromPath: z.string().min(1),
-  toPath: z.string().min(1),
-});
-
-export const AffectedRepoSchema = z.object({
-  slug: z.string(),
-  name: z.string(),
-  fromPath: z.string(),
-  toPath: z.string(),
-  isDirty: z.boolean(),
-  hasProcess: z.boolean(),
-});
-
-export const FolderCheckResultSchema = z.object({
-  fromPath: z.string(),
-  toPath: z.string(),
-  affected: z.array(AffectedRepoSchema),
-  blockers: z.array(FolderBlockerSchema),
-  ok: z.boolean(),
-});
-
-export const FolderRenameInputSchema = z.object({
-  fromPath: z.string().min(1),
-  newName: z.string().min(1).max(255),
-});
-
-export const FolderMoveInputSchema = z.object({
-  fromPath: z.string().min(1),
-  parentPath: z.string().min(1),
-});
-
-export const FolderCreateInputSchema = z.object({
-  parentPath: z.string().min(1),
-  name: z.string().min(1).max(255),
-});
-
-export const FolderOpResultSchema = z.object({
-  ok: z.boolean(),
-  fromPath: z.string(),
-  toPath: z.string(),
-  movedRepos: z.number().int().nonnegative(),
-  batchId: z.string().nullable(),
-  error: z.string().nullable(),
 });
 
 // ---------------------------------------------------------------------------
@@ -622,6 +519,27 @@ export const GetSettingsResultSchema = SettingsSchema;
  */
 export const UpdateSettingsInputSchema = SettingsSchema.partial();
 export const UpdateSettingsResultSchema = SettingsSchema;
+
+export const TestEmbeddingInputSchema = z.object({
+  baseUrl: z
+    .string()
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        ["http:", "https:"].includes(url.protocol) &&
+        !url.username &&
+        !url.password
+      );
+    }, "Use an HTTP(S) URL without credentials"),
+  model: z.string().trim().min(1).max(200),
+});
+export const TestEmbeddingResultSchema = z.object({
+  ok: z.boolean(),
+  dimensions: z.number().int().nonnegative(),
+  durationMs: z.number().nonnegative(),
+  message: z.string(),
+});
 
 // --- scan-root management (driven from the rail) ---------------------------
 

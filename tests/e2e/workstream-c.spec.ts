@@ -53,7 +53,7 @@ const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
 const SEEDED_REPO = "demo-cli";
 
 /** The destinations `NAV_ITEMS` carries — and nothing else. */
-const NAV_LABELS = ["Running", "Map", "Claude", "Settings"] as const;
+const NAV_LABELS = ["Repos", "Running", "Map", "Claude", "Settings"] as const;
 
 /** Where `_global-setup.ts` put the seeded repos. */
 function seededRepoDir(name: string): string {
@@ -372,7 +372,7 @@ test.describe("workstream C — the three small decisions and one door", () => {
       // ----- The finding: the nav is destinations only. -----
       expect(
         await win.locator("header nav a").count(),
-        "the primary navigation is not the four destinations",
+        "the primary navigation must contain Repos, Running, Map, Claude and Settings only",
       ).toBe(NAV_LABELS.length);
       await expect(
         win
@@ -439,7 +439,7 @@ test.describe("workstream C — the three small decisions and one door", () => {
       // The destinations are untouched by the flag.
       expect(
         await win.locator("header nav a").count(),
-        "the primary navigation is not the four destinations",
+        "the primary navigation must contain Repos, Running, Map, Claude and Settings only",
       ).toBe(NAV_LABELS.length);
 
       // And nothing in the chrome offers the dev page — not the nav, not the

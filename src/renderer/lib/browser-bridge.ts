@@ -15,22 +15,24 @@
  * the Claude views, the process list with its port chips, and settings all
  * render without Electron.
  *
- * Writes are the other half. {@link "../../lib/demo-store"} owns a mutable copy
- * of that library, and this bridge routes every write the app can honour in a
- * browser — favourite, tags, curated links, moves, folder renames, scan roots —
- * through it, so a click that changes the catalog changes it here too and the
- * next read shows it. Those writes are saved to this browser's `localStorage`,
- * so they are still there after a reload: a review that forgot the favourite it
- * just set on every refresh was not much of a review. `?reset-edits` on the URL
- * starts from the catalog alone: it drops the saved edits *and* the saved view
- * (scope, sort, folder, filters), because a filter alone can hide every row. The rules the main process enforces are
- * enforced there, including the ones that make a write fail: a dirty tree still
- * blocks a move.
+ * Writes are the other half — and they are all of the same kind: the app's own
+ * notes about a repo. {@link "../../lib/demo-store"} owns a mutable copy of that
+ * library, and this bridge routes the writes the app can honour in a browser —
+ * favourite, tags, curated links, scan roots — through it, so a click that
+ * changes the catalog changes it here too and the next read shows it. Those
+ * writes are saved to this browser's `localStorage`, so they are still there
+ * after a reload: a review that forgot the favourite it just set on every
+ * refresh was not much of a review. `?reset-edits` on the URL starts from the
+ * catalog alone: it drops the saved edits *and* the saved view (scope, sort,
+ * folder, filters), because a filter alone can hide every row.
+ *
+ * Nothing here — and nothing in the app it stands in for — moves, renames,
+ * copies or deletes a repository. The bridge answers the same contract the
+ * preload does, and that contract has no such call in it.
  *
  * What a browser tab genuinely cannot do is refused, with a reason, rather than
- * pretended: nothing runs a process, opens an editor, installs an update or
- * creates a folder on a disk that is not there. Nothing here can make the UI
- * claim something was saved that was not.
+ * pretended: nothing runs a process, opens an editor or installs an update.
+ * Nothing here can make the UI claim something was saved that was not.
  *
  * Safety: it installs ONLY when `window.atr` is absent. Electron always mounts
  * the real bridge (dev and packaged alike), so this can never shadow real IPC;
@@ -61,17 +63,10 @@ import {
   enablePersistence,
   loadExportedCatalog,
   type CatalogSource,
-  folderCheck,
-  folderMove,
-  folderRename,
   forgetRepo,
   graph,
   groups,
   listRepos,
-  move,
-  moveCheck,
-  moveLast,
-  moveUndo,
   relations,
   removeLink,
   removeScanPath,
@@ -81,7 +76,10 @@ import {
   settings,
   updateSettings,
 } from "@renderer/lib/demo-store";
-import { PERSIST_KEY as CATALOG_VIEW_PERSIST_KEY, useCatalogView } from "@renderer/stores/catalog-view";
+import {
+  PERSIST_KEY as CATALOG_VIEW_PERSIST_KEY,
+  useCatalogView,
+} from "@renderer/stores/catalog-view";
 import { PERSIST_KEY as UI_PERSIST_KEY, useUiStore } from "@renderer/stores/ui";
 
 /**
@@ -112,7 +110,8 @@ function refusedSync(slugs: string[]): SyncResult {
     ahead: 0,
     behind: 0,
     currentBranch: null,
-    message: "A browser tab cannot reach a remote — run pnpm electron:dev to fetch or pull.",
+    message:
+      "A browser tab cannot reach a remote — run pnpm electron:dev to fetch or pull.",
   }));
   return { entries, updated: 0, failed: entries.length };
 }
@@ -219,12 +218,13 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
     system: {
       // The `/debug` route renders `pong`, `mainProcessPid` and `receivedAt`,
       // so a bare `{ ok: true }` would leave three blank fields on screen.
-      ping: async () => ({
-        ok: true,
-        pong: "pong",
-        mainProcessPid: 0,
-        receivedAt: new Date().toISOString(),
-      }) as never,
+      ping: async () =>
+        ({
+          ok: true,
+          pong: "pong",
+          mainProcessPid: 0,
+          receivedAt: new Date().toISOString(),
+        }) as never,
     },
     catalog: {
       list: async (input) => {
@@ -232,7 +232,16 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         // Deliberately unfiltered: the shell derives the rail, the folder
         // selection and the chips from the full list rather than asking main
         // for each one, so pre-filtering here would empty those surfaces.
-        const repos = listRepos();
+        // Manual membership is carried by detail.groups, not the group count.
+        // Ignoring groupId made every group render the entire demo library.
+        const repos =
+          input?.groupId !== undefined
+            ? listRepos().filter((repo) =>
+                detail(repo.slug)?.groups.some(
+                  (group) => group.id === input.groupId,
+                ),
+              )
+            : listRepos();
         const limit = input?.limit ?? repos.length;
         const offset = input?.offset ?? 0;
         const items = repos.slice(offset, offset + limit);
@@ -257,7 +266,12 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         const hits = query
           ? listRepos()
               .filter((repo) =>
-                [repo.name, repo.description ?? "", repo.fullPath, ...repo.tags.map((t) => t.value)]
+                [
+                  repo.name,
+                  repo.description ?? "",
+                  repo.fullPath,
+                  ...repo.tags.map((t) => t.value),
+                ]
                   .join(" ")
                   .toLowerCase()
                   .includes(query),
@@ -286,6 +300,13 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         await ready;
         return setTags(slug, tags) as never;
       },
+      // The tagger reads real folders, which a browser tab cannot, so the demo
+      // library has no tag changes to propose. Applying one is a write.
+      tagCleanupPreview: async () => {
+        await ready;
+        return { proposals: [], scanned: 0, unreadable: 0 } as never;
+      },
+      tagCleanupApply: async () => refused(),
       delete: async ({ slug }) => {
         await ready;
         return forgetRepo(slug) as never;
@@ -293,51 +314,13 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       // The real handler is a Phase-4 stub that returns `[]`; answering from the
       // demo library instead would show a feature the app does not have yet.
       smartFilter: async () => [] as never,
-      cover: async () => ({ src: null, source: null, relativePath: null }) as never,
-      moveCheck: async ({ slugs, targetDir }) => {
-        await ready;
-        return moveCheck(slugs, targetDir) as never;
-      },
-      move: async ({ slugs, targetDir }) => {
-        await ready;
-        return move(slugs, targetDir) as never;
-      },
-      moveUndo: async ({ batchId }) => {
-        await ready;
-        return moveUndo(batchId) as never;
-      },
-      moveLast: async () => {
-        await ready;
-        return moveLast() as never;
-      },
+      cover: async () =>
+        ({ src: null, source: null, relativePath: null }) as never,
       onChanged: noSubscription as never,
       setFavorite: async ({ slug, favorite }) => {
         await ready;
         return setFavorite(slug, favorite) as never;
       },
-      folderCheck: async ({ fromPath, toPath }) => {
-        await ready;
-        return folderCheck(fromPath, toPath) as never;
-      },
-      folderRename: async ({ fromPath, newName }) => {
-        await ready;
-        return folderRename(fromPath, newName) as never;
-      },
-      folderMove: async ({ fromPath, parentPath }) => {
-        await ready;
-        return folderMove(fromPath, parentPath) as never;
-      },
-      // The demo tree is derived from the repos' paths, so there is no empty
-      // folder to put anywhere. `FolderOpResult` has an `error` field, so the
-      // refusal is expressible and keeps the shape a caller can read.
-      folderCreate: async ({ parentPath, name }) => ({
-        ok: false,
-        fromPath: "",
-        toPath: `${parentPath}/${name}`,
-        movedRepos: 0,
-        batchId: null,
-        error: "The browser bridge has no folders of its own — create one by moving a repo into it.",
-      }) as never,
     },
     scan: {
       // `StartScanResult` is `{ jobId, status: "running", startedAt }` — there is
@@ -399,9 +382,12 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       // rows belong to repos that are not in an exported catalog.
       list: async ({ slug }) => {
         await ready;
-        return { tasks: (await hasExportedCatalog()) ? [] : demoTasks(slug) } as never;
+        return {
+          tasks: (await hasExportedCatalog()) ? [] : demoTasks(slug),
+        } as never;
       },
-      start: async () => ({ runId: null, started: false, reason: NO_WRITES }) as never,
+      start: async () =>
+        ({ runId: null, started: false, reason: NO_WRITES }) as never,
       stop: async () => ({ stopped: false }) as never,
       active: async () => ({ runs: [] }) as never,
       onOutput: noSubscription as never,
@@ -426,6 +412,13 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       onStatus: noSubscription as never,
     },
     settings: {
+      testEmbedding: async () => ({
+        ok: false,
+        dimensions: 0,
+        durationMs: 0,
+        message:
+          "A browser demo cannot test your local Ollama. Open the desktop app and use Test connection there.",
+      }),
       get: async () => {
         await ready;
         return settings() as never;
@@ -474,7 +467,8 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       showSpotlight: async () => refused(),
       // "not visible" is both true and expressible.
       hideSpotlight: async () => ({ visible: false }) as never,
-      registerActions: async ({ actions }) => ({ accepted: 0, skipped: actions.length }) as never,
+      registerActions: async ({ actions }) =>
+        ({ accepted: 0, skipped: actions.length }) as never,
       toggleDevtools: () => {},
       onMenuCommand: noSubscription as never,
       onDeepLink: noSubscription as never,
@@ -494,9 +488,9 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       // the export — chips pointing at them would be fiction.
       list: async () => {
         await ready;
-        return (await hasExportedCatalog()
-          ? emptyProcessSnapshot()
-          : DEMO_PROCESSES) as never;
+        return (
+          (await hasExportedCatalog()) ? emptyProcessSnapshot() : DEMO_PROCESSES
+        ) as never;
       },
       listForRepo: async ({ slug }) => {
         await ready;
@@ -509,16 +503,17 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       },
       refresh: async () => {
         await ready;
-        return (await hasExportedCatalog()
-          ? emptyProcessSnapshot()
-          : DEMO_PROCESSES) as never;
+        return (
+          (await hasExportedCatalog()) ? emptyProcessSnapshot() : DEMO_PROCESSES
+        ) as never;
       },
-      kill: async ({ pid }) => ({
-        pid,
-        finalSignal: "noop",
-        stopped: false,
-        durationMs: 0,
-      }) as never,
+      kill: async ({ pid }) =>
+        ({
+          pid,
+          finalSignal: "noop",
+          stopped: false,
+          durationMs: 0,
+        }) as never,
       onUpdate: noSubscription as never,
     },
     launcher: {
@@ -536,7 +531,9 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       index: async () => {
         await ready;
         return {
-          projectCount: (await hasExportedCatalog()) ? 0 : DEMO_CLAUDE_PROJECTS.length,
+          projectCount: (await hasExportedCatalog())
+            ? 0
+            : DEMO_CLAUDE_PROJECTS.length,
           sessionCount: (await hasExportedCatalog())
             ? 0
             : DEMO_CLAUDE_PROJECTS.reduce((sum, p) => sum + p.sessionCount, 0),
@@ -548,7 +545,9 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       },
       projects: async () => {
         await ready;
-        return { projects: (await hasExportedCatalog()) ? [] : DEMO_CLAUDE_PROJECTS } as never;
+        return {
+          projects: (await hasExportedCatalog()) ? [] : DEMO_CLAUDE_PROJECTS,
+        } as never;
       },
       repoState: async ({ slug }) => {
         await ready;
@@ -563,15 +562,22 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
           // generated for whatever id it is handed, so it would happily page a
           // fake session into a tab reading a real catalog.
           const empty = demoTranscript(UNMATCHED_SLUG, 0);
-          return { ...empty, events: [], hasMore: false, nextCursor: null } as never;
+          return {
+            ...empty,
+            events: [],
+            hasMore: false,
+            nextCursor: null,
+          } as never;
         }
         return demoTranscript(sessionId, cursor ?? 0) as never;
       },
       globalUsage: async (input) => {
         await ready;
-        return (await hasExportedCatalog()
-          ? EMPTY_USAGE
-          : demoGlobalUsage(input ?? {})) as never;
+        return (
+          (await hasExportedCatalog())
+            ? EMPTY_USAGE
+            : demoGlobalUsage(input ?? {})
+        ) as never;
       },
       launch: async () => ({ ok: false, reason: NO_WRITES }) as never,
       openClaudeMd: async () => ({ ok: false, reason: NO_WRITES }) as never,
@@ -651,7 +657,10 @@ export function installBrowserBridge(): boolean {
   // rather than reaching for a button in a page that may not be reachable. The
   // edits are read lazily by the demo store, so clearing them here is early
   // enough; the view stores hydrate at import, so theirs is reset in place.
-  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("reset-edits")) {
+  if (
+    typeof location !== "undefined" &&
+    new URLSearchParams(location.search).has("reset-edits")
+  ) {
     clearPersistedEdits();
     resetPersistedViewState();
     console.info(
@@ -674,8 +683,9 @@ export function installBrowserBridge(): boolean {
   console.info(
     "[browser-bridge] No Electron preload bridge found — installing the dev " +
       "bridge so every route renders in a browser tab: catalog, repo detail, " +
-      "/graph, /claude, /processes and /settings. Writes that change the " +
-      "catalog — favourites, tags, curated links, moves, folder renames, scan " +
+      "/graph, /claude, /processes and /settings. Reads only: no call in this " +
+      "bridge moves, renames, copies or deletes a repository, and neither does " +
+      "the app. Writes about a repo — favourites, tags, curated links, scan " +
       "roots — are applied to a copy this browser keeps in localStorage, so they " +
       "survive a reload; add ?reset-edits to the URL to start from the catalog " +
       "alone. The rest are refused with a reason. \n" +

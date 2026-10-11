@@ -22,7 +22,8 @@ These are enforced in code, not by convention.
 | **No destructive git command exists in the codebase.** The entire git surface is nine `simple-git` methods; only two of them write anything. | §2 |
 | **The app never deletes a file or directory you own.** There is no `rm`, no `rm -rf`, no `shell.trashItem`, no recursive delete anywhere in the main process. | §4 |
 | **The app never edits the contents of a file inside your repositories.** Every file write targets the app's own data directory. | §4 |
-| **Repository and folder moves are `rename` only, are preflighted, and are journaled for undo.** | §5, §6 |
+| **The app writes nothing inside your repositories at all.** No file or folder is created, renamed, moved, copied, or deleted there, and no file content is ever edited. | §4 |
+| **That read-only promise is enforced by a gate, not by care.** `scripts/check-read-only.mjs` fails CI if the main process gains a delete, a move, a copy, or any other write outside a short list of named waivers. | §5 |
 | **The renderer cannot execute an arbitrary command.** The UI sends a *task id*; the main process resolves it against the commands that project itself declares. | §3.3 |
 | **Every external URL passes a scheme allowlist** before reaching the OS. | §7 |
 
@@ -235,29 +236,27 @@ Every write the application performs, exhaustively.
 | --- | --- |
 | `settings.json` | `services/settings.ts:89` (atomic temp + rename) |
 | `alltherepos.db` (SQLite catalog) | `db/client.ts:229` |
-| relocation journal | `services/relocation-journal.ts:75` (atomic temp + rename) |
 | `lance/` (vector index) | vector service |
 | one-time migration copies from `~/.alltherepos/` | `db/migration.ts:84-90` |
 
 ### Inside your repositories
 
-| Operation | Call | Notes |
-| --- | --- | --- |
-| Move a repo | `fs.rename` — `move.ts:251` | Preflighted, journaled, undoable |
-| Move/rename a folder | `fs.rename` — `folder.ts:266` | One rename for the whole subtree |
-| Create a folder | `fs.mkdir` (non-recursive) — `folder.ts:361` | Fails if it already exists |
-| Create a destination folder | `fs.mkdir` — `move.ts:235`, `folder.ts:265` | Parent directories for a move target |
-| Undo a created folder | `fs.rmdir` (**non**-recursive) — `move.ts:448` | Refuses if anything is inside |
+**Nothing. Not one call.** There is no table to write here, because this
+build performs no write of any kind inside your repositories — no file
+or directory is created, renamed, moved, copied, or deleted, and no file
+content is ever modified. Scanning, README parsing, cover extraction,
+dependency reading, and the relationship map are all read-only; they copy
+text into the local database and leave your files untouched.
 
-**There is no other write.** No file content inside a repository is ever
-created, modified, or deleted. Scanning, README parsing, cover
-extraction, dependency reading, and the relationship map are all
-read-only; they copy text into the local database and leave your files
-untouched.
-
-`fs.rmdir` without `recursive: true` is deliberate (`move.ts:427`): the
-only deletion in the codebase physically cannot remove a non-empty
-directory.
+This was not always true. A folder-management surface — rename-based
+moves, folder creation, a relocation journal — was built into this app
+despite a read-only requirement, and it reached further than it looked:
+`services/move.ts`, `services/folder.ts`,
+`services/relocation-journal.ts`, their IPC handlers, their preload
+bindings, their dialogs and hooks, and the browser-tab mirror of all of
+it. It is not deleted. It is parked, whole and with its tests, on the
+`feat/file-management` branch. What is gone from this branch is every
+path to it, and §5 is what keeps it gone.
 
 **Removing a scan folder never deletes anything from disk**
 (`scan-roots.ts:16`, `:121`). With "forget repos" checked it drops rows
@@ -266,37 +265,35 @@ if you re-add the folder.
 
 ---
 
-## 5. Move safety rails
+## 5. The read-only gate
 
-`move.check()` runs before anything moves and returns a per-repository
-verdict shown in the UI. A repository is **blocked** when
-(`move.ts:47-57`):
+The guarantee in §1 and §4 is not maintained by care. It is maintained by
+`scripts/check-read-only.mjs`, which reads every file in `src/main` and
+`src/preload` and fails on:
 
-| Blocker | Meaning |
+| Rule | What fails |
 | --- | --- |
-| `dirty` | Uncommitted changes present |
-| `running-process` | A dev server or process is live in that directory |
-| `missing` | The source folder is gone |
-| `destination-exists` | Something already occupies the target path |
-| `target-outside-roots` | Target is outside your configured scan folders |
-| `target-inside-source` | Would move a folder into itself |
-| `same-location` | Nothing to do |
-| `cross-device` | Target is on a different volume |
-| `unknown-repo` | Not in the catalog |
+| **destructive** | `fs.rm`, `rmdir`, `unlink`, `truncate`, `shell.trashItem` — anywhere, in any file, with no waiver available. |
+| **shell** | the same verbs handed to a shell: `rm`, `rmdir`, `mv`, `cp`, `rsync`, `shred` through `exec`/`execFile`/`spawn`. |
+| **write** | `writeFile`, `mkdir`, `rename`, `copyFile`, `cp`, `chmod`, `symlink`, `createWriteStream` in a file with no waiver. |
+| **unwaived** | a file that has a waiver, using a call its waiver does not name. |
 
-`cross-device` is refused rather than attempted. A cross-volume move
-requires copy-then-delete, which has a window where the data exists
-twice and a failure mode where it exists zero times. `fs.rename` is
-atomic within a volume; the app will only do the atomic thing.
+The four waivers are the app's own files: the data directory before
+SQLite opens it (`db/client.ts`), the one-time migration out of
+`~/.alltherepos/` (`db/migration.ts`), `settings.json`
+(`services/settings.ts`), and window placement
+(`window/window-memory.ts`). A new writer is a failing build until
+somebody names it and the reason, deliberately.
 
-Folder operations apply the same checks to **every repository in the
-subtree** (`folder.ts:32-42`). If any single repository beneath the
-folder is dirty or has a process running, the whole operation is refused
-and names the offender. Scan roots themselves cannot be moved
-(`is-scan-root`).
+Copy is a write rather than a delete, because copying is how a file is
+quietly replaced — and a copy-then-delete is not merely discouraged here:
+deletes are refused outright, so the pattern cannot be written at all.
 
-**Partial batches.** A batch where three of five
-moved reports exactly that (`move.ts:23`).
+Run it with `pnpm gate:read-only`; CI runs it beside the gate that fails
+on retired copy strings. `tests/unit/scripts/check-read-only.spec.ts`
+pins its boundaries, including the false positive that shaped it —
+`services/embedding.ts` calls a local `truncate(text)` that clips a
+string, which a verb-only gate reports as `fs.truncate`.
 
 ---
 
@@ -304,17 +301,15 @@ moved reports exactly that (`move.ts:23`).
 
 | Action | Undo |
 | --- | --- |
-| Move repositories | ✅ Journaled to disk; reversible after a restart |
-| Move or rename a folder | ✅ Journaled |
-| Create a folder | ✅ Removed, but only if still empty |
 | Add / remove a scan folder | ✅ Re-add it; nothing on disk changed |
 | Forget repositories from the catalog | ✅ Re-scan restores them |
 | `git pull --ff-only` | ⚠️ Not by the app — use `git reflog` + `git reset --hard` |
 | A project task you ran | ❌ Whatever that command did, it did |
 | SIGKILL of a process | ❌ Unsaved in-memory state is lost |
 
-The relocation journal (`relocation-journal.ts`) is written atomically to
-the app's data directory and survives restarts.
+Nothing in this table involves a file you own, because nothing in this
+app writes to one. The only irreversible actions it can take are the
+three at the bottom.
 
 ---
 
@@ -367,10 +362,10 @@ the field regardless.
 
 Recommended precautions:
 
-1. **Have your work committed and pushed** before using bulk move or
-   folder restructuring. The rails refuse to move dirty repositories, but
-   a clean remote is the backstop that does not depend on this app being
-   correct.
+1. **Keep your work committed and pushed anyway.** The app writes nothing
+   inside your repositories, but it does run the task commands your
+   projects declare (§3.3), and a clean remote is the backstop that does
+   not depend on this app being correct.
 2. **Read the task command** shown in the panel before pressing Run. The
    app does not vet what your projects declare.
 3. **Start with one scan folder** to see how discovery behaves before
@@ -412,25 +407,14 @@ code; see §8.
 
 | Rail | Covered by |
 | --- | --- |
-| Folder blockers — `dirty-repos`, `running-processes`, `target-inside-source`, `is-scan-root`, `destination-exists`, `target-outside-roots`, `invalid-name` | `tests/unit/main/services/folder.spec.ts:174-268` |
-| Undo of folder rename and folder creation, incl. "only while still empty" | `folder.spec.ts:280-318` |
+| The read-only gate itself — destructive calls, shell writers, writes, waivers | `tests/unit/scripts/check-read-only.spec.ts` |
 | Task detection and process-group teardown | `tests/unit/main/services/tasks.spec.ts` |
 | Scan-root removal leaves the directory on disk | `scan-roots.spec.ts:149-165` |
 | Kill escalation state machine | `process.spec.ts:298-440` |
 
 **Known gaps:**
 
-1. **`moveService.check()` has no dedicated test file.** The
-   per-repository blocker preflight described in §5 — `dirty`,
-   `running-process`, `cross-device`, `destination-exists` — is
-   currently verified only by manual use. Its `undo()` and `lastBatch()`
-   paths are exercised indirectly through `folder.spec.ts:282-318`, and
-   the folder-level equivalents of the same blockers *are* directly
-   tested, but the repo-level path is not. This is the most
-   safety-critical untested surface in the application.
-2. **Three folder blockers are untested:** `missing`, `not-a-directory`,
-   and `same-location`.
-3. **The URL scheme allowlist (§7) has no test.** It is a small pure
+1. **The URL scheme allowlist (§7) has no test.** It is a small pure
    function, but nothing pins it.
 
 These are listed because a disclosure document that claims safety rails
@@ -518,9 +502,11 @@ data directory, and no network request. **§1–§8 still hold.**
 
 There is no tool for moving a repository, creating or renaming a folder,
 running a project task, killing a process, fetching, pulling, or opening
-a URL. The server imports the database layer and the graph engine and
-nothing else — `services/move.ts`, `services/folder.ts`,
-`services/tasks.ts`, `services/git-sync.ts`, `services/launcher.ts` and
+a URL — and on this branch there is no longer a move or folder surface
+for a tool to reach even in principle (§4). The server imports the
+database layer and the graph engine and nothing else: `services/graph`
+is its one import from the app, and `services/tasks.ts`,
+`services/git-sync.ts`, `services/launcher.ts` and
 `services/process.ts` are not reachable from it. **Every guarantee in
 §1–§8 still holds with the MCP installed.**
 

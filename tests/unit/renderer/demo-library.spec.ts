@@ -423,17 +423,17 @@ describe("the Claude views have both states to show", () => {
 // ---------------------------------------------------------------------------
 
 describe("the demo library matches the one behind the README screenshots", () => {
-  test("the same repos, by name", () => {
-    expect(DEMO_REPOS.map((repo) => repo.name).sort()).toEqual(
-      screenshotRows.map((row) => row.name).sort(),
-    );
+  test("exactly triples the screenshot library while preserving all originals", () => {
+    expect(DEMO_REPOS).toHaveLength(screenshotRows.length * 3);
+    expect(new Set(DEMO_REPOS.map((repo) => repo.fullPath)).size).toBe(DEMO_REPOS.length);
+    for (const row of screenshotRows) expect(DEMO_REPOS.some((repo) => repo.name === row.name)).toBe(true);
   });
 
   test("each repo carries the same remote, language, tags, state and description", () => {
-    for (const repo of DEMO_REPOS) {
-      const row = screenshotRows.find((candidate) => candidate.name === repo.name);
-      expect(row, `${repo.name} is missing from the screenshot library`).toBeDefined();
-      if (!row) continue;
+    for (const row of screenshotRows) {
+      const repo = DEMO_REPOS.find((candidate) => candidate.name === row.name);
+      expect(repo, `${row.name} is missing from the expanded library`).toBeDefined();
+      if (!repo) continue;
       expect(repo.remoteUrl).toBe(row.remoteUrl);
       expect(repo.primaryLanguage).toBe(row.primaryLanguage);
       expect(repo.isDirty).toBe(row.isDirty === 1);

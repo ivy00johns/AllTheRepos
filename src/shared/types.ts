@@ -215,6 +215,48 @@ export interface SetRepoTagsInput {
 /** Response for `catalog:setTags`. The updated Repo. */
 export type SetRepoTagsResult = Repo;
 
+/**
+ * One repo whose recomputed heuristic tags differ from the stored ones. Only
+ * heuristic tags are proposed; user tags are never touched.
+ */
+export interface TagCleanupProposal {
+  slug: string;
+  name: string;
+  /** Heuristic tag values stored now. */
+  current: string[];
+  /** Heuristic tag values the rules propose, after remembered answers. */
+  proposed: string[];
+  /** In `proposed` but not `current`. */
+  added: string[];
+  /** In `current` but not `proposed`. */
+  removed: string[];
+}
+
+/** Response for `catalog:tagCleanup:preview`. Read-only. */
+export interface TagCleanupPreviewResult {
+  proposals: TagCleanupProposal[];
+  /** Repos examined. */
+  scanned: number;
+  /** Repos whose folder is missing, so they were not re-tagged. */
+  unreadable: number;
+}
+
+/** Input for `catalog:tagCleanup:apply`. One decision per repo. */
+export interface TagCleanupApplyInput {
+  decisions: Array<{ slug: string; decision: "accept" | "reject" }>;
+}
+
+/**
+ * Response for `catalog:tagCleanup:apply`. `accept` writes the proposed set;
+ * `reject` remembers the answer so later rescans keep it.
+ */
+export interface TagCleanupApplyResult {
+  accepted: number;
+  rejected: number;
+  /** Slugs that were not found, or whose folder is missing. Nothing written. */
+  skipped: string[];
+}
+
 /** Input for `catalog:delete` — remove one repo row from the catalog (ATR-028). */
 export interface DeleteRepoInput {
   slug: string;
@@ -231,28 +273,12 @@ export interface DeleteRepoResult {
 }
 
 // ---------------------------------------------------------------------------
-// catalog:cover / catalog:move*
+// catalog:cover
 // ---------------------------------------------------------------------------
 
 import type {
   CoverInputSchema,
   CoverResultSchema,
-  MoveBlockerSchema,
-  MoveCheckEntrySchema,
-  MoveCheckResultSchema,
-  MoveEntryResultSchema,
-  MoveInputSchema,
-  MoveLastResultSchema,
-  MoveResultSchema,
-  MoveUndoInputSchema,
-  FolderBlockerSchema,
-  FolderCheckInputSchema,
-  AffectedRepoSchema,
-  FolderCheckResultSchema,
-  FolderRenameInputSchema,
-  FolderMoveInputSchema,
-  FolderCreateInputSchema,
-  FolderOpResultSchema,
   PickScanPathResultSchema,
   AddScanPathInputSchema,
   AddScanPathResultSchema,
@@ -297,32 +323,6 @@ import type {
 
 export type CoverInput = import("zod").infer<typeof CoverInputSchema>;
 export type CoverResult = import("zod").infer<typeof CoverResultSchema>;
-export type MoveBlocker = import("zod").infer<typeof MoveBlockerSchema>;
-export type MoveInput = import("zod").infer<typeof MoveInputSchema>;
-export type MoveCheckEntry = import("zod").infer<typeof MoveCheckEntrySchema>;
-export type MoveCheckResult = import("zod").infer<typeof MoveCheckResultSchema>;
-export type MoveEntryResult = import("zod").infer<typeof MoveEntryResultSchema>;
-export type MoveResult = import("zod").infer<typeof MoveResultSchema>;
-export type MoveUndoInput = import("zod").infer<typeof MoveUndoInputSchema>;
-export type MoveLastInput = Record<string, never>;
-export type MoveLastResult = import("zod").infer<typeof MoveLastResultSchema>;
-
-export type FolderBlocker = import("zod").infer<typeof FolderBlockerSchema>;
-export type FolderCheckInput = import("zod").infer<
-  typeof FolderCheckInputSchema
->;
-export type AffectedRepo = import("zod").infer<typeof AffectedRepoSchema>;
-export type FolderCheckResult = import("zod").infer<
-  typeof FolderCheckResultSchema
->;
-export type FolderRenameInput = import("zod").infer<
-  typeof FolderRenameInputSchema
->;
-export type FolderMoveInput = import("zod").infer<typeof FolderMoveInputSchema>;
-export type FolderCreateInput = import("zod").infer<
-  typeof FolderCreateInputSchema
->;
-export type FolderOpResult = import("zod").infer<typeof FolderOpResultSchema>;
 
 export type CatalogChangeEvent = import("zod").infer<
   typeof CatalogChangeEventSchema
@@ -351,9 +351,7 @@ export type TaskActiveInput = Record<string, never>;
 export type TaskActiveResult = import("zod").infer<
   typeof TaskActiveResultSchema
 >;
-export type TaskOutputEvent = import("zod").infer<
-  typeof TaskOutputEventSchema
->;
+export type TaskOutputEvent = import("zod").infer<typeof TaskOutputEventSchema>;
 
 export type RepoLinkKind = import("zod").infer<typeof RepoLinkKindSchema>;
 export type RepoLink = import("zod").infer<typeof RepoLinkSchema>;
@@ -559,6 +557,16 @@ export type UpdateSettingsInput = Partial<Settings>;
 
 /** Response for `settings:update`. The full merged Settings post-update. */
 export type UpdateSettingsResult = Settings;
+export interface TestEmbeddingInput {
+  baseUrl: string;
+  model: string;
+}
+export interface TestEmbeddingResult {
+  ok: boolean;
+  dimensions: number;
+  durationMs: number;
+  message: string;
+}
 
 // ---------------------------------------------------------------------------
 // groups:*

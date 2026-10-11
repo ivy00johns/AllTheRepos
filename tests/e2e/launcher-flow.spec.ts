@@ -1,105 +1,73 @@
 /**
- * Phase 3a E2E — Launcher icon row on a seeded repo card.
- *
- * Validates the LauncherButtons icon row renders on the catalog
- * route. Each icon must:
- *   - be visible inside the catalog grid,
- *   - carry a non-empty `aria-label`,
- *   - NOT be clicked (clicking would spawn a real editor /
- *     terminal / Finder reveal on the test machine, which is
- *     unacceptable for an automated suite).
- *
- * If the local catalog DB has zero repos seeded (a fresh dev
- * machine, or CI without `~/.alltherepos/`), the test gracefully
- * documents that and exits — the unit specs cover the buttons'
- * behaviour in depth (`tests/unit/main/ipc/launcher.spec.ts` +
- * `tests/unit/main/services/launcher.spec.ts`).
- *
- * Owner: qe-agent (Phase 3a).
+ * Actual Electron clicks, preload, IPC, catalog lookup and remote parsing.
+ * Only the final OS shell calls are intercepted: this proves dispatch, not
+ * that Finder/the browser/editor visually opened. Clipboard is real and restored.
  */
-
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
-
 import { launchApp } from "./_launch-app";
 
-const REPO_ROOT = resolve(__dirname, "..", "..");
-const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
+test("launcher clicks dispatch real repo paths and normalized remotes through Electron", async () => {
+  const { app, close } = await launchApp();
+  let priorClipboard: string | undefined;
+  try {
+    const win = await app.firstWindow();
+    await win.waitForLoadState("domcontentloaded");
+    const card = win.locator("[data-repo-slug]").first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const slug = await card.getAttribute("data-repo-slug");
+    expect(slug).toBeTruthy();
+    const repo = await win.evaluate(async (target) => {
+      const result = await window.atr!.catalog.get({ slug: target! });
+      if (!result) throw new Error("seeded repo missing");
+      return result;
+    }, slug);
 
-const EXPECTED_LAUNCHER_LABELS = [
-  /^open in editor$/i,
-  /^open in terminal$/i,
-  /^reveal in finder$/i,
-  /^open remote/i, // "Open remote (origin)"
-  /^copy path$/i,
-];
+    const remote = spawnSync("git", ["remote", "add", "origin", "git@github.com:atr-e2e/launcher-fixture.git"], { cwd: repo.fullPath, encoding: "utf8" });
+    expect(remote.status, remote.stderr).toBe(0);
 
-test.describe("Phase 3a launcher flow", () => {
-  test.beforeAll(() => {
-    if (!existsSync(MAIN_ENTRY)) {
-      throw new Error(
-        `Electron main bundle not found at ${MAIN_ENTRY}. Run \`pnpm electron:build\` (or \`node scripts/run-electron-e2e.mjs\`) before running this suite.`,
-      );
+    priorClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
+    await app.evaluate(({ shell }) => {
+      const state = globalThis as unknown as { __launcherCalls: Array<{ kind: string; value: string }> };
+      state.__launcherCalls = [];
+      shell.showItemInFolder = (value) => { state.__launcherCalls.push({ kind: "finder", value }); };
+      shell.openExternal = async (value) => { state.__launcherCalls.push({ kind: "external", value }); };
+    });
+    const calls = () => app.evaluate(() => (globalThis as unknown as { __launcherCalls: Array<{ kind: string; value: string }> }).__launcherCalls);
+
+    for (const name of ["Open in editor", "Open in terminal", "Reveal in Finder", "Open remote (origin)", "Copy path"]) {
+      await expect(card.getByRole("button", { name, exact: true })).toBeAttached();
     }
-  });
-
-  test("launcher icon row renders on the catalog with non-empty aria-labels", async () => {
-    const { app, close } = await launchApp();
-
-    try {
-      const win = await app.firstWindow();
-      await win.waitForLoadState("domcontentloaded");
-
-      // Wait for the catalog chrome (same anchor as catalog-flow.spec.ts).
-      const appTitle = win.getByRole("link", { name: /^AllTheRepos$/i });
-      await expect(appTitle).toBeVisible({ timeout: 15_000 });
-
-      // Give the catalog a moment to settle so the repo grid is mounted.
-      await win.waitForTimeout(800);
-
-      // If there are zero repos in the catalog, the icon row simply
-      // isn't rendered. Bail with a warning so the suite stays green
-      // on unseeded hosts.
-      const editorBtns = win.getByRole("button", {
-        name: /^open in editor$/i,
-      });
-      const editorCount = await editorBtns.count();
-      if (editorCount === 0) {
-        console.warn(
-          "[launcher-flow] no seeded repos in local catalog — skipping aria-label assertions. Run a scan to seed the catalog before running this suite for full coverage.",
-        );
-        return;
-      }
-
-      // Every launcher icon must surface its accessible name.
-      for (const labelRe of EXPECTED_LAUNCHER_LABELS) {
-        const buttons = win.getByRole("button", { name: labelRe });
-        const count = await buttons.count();
-        expect(
-          count,
-          `expected at least one button matching ${labelRe} on the catalog`,
-        ).toBeGreaterThan(0);
-
-        // Sanity: aria-label is non-empty (Playwright's getByRole
-        // matches the accessible name, but we double-check the
-        // attribute itself).
-        const first = buttons.first();
-        const ariaLabel = await first.getAttribute("aria-label");
-        expect(ariaLabel?.length ?? 0).toBeGreaterThan(0);
-      }
-
-      // We deliberately do NOT click any launcher button: clicking
-      // "Open in editor" / "Reveal in Finder" / "Open remote" would
-      // spawn a real subprocess or open a real OS surface on the test
-      // machine. The handlers themselves are covered by the unit
-      // suite. Copy-path could in theory be clicked safely, but the
-      // implementation uses Electron's `clipboard.writeText` which
-      // we'd need to round-trip through `navigator.clipboard.readText`
-      // — and Playwright Electron doesn't expose clipboard read by
-      // default. Skip to keep the spec deterministic.
-    } finally {
-      await close();
+    await card.hover();
+    await card.getByRole("button", { name: "Reveal in Finder", exact: true }).click();
+    await expect.poll(calls).toContainEqual({ kind: "finder", value: repo.fullPath });
+    await card.getByRole("button", { name: "Open remote (origin)", exact: true }).click();
+    await expect.poll(calls).toContainEqual({ kind: "external", value: "https://github.com/atr-e2e/launcher-fixture" });
+    await card.getByRole("button", { name: "Copy path", exact: true }).click();
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(repo.fullPath);
+    console.log("[launcher-flow] Finder and GitHub dispatch verified (OS shell intercepted); clipboard round trip real.");
+  } finally {
+    if (priorClipboard !== undefined) {
+      await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), priorClipboard);
     }
-  });
+    await close();
+  }
+});
+
+test("launcher failures remain visible on inline catalog cards", async () => {
+  const { app, close } = await launchApp();
+  try {
+    const win = await app.firstWindow();
+    const card = win.locator("[data-repo-slug]").first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("launcher:openInFinder");
+      ipcMain.handle("launcher:openInFinder", () => ({ ok: false, reason: "test launcher refused" }));
+    });
+    await card.hover();
+    await card.getByRole("button", { name: "Reveal in Finder", exact: true }).click();
+    await expect(card.getByRole("status")).toContainText("test launcher refused");
+  } finally {
+    await close();
+  }
 });

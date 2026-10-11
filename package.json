@@ -39,6 +39,7 @@
     "platforms:check": "node scripts/check-platforms.mjs",
     "ci-cost:check": "node scripts/check-ci-cost.mjs",
     "shipped-copy:check": "node scripts/check-shipped-copy.mjs",
+    "read-only:check": "node scripts/check-read-only.mjs",
     "unit-platform:check": "node scripts/check-unit-platform.mjs",
     "first-launch:write": "node scripts/first-launch.mjs --write",
     "first-launch:check": "node scripts/first-launch.mjs --check && node scripts/check-first-launch-advice.mjs",
@@ -77,7 +78,7 @@
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
-    "simple-git": "^3.36.0",
+    "simple-git": "^4.0.2",
     "sqlite-vec": "^0.1.9",
     "tailwind-merge": "^3.3.1",
     "zod": "^3.25.67",
@@ -107,6 +108,12 @@
     "typescript-eslint": "^8.71.1",
     "vite": "^7.3.3",
     "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "seroval": "^1.6.3",
+      "mdast-util-to-hast": "^13.2.1"
+    }
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {

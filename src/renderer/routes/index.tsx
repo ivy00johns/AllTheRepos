@@ -18,6 +18,7 @@
 import * as React from "react";
 import { createRoute } from "@tanstack/react-router";
 
+import { ErrorState } from "@renderer/components/ui/error-state";
 import { CatalogShell } from "@renderer/components/catalog/catalog-shell";
 import { useGroups } from "@renderer/hooks/use-groups";
 import { useRepos } from "@renderer/hooks/use-repos";
@@ -54,6 +55,10 @@ function IndexPage() {
   const repos = reposQuery.data?.items ?? [];
   const totalCount = reposQuery.data?.total ?? 0;
   const groups = groupsQuery.data ?? [];
+
+  if (reposQuery.isError || groupsQuery.isError) {
+    return <ErrorState title="Could not load the catalog" error={reposQuery.error ?? groupsQuery.error} onRetry={() => { void reposQuery.refetch(); void groupsQuery.refetch(); }} />;
+  }
 
   return (
     <CatalogShell

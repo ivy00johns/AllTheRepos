@@ -61,18 +61,6 @@ import type {
   TaskOutputEvent,
   CoverInput,
   CoverResult,
-  MoveInput,
-  MoveCheckResult,
-  MoveResult,
-  MoveUndoInput,
-  MoveLastInput,
-  MoveLastResult,
-  FolderCheckInput,
-  FolderCheckResult,
-  FolderRenameInput,
-  FolderMoveInput,
-  FolderCreateInput,
-  FolderOpResult,
   PickScanPathInput,
   PickScanPathResult,
   AddScanPathInput,
@@ -147,6 +135,9 @@ import type {
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  TagCleanupApplyInput,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
   ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
@@ -155,6 +146,8 @@ import type {
   TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
+  TestEmbeddingInput,
+  TestEmbeddingResult,
 } from "@shared/types";
 
 /**
@@ -214,6 +207,17 @@ export const api = {
         IPC.CATALOG.SET_TAGS,
         input,
       ) as Promise<SetRepoTagsResult>,
+    tagCleanupPreview: (): Promise<TagCleanupPreviewResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+      ) as Promise<TagCleanupPreviewResult>,
+    tagCleanupApply: (
+      input: TagCleanupApplyInput,
+    ): Promise<TagCleanupApplyResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.TAG_CLEANUP_APPLY,
+        input,
+      ) as Promise<TagCleanupApplyResult>,
     delete: (input: DeleteRepoInput): Promise<DeleteRepoResult> =>
       ipcRenderer.invoke(
         IPC.CATALOG.DELETE,
@@ -226,23 +230,6 @@ export const api = {
       ) as Promise<SmartFilterResult>,
     cover: (input: CoverInput): Promise<CoverResult> =>
       ipcRenderer.invoke(IPC.CATALOG.COVER, input) as Promise<CoverResult>,
-    moveCheck: (input: MoveInput): Promise<MoveCheckResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_CHECK,
-        input,
-      ) as Promise<MoveCheckResult>,
-    move: (input: MoveInput): Promise<MoveResult> =>
-      ipcRenderer.invoke(IPC.CATALOG.MOVE, input) as Promise<MoveResult>,
-    moveUndo: (input: MoveUndoInput): Promise<MoveResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_UNDO,
-        input,
-      ) as Promise<MoveResult>,
-    moveLast: (input: MoveLastInput): Promise<MoveLastResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.MOVE_LAST,
-        input,
-      ) as Promise<MoveLastResult>,
     /**
      * Subscribe to live catalog changes from the filesystem watcher.
      * Returns an unsubscribe lambda; callers MUST invoke it on cleanup
@@ -267,26 +254,6 @@ export const api = {
         IPC.CATALOG.SET_FAVORITE,
         input,
       ) as Promise<SetFavoriteResult>,
-    folderCheck: (input: FolderCheckInput): Promise<FolderCheckResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_CHECK,
-        input,
-      ) as Promise<FolderCheckResult>,
-    folderRename: (input: FolderRenameInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_RENAME,
-        input,
-      ) as Promise<FolderOpResult>,
-    folderMove: (input: FolderMoveInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_MOVE,
-        input,
-      ) as Promise<FolderOpResult>,
-    folderCreate: (input: FolderCreateInput): Promise<FolderOpResult> =>
-      ipcRenderer.invoke(
-        IPC.CATALOG.FOLDER_CREATE,
-        input,
-      ) as Promise<FolderOpResult>,
   },
 
   scan: {
@@ -344,9 +311,7 @@ export const api = {
      * Subscribe to task stdout/stderr and lifecycle. Returns an
      * unsubscribe lambda the renderer MUST call on cleanup.
      */
-    onOutput: (
-      callback: (event: TaskOutputEvent) => void,
-    ): (() => void) => {
+    onOutput: (callback: (event: TaskOutputEvent) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, payload: TaskOutputEvent) => {
         callback(payload);
       };
@@ -420,6 +385,11 @@ export const api = {
   },
 
   settings: {
+    testEmbedding: (input: TestEmbeddingInput): Promise<TestEmbeddingResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.TEST_EMBEDDING,
+        input,
+      ) as Promise<TestEmbeddingResult>,
     get: (): Promise<GetSettingsResult> =>
       ipcRenderer.invoke(IPC.SETTINGS.GET, {}) as Promise<GetSettingsResult>,
     update: (input: UpdateSettingsInput): Promise<UpdateSettingsResult> =>

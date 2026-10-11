@@ -24,41 +24,22 @@
  * it is touched until the browser bridge asks for it — see `enablePersistence`,
  * which the bridge calls at install.
  *
- * Two things deliberately stay session-local: a move batch's undo entry (the
- * moved path persists; the undo bar is a per-session affordance, like a shell's
- * history) and the derived signals the map reads — an export carries none, so
- * the store cannot invent them.
+ * One thing deliberately stays session-local: the derived signals the map
+ * reads — an export carries none, so the store cannot invent them.
  *
- * Those rules are copied from `src/main/services/move.ts` deliberately:
- *
- *  - a move is blocked for a dirty tree, a folder with a process in it, a target
- *    outside the scan roots, a target inside the repo, or a name already taken;
- *  - a slug does not change when a repo moves (main keeps the row key and only
- *    rewrites `full_path`), so links and selections survive a move;
- *  - the same edit is undoable exactly once, through the same `moveLast` /
- *    `moveUndo` pair the catalog's undo bar calls.
- *
- * What it deliberately does NOT do: run processes, touch the filesystem, or
- * claim a folder was created — a browser tab has no disk. Those stay refused,
- * with a reason, at the bridge.
+ * What it deliberately does NOT do: move, rename, copy or delete anything, or
+ * run a process. There is no disk behind a browser tab, and the app it stands in
+ * for does not write to yours either — this store is the same read-only library
+ * the app serves, so the two cannot drift into doing different things.
  */
 
 import type {
   AddScanPathResult,
   AssertRepoLinkResult,
-  FolderBlocker,
-  FolderCheckResult,
-  FolderOpResult,
   GraphCluster,
   GraphNode,
   GraphResult,
   Group,
-  MoveBlocker,
-  MoveCheckEntry,
-  MoveCheckResult,
-  MoveEntryResult,
-  MoveLastResult,
-  MoveResult,
   RemoveRepoLinkResult,
   Repo,
   RepoDetail,
@@ -88,7 +69,6 @@ import { z } from "zod";
 import {
   DEMO_CURATED_LINKS,
   DEMO_GROUPS,
-  DEMO_PROCESSES,
   DEMO_REPOS,
   DEMO_SETTINGS,
   buildGraph,
@@ -100,16 +80,6 @@ import {
 // Paths
 // ---------------------------------------------------------------------------
 
-const parentOf = (path: string): string => {
-  const cut = path.lastIndexOf("/");
-  return cut <= 0 ? "/" : path.slice(0, cut);
-};
-
-const baseNameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
-
-const joinPath = (parent: string, child: string): string =>
-  `${parent.replace(/\/+$/, "")}/${child}`;
-
 /** Is `path` at or below `folder`? The trailing slash is what makes `/Codex` not match `/Code`. */
 function isInside(path: string, folder: string): boolean {
   const root = folder.replace(/\/+$/, "");
@@ -119,15 +89,6 @@ function isInside(path: string, folder: string): boolean {
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-
-/** A completed batch, kept so the undo bar has something to reverse. */
-interface MoveBatch {
-  batchId: string;
-  at: string;
-  kind: "repos" | "folder";
-  label: string;
-  records: Array<{ slug: string; fromPath: string; toPath: string }>;
-}
 
 /** A repo's panel data that the export carries: the README and its groups. */
 interface ExportedDetail {
@@ -144,7 +105,6 @@ interface DemoState {
   settings: SettingsZ;
   /** Only populated in export mode; the demo reads its detail from the seed. */
   detail: Map<string, ExportedDetail>;
-  batches: MoveBatch[];
 }
 
 const cloneRepo = (repo: Repo): Repo => ({
@@ -214,7 +174,6 @@ const state: DemoState = {
     defaultTerminal: DEMO_SETTINGS.defaultTerminal ?? null,
     adHocNoticeDismissed: DEMO_SETTINGS.adHocNoticeDismissed ?? false,
   },
-  batches: [],
 };
 
 /** Bumped by every write, so the memoized graph knows it is stale. */
@@ -227,17 +186,6 @@ const touch = (): void => {
 };
 
 const now = (): string => new Date().toISOString();
-
-/** Repos with a process running out of them — the same rule the mover applies. */
-const busySlugs = (): Set<string> =>
-  new Set(
-    DEMO_PROCESSES.processes
-      .map((row) => row.repoSlug)
-      .filter((slug): slug is string => Boolean(slug)),
-  );
-
-const blockersMessage = (blockers: Array<MoveBlocker | FolderBlocker>): string =>
-  blockers.join(", ");
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -716,8 +664,6 @@ function applyExport(parsed: z.infer<typeof ExportedCatalogSchema>): void {
       { readmeContent: entry.readmeContent, groups: entry.groups },
     ]),
   );
-  // Batches describe moves made in this session, and this one replaced them.
-  state.batches = [];
   state.source = "export";
   // Which record applies changed with the base: this browser's edits for the
   // exported catalog, replayed on top of the rows it just loaded.
@@ -913,286 +859,6 @@ export function removeLink(input: {
     rememberRemovedLink(input);
   }
   return { removed };
-}
-
-// ---------------------------------------------------------------------------
-// Moves
-// ---------------------------------------------------------------------------
-
-function destinationTaken(toPath: string): boolean {
-  return state.repos.some((repo) => repo.fullPath === toPath);
-}
-
-/**
- * The preflight, rule for rule against `services/move.ts`.
- *
- * Ordered most- to least-severe, matching main, so the reason a reviewer reads
- * first here is the reason the app would give.
- */
-export function moveCheck(slugs: string[], targetDir: string): MoveCheckResult {
-  const target = targetDir.replace(/\/+$/, "") || "/";
-  const allowed = state.settings.scanPaths.some((root) => isInside(target, root));
-  const busy = busySlugs();
-
-  const entries: MoveCheckEntry[] = slugs.map((slug) => {
-    const repo = findRepo(slug);
-    if (!repo) {
-      return {
-        slug,
-        name: slug,
-        fromPath: "",
-        toPath: "",
-        ok: false,
-        blockers: ["unknown-repo"],
-      };
-    }
-    const fromPath = repo.fullPath;
-    const toPath = joinPath(target, baseNameOf(fromPath));
-    const blockers: MoveBlocker[] = [];
-    if (repo.isDirty) blockers.push("dirty");
-    if (busy.has(slug)) blockers.push("running-process");
-    if (fromPath === toPath) blockers.push("same-location");
-    if (!allowed) blockers.push("target-outside-roots");
-    if (isInside(target, fromPath)) blockers.push("target-inside-source");
-    if (fromPath !== toPath && destinationTaken(toPath)) {
-      blockers.push("destination-exists");
-    }
-    return {
-      slug,
-      name: repo.name,
-      fromPath,
-      toPath,
-      ok: blockers.length === 0,
-      blockers,
-    };
-  });
-
-  return {
-    targetDir: target,
-    entries,
-    movableCount: entries.filter((entry) => entry.ok).length,
-    blockedCount: entries.filter((entry) => !entry.ok).length,
-  };
-}
-
-/**
- * Move a batch.
- *
- * `fullPath` changes; the slug does not — main keeps the row key and rewrites
- * `full_path`, so the selection, the links and the open detail panel all
- * survive the move exactly as they do in the app.
- */
-export function move(slugs: string[], targetDir: string): MoveResult {
-  const check = moveCheck(slugs, targetDir);
-  const performed: MoveBatch["records"] = [];
-
-  const entries: MoveEntryResult[] = check.entries.map((entry) => {
-    if (!entry.ok) {
-      return {
-        slug: entry.slug,
-        moved: false,
-        fromPath: entry.fromPath,
-        toPath: entry.toPath,
-        error: blockersMessage(entry.blockers),
-      };
-    }
-    const repo = findRepo(entry.slug);
-    if (repo) {
-      repo.fullPath = entry.toPath;
-      repo.updatedAt = now();
-      const edit = editRepo(entry.slug);
-      edit.fullPath = entry.toPath;
-      edit.updatedAt = repo.updatedAt;
-      performed.push({
-        slug: entry.slug,
-        fromPath: entry.fromPath,
-        toPath: entry.toPath,
-      });
-    }
-    return {
-      slug: entry.slug,
-      moved: true,
-      fromPath: entry.fromPath,
-      toPath: entry.toPath,
-      error: null,
-    };
-  });
-
-  // Saved once for the batch, not once per repo: a folder move re-paths every
-  // repo inside it and each save would re-serialise the whole record.
-  if (performed.length > 0) persistEdits();
-  touch();
-  return {
-    targetDir: check.targetDir,
-    entries,
-    movedCount: performed.length,
-    failedCount: entries.length - performed.length,
-    batchId: performed.length > 0 ? recordBatch("repos", performed) : null,
-  };
-}
-
-function recordBatch(kind: MoveBatch["kind"], records: MoveBatch["records"]): string {
-  const count = records.length;
-  const batch: MoveBatch = {
-    batchId: `demo-batch-${state.batches.length + 1}`,
-    at: now(),
-    kind,
-    label:
-      kind === "repos"
-        ? `moved ${count} ${count === 1 ? "repo" : "repos"}`
-        : `moved ${baseNameOf(records[0]?.fromPath ?? "")}`,
-    records,
-  };
-  state.batches.push(batch);
-  return batch.batchId;
-}
-
-/** Reverse a batch, newest by default. Consumed, like the journal's entry. */
-export function moveUndo(batchId?: string): MoveResult {
-  const batch = batchId
-    ? state.batches.find((candidate) => candidate.batchId === batchId)
-    : state.batches[state.batches.length - 1];
-  if (!batch) {
-    return {
-      targetDir: "",
-      entries: [],
-      movedCount: 0,
-      failedCount: 0,
-      batchId: null,
-    };
-  }
-
-  const entries: MoveEntryResult[] = batch.records.map((record) => {
-    const repo = findRepo(record.slug);
-    if (repo) {
-      repo.fullPath = record.fromPath;
-      repo.updatedAt = now();
-      const edit = editRepo(record.slug);
-      edit.fullPath = record.fromPath;
-      edit.updatedAt = repo.updatedAt;
-    }
-    return {
-      slug: record.slug,
-      moved: true,
-      fromPath: record.toPath,
-      toPath: record.fromPath,
-      error: null,
-    };
-  });
-
-  state.batches = state.batches.filter((candidate) => candidate !== batch);
-  if (entries.length > 0) persistEdits();
-  touch();
-  return {
-    targetDir: parentOf(batch.records[0]?.fromPath ?? ""),
-    entries,
-    movedCount: entries.length,
-    failedCount: 0,
-    batchId: null,
-  };
-}
-
-export function moveLast(): MoveLastResult {
-  const batch = state.batches[state.batches.length - 1];
-  if (!batch) return null;
-  return {
-    batchId: batch.batchId,
-    at: batch.at,
-    count: batch.records.length,
-    kind: batch.kind,
-    label: batch.label,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Folders
-// ---------------------------------------------------------------------------
-
-/**
- * What a folder move would do to the repos inside it.
- *
- * A browser tab has no folders of its own: the tree you see is derived from the
- * repos' paths. That makes "move this folder" mean "re-path every repo under
- * it", which is exactly the part a reviewer needs to watch, and it is why
- * `folderCreate` is refused — there is nothing to create it in.
- */
-export function folderCheck(fromPath: string, toPath: string): FolderCheckResult {
-  const from = fromPath.replace(/\/+$/, "");
-  const to = toPath.replace(/\/+$/, "");
-  const busy = busySlugs();
-
-  const affected = state.repos
-    .filter((repo) => isInside(repo.fullPath, from))
-    .map((repo) => ({
-      slug: repo.slug,
-      name: repo.name,
-      fromPath: repo.fullPath,
-      toPath: joinPath(to, repo.fullPath.slice(from.length + 1)),
-      isDirty: repo.isDirty,
-      hasProcess: busy.has(repo.slug),
-    }));
-
-  const blockers: FolderBlocker[] = [];
-  if (affected.length === 0) blockers.push("missing");
-  if (from === to) blockers.push("same-location");
-  if (!state.settings.scanPaths.some((root) => isInside(to, root))) {
-    blockers.push("target-outside-roots");
-  }
-  if (isInside(to, from)) blockers.push("target-inside-source");
-  if (state.settings.scanPaths.includes(from)) blockers.push("is-scan-root");
-  if (affected.some((entry) => entry.isDirty)) blockers.push("dirty-repos");
-  if (affected.some((entry) => entry.hasProcess)) blockers.push("running-processes");
-  if (destinationTaken(to)) blockers.push("destination-exists");
-
-  return { fromPath: from, toPath: to, affected, blockers, ok: blockers.length === 0 };
-}
-
-/** Rename a folder, re-pathing every repo inside it. */
-export function folderRename(fromPath: string, newName: string): FolderOpResult {
-  const from = fromPath.replace(/\/+$/, "");
-  return applyFolderMove(from, joinPath(parentOf(from), newName));
-}
-
-/** Move a folder under another parent. */
-export function folderMove(fromPath: string, parentPath: string): FolderOpResult {
-  const from = fromPath.replace(/\/+$/, "");
-  return applyFolderMove(from, joinPath(parentPath, baseNameOf(from)));
-}
-
-function applyFolderMove(from: string, to: string): FolderOpResult {
-  const check = folderCheck(from, to);
-  if (!check.ok) {
-    return {
-      ok: false,
-      fromPath: check.fromPath,
-      toPath: check.toPath,
-      movedRepos: 0,
-      batchId: null,
-      error: blockersMessage(check.blockers),
-    };
-  }
-
-  const records: MoveBatch["records"] = [];
-  for (const entry of check.affected) {
-    const repo = findRepo(entry.slug);
-    if (!repo) continue;
-    repo.fullPath = entry.toPath;
-    repo.updatedAt = now();
-    const edit = editRepo(entry.slug);
-    edit.fullPath = entry.toPath;
-    edit.updatedAt = repo.updatedAt;
-    records.push({ slug: entry.slug, fromPath: entry.fromPath, toPath: entry.toPath });
-  }
-  if (records.length > 0) persistEdits();
-  touch();
-  return {
-    ok: true,
-    fromPath: check.fromPath,
-    toPath: check.toPath,
-    movedRepos: records.length,
-    batchId: recordBatch("folder", records),
-    error: null,
-  };
 }
 
 // ---------------------------------------------------------------------------

@@ -146,6 +146,20 @@ jobs:
       # network, so it belongs in the fast job.
       - name: The copy a screen may carry, and the tooling it must not name
         run: pnpm shipped-copy:check
+      # This app reads your repositories; it does not rearrange them. That was
+      # once untrue — a folder-management feature could rename a directory on
+      # disk — and nothing failed when it landed, because a promise about what a
+      # program will not do has no test under it unless somebody writes one.
+      # `scripts/check-read-only.mjs` reads every file in `src/main` and
+      # `src/preload` and fails on a delete with no exemptions at all (`rm`,
+      # `rmdir`, `unlink`, `truncate`, `trashItem`, or the same verbs handed to a
+      # shell), and on any other write in a file that is not named in its
+      # `WRITE_WAIVERS` list with a reason — four files, all of them writing the
+      # app's own data directory. Adding a fifth is a diff somebody has to
+      # justify rather than a side effect of a feature branch. Pure Node, no
+      # build, no network: the fast job.
+      - name: The app reads your repos, and this is what says so
+        run: pnpm read-only:check
       # The first-launch instructions are rendered from one source
       # (`scripts/first-launch.mjs`) into the file inside the DMG, the release-note
       # paragraph and the CI warning. This fails if that file has drifted from what

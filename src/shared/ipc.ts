@@ -57,30 +57,18 @@ export const IPC = {
      * the renderer then draws deterministic generated art.
      */
     COVER: "catalog:cover",
-    /** Preflight a relocation: per-repo verdict, nothing touched. */
-    MOVE_CHECK: "catalog:moveCheck",
-    /** Execute a relocation on disk and update the catalog. */
-    MOVE: "catalog:move",
-    /** Reverse a journaled move batch. */
-    MOVE_UNDO: "catalog:moveUndo",
-    /** Describe the most recent move batch, for the undo affordance. */
-    MOVE_LAST: "catalog:moveLast",
     /**
      * Push-style stream from main → renderer. Fired when the filesystem
-     * watcher notices repos appearing, moving or disappearing under a
-     * scan root. Payload conforms to `CatalogChangeEventSchema`.
+     * watcher notices repos appearing or disappearing under a scan root.
+     * Payload conforms to `CatalogChangeEventSchema`.
      */
     ON_CHANGED: "catalog:on:changed",
+    /** Read-only: which repos' heuristic tags would change if re-tagged now. */
+    TAG_CLEANUP_PREVIEW: "catalog:tagCleanup:preview",
+    /** Accept or reject tag-cleanup proposals, one decision per repo. */
+    TAG_CLEANUP_APPLY: "catalog:tagCleanup:apply",
     /** Pin / unpin a repo. */
     SET_FAVORITE: "catalog:setFavorite",
-    /** Preflight a folder rename/move: which repos travel, what blocks it. */
-    FOLDER_CHECK: "catalog:folderCheck",
-    /** Rename a folder in place. */
-    FOLDER_RENAME: "catalog:folderRename",
-    /** Move a folder into a different parent. */
-    FOLDER_MOVE: "catalog:folderMove",
-    /** Create an empty folder inside a scan root. */
-    FOLDER_CREATE: "catalog:folderCreate",
   },
 
   /** Scan namespace — scanner job lifecycle + progress stream. */
@@ -187,6 +175,7 @@ export const IPC = {
     GET: "settings:get",
     /** Partial update — only provided keys are applied. */
     UPDATE: "settings:update",
+    TEST_EMBEDDING: "settings:testEmbedding",
     /** Open the native folder picker. Returns a path without saving it. */
     PICK_SCAN_PATH: "settings:pickScanPath",
     /** Add a directory to the scan roots. */
