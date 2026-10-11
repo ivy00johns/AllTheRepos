@@ -91,7 +91,9 @@ pnpm electron:dev                  # rebuilds natives, then launches the app
 
 ## 🖥️ The App
 
-▶️ **[Watch the demo video (about 90 seconds)](https://github.com/ivy00johns/alltherepos-releases/releases/latest)** — the scan, search, triage, links and graph, shown on the demo library below.
+<video src="docs/demo-video/alltherepos-demo.mp4" controls width="900" aria-label="AllTheRepos demo video, about 90 seconds"></video>
+
+▶️ [Watch the demo video (about 90 seconds)](docs/demo-video/alltherepos-demo.mp4) — the scan, search, triage, links and graph, shown on the demo library below.
 
 <div align="center">
 
