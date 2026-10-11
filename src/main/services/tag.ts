@@ -30,6 +30,12 @@ export interface HeuristicInput {
 export const MAX_TAGS = 6;
 
 /**
+ * Tooling that says how a repo ships. These always keep their slot under the
+ * cap, so a repo with many frameworks still shows its CI and Docker setup.
+ */
+const RESERVED_TOOLING = new Set(["docker", "ci"]);
+
+/**
  * A remembered answer to a cleanup proposal. `add`: the user rejected a tag the
  * rules wanted to add, so it stays off. `keep`: the user rejected removing a
  * tag, so it stays on.
@@ -466,15 +472,23 @@ export function inferTags(input: HeuristicInput): Tag[] {
   detectMonorepo(root, out);
   detectOtherEcosystems(root, out);
 
+  // Reserved tooling is counted against the cap up front, so it always fits.
+  const reserved = [...out.values()].filter((t) =>
+    RESERVED_TOOLING.has(t.value),
+  );
+  const budget = MAX_TAGS - reserved.length;
+  const has = (value: string) => ordered.some((t) => t.value === value);
+
   // Purpose leads the list; it is the most useful thing a tag can say.
   const ordered: Tag[] = [];
   const purpose = purposeFrom(ev, root);
   if (purpose) ordered.push({ value: purpose, source: "heuristic" });
 
-  // Frameworks and runtimes, in detection order.
+  // Frameworks and runtimes, in detection order, within the budget.
   for (const tag of out.values()) {
-    if (ordered.length >= MAX_TAGS) break;
-    if (!ordered.some((t) => t.value === tag.value)) ordered.push(tag);
+    if (ordered.length >= budget) break;
+    if (RESERVED_TOOLING.has(tag.value) || has(tag.value)) continue;
+    ordered.push(tag);
   }
 
   // Primary *programming* language, lowercased. Format-only languages never
@@ -482,15 +496,15 @@ export function inferTags(input: HeuristicInput): Tag[] {
   const primary = input.languages
     .map((l) => l.name.toLowerCase())
     .find((name) => !FORMAT_ONLY_LANGUAGES.has(name));
-  if (
-    primary &&
-    ordered.length < MAX_TAGS &&
-    !ordered.some((t) => t.value === primary)
-  ) {
+  if (primary && ordered.length < budget && !has(primary)) {
     ordered.push({ value: primary, source: "heuristic" });
   }
 
-  return ordered.slice(0, MAX_TAGS);
+  for (const tag of reserved) {
+    if (!has(tag.value)) ordered.push(tag);
+  }
+
+  return ordered;
 }
 
 /** Legacy alias kept for callers ported from `lib/tag/heuristic.ts`. */

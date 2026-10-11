@@ -282,6 +282,28 @@ describe("services/tag — heuristic inference", () => {
       expect(tags[0]?.value).toBe("desktop-app");
     });
 
+    it("keeps docker and ci when the cap is full of frameworks", () => {
+      write(
+        "package.json",
+        JSON.stringify({
+          name: "many",
+          dependencies: {
+            react: "19",
+            next: "15",
+            vue: "3",
+            svelte: "5",
+            astro: "4",
+          },
+        }),
+      );
+      write("Dockerfile", `FROM node\n`);
+      write(".github/workflows/ci.yml", `on: push\n`);
+      const tags = values(callWith([{ name: "TypeScript", bytes: 1 }]));
+      expect(tags).toContain("docker");
+      expect(tags).toContain("ci");
+      expect(tags.length).toBeLessThanOrEqual(6);
+    });
+
     it("is idempotent: the same repo tags the same way twice", () => {
       write(
         "package.json",
