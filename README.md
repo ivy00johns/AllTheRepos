@@ -199,6 +199,7 @@ flowchart LR
 │       ├── hooks/ stores/ lib/ styles/
 │       └── fonts/         # IBM Plex Sans + JetBrains Mono (bundled)
 ├── contracts/             # IPC + data-layer contracts, types, schema
+├── demo/                  # HyperFrames source for the demo video (renders stay local)
 ├── mcp/                   # MCP server exposing curated repo relationships
 ├── design-system/         # design tokens and the alltherepos theme
 ├── drizzle/               # SQLite migrations

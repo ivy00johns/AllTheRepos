@@ -1,0 +1,16 @@
+{
+  "provider": "kokoro",
+  "speed": "1.1",
+  "lines": [
+    { "id": "01", "text": "Somewhere in your home folder is a project you can't remember the name of, or where you put it." },
+    { "id": "02", "text": "AllTheRepos is one window onto every git repository on your machine. It reads them in place, without moving anything." },
+    { "id": "03", "text": "Add a scan root and press Scan. It reads each repo's remotes, languages and last commit into one SQLite file on your disk." },
+    { "id": "04", "text": "Then search them all at once. It's full text, and with Ollama running, vector ranking joins in, so a half-remembered phrase still finds the repo." },
+    { "id": "05", "text": "The grid answers what you'd otherwise ask git: when you last touched it, what it's written in, uncommitted work, missing folders, and whether it's yours, a clone, or local only." },
+    { "id": "06", "text": "Then make it yours. Tags, favorites, groups, and each project's tasks, from package.json, Makefile or justfile." },
+    { "id": "07", "text": "Link repos that belong together, and they show up as a graph. The repo includes an MCP server you add to a coding agent by hand, so it can read the map and record links too." },
+    { "id": "08", "text": "It keeps up on its own. Repos that appear, move or disappear in a watched scan root show up without a rescan." },
+    { "id": "09", "text": "It's local. No account, no telemetry, one SQLite file that's yours. The only automatic call is an update check against GitHub. Cloud embeddings stay off unless you enable them. Every command, file write and network call is listed in the disclosure, with source lines." },
+    { "id": "10", "text": "It's keyboard-first, it's alpha, and it runs on Apple silicon Macs. Go download it, and finally find that repo." }
+  ]
+}

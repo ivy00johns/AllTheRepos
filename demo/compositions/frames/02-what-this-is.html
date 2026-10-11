@@ -1,0 +1,51 @@
+<template>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+<style>
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/JetBrainsMono-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("assets/fonts/IBMPlexSans-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("assets/fonts/IBMPlexSans-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+#root { position: absolute; inset: 0; overflow: hidden; font-family: "IBM Plex Sans", sans-serif; color: #F8FAFC; }
+#f02-ground { position: absolute; inset: 0; background: #0F172A;
+  background-image: radial-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 34px 34px; }
+#f02-layer { position: absolute; inset: 0; z-index: 5; }
+#f02-card-frame { position: absolute; left: 294px; top: 64px; width: 1332px; height: 832px; border-radius: 16px; border: 1.5px solid rgba(34, 197, 94, 0.22); box-sizing: border-box; }
+#f02-reveal { position: absolute; left: 294px; top: 64px; width: 1332px; height: 832px; border-radius: 16px; background: #0F172A; }
+#f02-eyebrow { position: absolute; left: 294px; top: 16px; padding: 7px 20px; border-radius: 100px; background: rgba(34, 197, 94, 0.10); border: 1px solid rgba(34, 197, 94, 0.30); font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 21px; letter-spacing: 0.08em; text-transform: uppercase; color: #22C55E; }
+.f02-chip { position: absolute; left: 342px; padding: 12px 24px; border-radius: 100px; background: rgba(248, 250, 252, 0.05); border: 1px solid rgba(148, 163, 184, 0.26); font-family: "JetBrains Mono", monospace; font-weight: 400; font-size: 23px; color: #94A3B8; white-space: nowrap; }
+#f02-callout { position: absolute; left: 330px; top: 792px; padding: 14px 28px; border-radius: 100px; background: #22C55E; color: #0F172A; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 25px; }
+#f02-head { position: absolute; left: 1682px; top: 120px; width: 200px; text-align: right; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 30px; line-height: 1.35; color: #F8FAFC; }
+</style>
+<div data-hf-id="hf-02nx" id="root" data-composition-id="02-what-this-is" data-width="1920" data-height="1080" data-duration="15.104">
+<div data-hf-id="hf-pyf5" id="f02-ground" class="clip" data-start="0" data-duration="15.104" data-track-index="0"></div>
+<!-- approved frame video hoisted by assemble-index -->
+<div data-hf-id="hf-k694" id="f02-layer" class="clip" data-start="0" data-duration="15.104" data-track-index="1">
+  <div data-hf-id="hf-zh42" id="f02-card-frame"></div>
+  <div data-hf-id="hf-iu4b" id="f02-reveal"></div>
+  <div data-hf-id="hf-vvtq" id="f02-head">one<br data-hf-id="hf-x5px">window</div>
+  <div data-hf-id="hf-a3mz" id="f02-eyebrow">the catalog</div>
+  <div data-hf-id="hf-ea5f" id="f02-chip1" class="f02-chip" style="top: 668px">hundreds · thousands</div>
+  <div data-hf-id="hf-jmif" id="f02-chip2" class="f02-chip" style="top: 741px">4 scan roots</div>
+  <div data-hf-id="hf-m3am" id="f02-callout">read-only · nothing moved</div>
+</div>
+</div>
+<script>
+(function () {
+  const tl = gsap.timeline({ paused: true });
+  tl.set("#f02-reveal", { opacity: 0 }, 0);
+  // Scene 1 — the surface arrives as a framed window on the product name.
+  tl.fromTo("#f02-card-frame", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.412, ease: "power3.out" }, 0);
+  tl.fromTo("#f02-eyebrow", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.317, ease: "power3.out" }, 0.159);
+  tl.fromTo("#f02-head", { opacity: 0, x: 18 }, { opacity: 1, x: 0, duration: 0.381, ease: "power3.out" }, 0.571);
+  // Scene 2 — the clip runs alone: the catalog settles and scrolls once.
+  // Scene 3 — the promise resolves into two countable chips.
+  tl.fromTo("#f02-chip1", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.349, ease: "power3.out" }, 3.932);
+  tl.fromTo("#f02-chip2", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.349, ease: "power3.out" }, 5.962);
+  // Scene 4 — the one claim the beat rests on.
+  tl.fromTo("#f02-callout", { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.349, ease: "power3.out" }, 7.23);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["02-what-this-is"] = tl;
+})();
+</script>
+</template>

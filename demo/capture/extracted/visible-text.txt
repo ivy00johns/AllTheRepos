@@ -1,0 +1,26 @@
+# Visible text — no-capture path
+
+The brief and the locked narration for this video. There is no captured page;
+the app's own recorded screens are the visual source of truth, and the spoken
+lines below are the whole of the copy.
+
+## Value proposition (from README.md)
+
+> "Which repo was that?" — answered in one window, on your machine.
+
+One window for every git repository on your machine — hundreds, or thousands of
+them. Point it at the folders where you keep code, and it learns what all of them
+are, without moving a single one.
+
+## Locked narration (docs/demo-video/SCRIPT.md, 333 words)
+
+1. Somewhere in your home folder is a project you can't remember the name of. You know it's there. You just can't remember what you called it, or where you put it, or what it does.
+2. AllTheRepos is one window for every git repository on your machine — hundreds, or thousands of them. Point it at the folders where you keep code, and it learns what all of them are, without moving a single one.
+3. Add a scan root, press Scan, and watch it fill. It walks the tree in a worker thread, reads each repository's remotes, languages and last commit, and writes the result into one SQLite file on your own disk.
+4. Then stop guessing at folder names. Search all of them at once — full text by default, and when Ollama is running, vector ranking fused into it, so even a half-remembered phrase still lands.
+5. The grid answers what you would otherwise open six repositories to ask. How long since you touched it, what it is written in, whether the tree is dirty, whether the folder has moved off disk — and a mark that says whether it is yours, a clone, or only ever local.
+6. Add your own words on top of it: tags, favourites, groups — and each project's own tasks read from the files that already declare them.
+7. Draw the lines between repositories you already know belong together, see the whole shape as a graph, and let your own coding agents read those relationships through the built-in MCP server, so your tooling knows the map too.
+8. Scan roots, folders and file watching all stay live in the background, so when you come back to the window, the catalog is already correct.
+9. No account, no telemetry, and nothing leaves the machine. One SQLite file that is yours — and every command, every write and every network request is inventoried and disclosed in the repository.
+10. Keyboard-first, free, and local. It is alpha on macOS — so download it, and finally find that repository you were looking for.
