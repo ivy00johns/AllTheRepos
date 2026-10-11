@@ -275,7 +275,7 @@ Pushing a `v*` tag runs [`.github/workflows/release.yml`](./.github/workflows/re
 
 That same pipeline can be run **without releasing anything** — `gh workflow run release.yml -f rehearse=true`, and every Monday at 14:00 UTC against `main`. Both build the real artifacts under a scratch version (`0.0.0`) and delete what they make, leaving nothing visible. A rehearsal also **launches the build it just made and makes it read the live feed**: a rehearsal's build is stamped below every release, so the check has to come back with the release that is live offered to it, while a tag push has just published the version it built and has to be told it is on the latest release. Everything else in that job verifies the upload; this verifies the app. It runs weekly because a pipeline is otherwise only ever exercised by releasing, which is the one moment a break in the guard, the notes step or the packaging costs a version that is already tagged and pushed.
 
-The artifacts deliberately do **not** land in this repository. They go to [`ivy00johns/alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases) — the repo the app's updater reads — so anyone who installs a build can check for updates anonymously while the source stays private. Two things about those builds:
+The artifacts deliberately do **not** land in this repository. They go to [`ivy00johns/alltherepos-releases`](https://github.com/ivy00johns/alltherepos-releases) — the repo the app's updater reads — so anyone who installs a build can check for updates anonymously, without needing access to the source. Two things about those builds:
 
 - They are **ad-hoc signed and not notarised** unless the release workflow was given a Developer-ID certificate — which its log states either way: `CSC_LINK` set means a signed, notarised build, and no `CSC_LINK` means it emits a `::warning::` that this release is not installable. An ad-hoc DMG needs the **Open Anyway** step on first launch — the right-click → Open shortcut older macOS versions accepted was removed in macOS 15 — and it carries those steps in `READ-ME-FIRST.txt` inside the DMG, with the app repeating the explanation once you are inside. After that it launches normally.
 - **Installing follows from that certificate.** On an ad-hoc build the updater checks for new versions and opens the release page, because Squirrel.Mac refuses to apply an update to anything that is not both validly code-signed and accepted by Gatekeeper. On a Developer-ID signed, notarised build it downloads the ZIP, offers **Restart to install**, and relaunches into the new version. The app decides which of the two it is by reading its own signature at runtime, and says so in Settings rather than offering an install macOS would refuse.
@@ -310,12 +310,6 @@ Tests run under host Node; the app runs under Electron's bundled Node. They need
 <summary><b>The scanner test can flake on hosts with 1Password GPG signing</b></summary>
 
 `tests/git/scanner.test.ts` commits in temp repositories with `simple-git`. If your global `commit.gpgsign = true` routes through 1Password's agent, those commits fail. Workaround: `git config --global commit.gpgsign false`, or pass `--no-gpg-sign`.
-</details>
-
-<details>
-<summary><b>No <code>LICENSE</code> file</b></summary>
-
-The repository is private and has no license yet, so no license badge is claimed above and no reuse rights are granted. Add a `LICENSE` before making the source public.
 </details>
 
 ---
@@ -354,6 +348,12 @@ AllTheRepos is built nights-and-weekends and given away. If it saved you from *"
 </div>
 
 Other ways to help, all free: star the releases repo, tell someone with a `~/Projects` folder full of mystery repos, or file a concrete bug against [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
+
+---
+
+## 📄 License
+
+MIT — see [`LICENSE`](./LICENSE).
 
 ---
 
