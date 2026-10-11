@@ -318,12 +318,6 @@ Tests run under host Node; the app runs under Electron's bundled Node. They need
 The repository is private and has no license yet, so no license badge is claimed above and no reuse rights are granted. Add a `LICENSE` before making the source public.
 </details>
 
-<details>
-<summary><b>The two workflow badges resolve only with repository access</b></summary>
-
-GitHub renders its own workflow badges through an authenticated-only endpoint for private repositories, so until this repository is public (or you are signed in with access) those two badges read as unavailable. Every other badge is static and always renders.
-</details>
-
 ---
 
 ## 📖 Documentation
