@@ -204,7 +204,6 @@ lines.forEach((line, i) => {
       continue;
     }
     const cStart = readAttr(cid, "data-start");
-    const cDur = readAttr(cid, "data-duration");
     const offset = round(cStart - oldStart);
     const avail = round(frameDur - offset - 0.2);
     setAttrs(cid, { "data-start": round(frameStart + offset), "data-duration": round(avail) });
