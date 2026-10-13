@@ -70,10 +70,19 @@ jobs:
       - uses: actions/checkout@v4
       # Reads the pinned `packageManager` field (pnpm 9.15.0).
       - uses: pnpm/action-setup@v4
+      # Deliberately no `cache: pnpm`. There is nothing here to cache — a pnpm
+      # store is only read by `pnpm install`, and this job runs none — but
+      # declaring one is not a harmless no-op. The cache key is the lockfile, so
+      # a change to `pnpm-lock.yaml` always misses, the store directory is then
+      # never created, and setup-node's own post job fails the whole job with
+      # `Path Validation Error: Path(s) specified in the action for caching
+      # do(es) not exist`. Every real step passes and the job still goes red,
+      # which is exactly the confusion this gate exists to prevent. The other
+      # workflows can keep the cache: each runs `pnpm install --frozen-lockfile`
+      # right after, and that is what creates the path on a miss.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       # No `pnpm install`: the checker has no dependencies, and `pnpm links:check`
       # only needs Node.
       - name: Resolve every link in the Markdown
