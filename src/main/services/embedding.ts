@@ -49,6 +49,7 @@ export async function ollamaEmbed(opts: OllamaEmbedOptions): Promise<number[]> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: opts.model, prompt: opts.input }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
     throw new EmbedUnavailableError(
@@ -63,7 +64,7 @@ export async function ollamaEmbed(opts: OllamaEmbedOptions): Promise<number[]> {
     );
   }
   const body = (await res.json()) as { embedding?: number[] };
-  if (!body.embedding || !Array.isArray(body.embedding)) {
+  if (!Array.isArray(body.embedding) || body.embedding.length === 0 || !body.embedding.every((value) => typeof value === "number" && Number.isFinite(value))) {
     throw new EmbedUnavailableError("Ollama response missing embedding");
   }
   return body.embedding;
@@ -85,6 +86,7 @@ export async function openaiEmbed(opts: OpenAIEmbedOptions): Promise<number[]> {
         authorization: `Bearer ${opts.apiKey}`,
       },
       body: JSON.stringify({ model: opts.model, input: opts.input }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
     throw new EmbedUnavailableError(
@@ -100,7 +102,7 @@ export async function openaiEmbed(opts: OpenAIEmbedOptions): Promise<number[]> {
     data?: Array<{ embedding?: number[] }>;
   };
   const vec = body.data?.[0]?.embedding;
-  if (!vec || !Array.isArray(vec)) {
+  if (!Array.isArray(vec) || vec.length === 0 || !vec.every((value) => typeof value === "number" && Number.isFinite(value))) {
     throw new EmbedUnavailableError("OpenAI response missing embedding");
   }
   return vec;
@@ -114,7 +116,8 @@ export async function embed(text: string): Promise<number[]> {
   const input = truncate(text);
   const settings = getSettings();
 
-  // 1. Try Ollama first.
+  // Preserve the local error instead of replacing it with "fetch failed".
+  let localFailure = "Ollama unavailable";
   try {
     return await ollamaEmbed({
       baseUrl: settings.ollamaBaseUrl,
@@ -123,6 +126,7 @@ export async function embed(text: string): Promise<number[]> {
     });
   } catch (err) {
     if (!(err instanceof EmbedUnavailableError)) throw err;
+    localFailure = err.message;
     // fall through to OpenAI
   }
 
@@ -137,7 +141,7 @@ export async function embed(text: string): Promise<number[]> {
   }
 
   throw new EmbedUnavailableError(
-    "No embedding provider available (Ollama unreachable, no OPENAI_API_KEY)",
+    `${localFailure}. No OpenAI fallback key is configured.`,
   );
 }
 

@@ -9,6 +9,8 @@
  * service back the future CLI / tray surfaces without duplicating logic.
  */
 
+import { existsSync } from "node:fs";
+
 import type {
   CreateGroupInput,
   DeleteGroupResult,
@@ -100,6 +102,17 @@ class CatalogService {
     }
 
     const fullPath = canonicalPath(row.full_path);
+    // A folder deleted or moved away has nothing to re-read. Return the stored
+    // row unchanged instead of throwing: it reads back with `missing: true`, and
+    // no scan time is stamped on a folder that is not there.
+    if (!existsSync(fullPath)) {
+      const stored = await getRepoSummaryBySlug(slug);
+      if (!stored) {
+        throw new Error(`catalog:rescan: repo not found (slug=${slug})`);
+      }
+      return stored;
+    }
+
     const { metadata } = await readRepoMetadata(fullPath);
     const heuristicTags = inferTags({
       fullPath,

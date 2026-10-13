@@ -369,6 +369,42 @@ export const SetRepoTagsInputSchema = z.object({
 export const SetRepoTagsResultSchema = RepoSchema;
 
 // ---------------------------------------------------------------------------
+// catalog:tagCleanup:preview / catalog:tagCleanup:apply
+// ---------------------------------------------------------------------------
+
+export const TagCleanupProposalSchema = z.object({
+  slug: SlugSchema,
+  name: z.string(),
+  current: z.array(z.string()),
+  proposed: z.array(z.string()),
+  added: z.array(z.string()),
+  removed: z.array(z.string()),
+});
+
+export const TagCleanupPreviewResultSchema = z.object({
+  proposals: z.array(TagCleanupProposalSchema),
+  scanned: z.number().int().nonnegative(),
+  unreadable: z.number().int().nonnegative(),
+});
+
+export const TagCleanupApplyInputSchema = z.object({
+  decisions: z
+    .array(
+      z.object({
+        slug: SlugSchema,
+        decision: z.enum(["accept", "reject"]),
+      }),
+    )
+    .max(1000),
+});
+
+export const TagCleanupApplyResultSchema = z.object({
+  accepted: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  skipped: z.array(z.string()),
+});
+
+// ---------------------------------------------------------------------------
 // catalog:smartFilter (Phase 4 — contract locked in Phase 1)
 // ---------------------------------------------------------------------------
 
@@ -483,6 +519,27 @@ export const GetSettingsResultSchema = SettingsSchema;
  */
 export const UpdateSettingsInputSchema = SettingsSchema.partial();
 export const UpdateSettingsResultSchema = SettingsSchema;
+
+export const TestEmbeddingInputSchema = z.object({
+  baseUrl: z
+    .string()
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        ["http:", "https:"].includes(url.protocol) &&
+        !url.username &&
+        !url.password
+      );
+    }, "Use an HTTP(S) URL without credentials"),
+  model: z.string().trim().min(1).max(200),
+});
+export const TestEmbeddingResultSchema = z.object({
+  ok: z.boolean(),
+  dimensions: z.number().int().nonnegative(),
+  durationMs: z.number().nonnegative(),
+  message: z.string(),
+});
 
 // --- scan-root management (driven from the rail) ---------------------------
 

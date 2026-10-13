@@ -341,6 +341,18 @@ export function arrangeGroupMap(
   width: number,
   height: number,
 ): void {
+  // A small overview is a navigation surface, not a force simulation. A grid
+  // keeps all six demo groups in frame instead of a tall overlapping chain.
+  const groups = cy.nodes(".group");
+  if (groups.length > 0 && groups.length <= 12) {
+    const boxes = groupFootprints(cy);
+    const cellWidth = Math.max(...boxes.map((box) => box.width)) + 32;
+    const cellHeight = Math.max(...boxes.map((box) => box.height)) + 32;
+    const columns = Math.min(groups.length, Math.max(1, Math.ceil(Math.sqrt(groups.length * (width / height) * (cellHeight / cellWidth)))));
+    groups.forEach((node, index) => { node.position({ x: (index % columns) * cellWidth, y: Math.floor(index / columns) * cellHeight }); });
+    separateGroupBubbles(cy);
+    return;
+  }
   for (let pass = 0; pass < ARRANGE_SQUASH_PASSES; pass += 1) {
     squashGroupArrangement(cy, width, height);
     separateGroupBubbles(cy);
@@ -1696,7 +1708,10 @@ export function GraphCanvas({
       autounselectify: true,
       // Render the graph to a texture while panning — at ~1100 elements
       // this is the difference between smooth and stuttering.
-      textureOnViewport: true,
+      // Draw at least 2 device pixels per CSS pixel. Avoid the low-resolution
+      // pan texture that made names visibly smear while navigating the map.
+      pixelRatio: Math.max(2, window.devicePixelRatio || 1),
+      textureOnViewport: false,
       motionBlur: false,
     });
     cyRef.current = cy;

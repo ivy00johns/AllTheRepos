@@ -186,6 +186,14 @@ const ADDITIVE_COLUMNS: Array<{ table: string; column: string; ddl: string }> =
  * every table — which fails against any existing catalog.
  */
 const ADDITIVE_TABLES: string[] = [
+  // Tag-cleanup answers. `kind` is `add` (a rejected addition) or `keep` (a
+  // rejected removal); see services/tag.ts applyTagRejections.
+  `CREATE TABLE IF NOT EXISTS tag_rejections (
+     repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+     value   TEXT    NOT NULL,
+     kind    TEXT    NOT NULL CHECK (kind IN ('add', 'keep')),
+     PRIMARY KEY (repo_id, value)
+   )`,
   `CREATE TABLE IF NOT EXISTS repo_links (
      id           INTEGER PRIMARY KEY AUTOINCREMENT,
      from_repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,

@@ -69,7 +69,7 @@ const MIN_HEIGHT = 600;
  * accessible name: the Running link also carries the process count as an
  * `sr-only` suffix, which is deliberate and not this finding.
  */
-const NAV_LABELS = ["Running", "Map", "Claude", "Settings"] as const;
+const NAV_LABELS = ["Repos", "Running", "Map", "Claude", "Settings"] as const;
 
 /** The five launcher buttons, in the order `launcher-buttons.tsx` renders them. */
 const LAUNCHER_LABELS = [
@@ -191,7 +191,7 @@ test.describe("nav names and repo-card focus order", () => {
       const nav = win.locator("header nav");
       expect(
         await nav.locator("a").count(),
-        "the primary navigation gained a destination — ATR-074 put /debug back in it",
+        "the primary navigation must contain Repos, Running, Map, Claude and Settings only",
       ).toBe(NAV_LABELS.length);
       await expect(
         nav.getByRole("link", { name: /^debug/i }),

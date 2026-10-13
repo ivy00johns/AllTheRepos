@@ -1,0 +1,233 @@
+{
+  "ranAt": "2026-10-13T00:54:22.250Z",
+  "profile": "/Users/johns/Library/Application Support/alltherepos (copied)",
+  "totals": {
+    "steps": 23,
+    "ok": 23,
+    "failed": 0,
+    "skipped": 0,
+    "consoleErrors": 0,
+    "cosmeticConsoleErrors": 109
+  },
+  "steps": [
+    {
+      "n": 1,
+      "id": "launch",
+      "label": "Boot against the real profile (copied)",
+      "status": "ok",
+      "detail": "seams ok; Debug affordance: 1"
+    },
+    {
+      "n": 2,
+      "id": "catalog.size",
+      "label": "Catalog: rail, toolbar and grid agree — nothing lost past one page",
+      "status": "ok",
+      "detail": "273 repos · rail 273 · toolbar \"238 of 273\" · page 2 on screen 50/73 · archived 35 revealed 273"
+    },
+    {
+      "n": 3,
+      "id": "catalog.explain",
+      "label": "The count explains the difference and can clear it",
+      "status": "ok",
+      "detail": "strip \"Hidden by owner Mine 185 Archived 35 Show all 273\" · counts 185+35 = 220 of 220 missing · Show all → 273 cards · filters off again, 238 cards"
+    },
+    {
+      "n": 4,
+      "id": "search.real",
+      "label": "Search a real repo name",
+      "status": "ok",
+      "detail": "\"50statesforukraine\" → 2 result(s)"
+    },
+    {
+      "n": 5,
+      "id": "search.empty",
+      "label": "An empty grid names the filter that emptied it, and offers the nearest repos",
+      "status": "ok",
+      "detail": "Nothing matches “zzz-no-such-repo” Hidden by search “zzz-no-such-repo”. Clear search “zzz-no-such-repo” Show all 273 · clear → 238 cards back · mistyped \"50statesforukraine\" → offered 50statesforukraine-site"
+    },
+    {
+      "n": 6,
+      "id": "views",
+      "label": "Gallery / Grid / Table",
+      "status": "ok",
+      "detail": "clicked Gallery, Grid and Table"
+    },
+    {
+      "n": 7,
+      "id": "group.sort",
+      "label": "Every Group and Sort option",
+      "status": "ok",
+      "detail": "6 group modes, 6 sort keys, reverse toggled twice"
+    },
+    {
+      "n": 8,
+      "id": "rail",
+      "label": "Rail: views + a real folder",
+      "status": "ok",
+      "detail": "views: All repos, Favourites, Mine, Local only, Cloned, Uncommitted | toggled folder: Repos"
+    },
+    {
+      "n": 9,
+      "id": "select.real-repos",
+      "label": "Select 4 different real repos; panel must match each",
+      "status": "ok",
+      "detail": "opened 4: VibeOS, andrej-karpathy-skills, Emergence-World, anthropics-skills"
+    },
+    {
+      "n": 10,
+      "id": "favorite",
+      "label": "Favourite star on a real repo, then back off",
+      "status": "ok",
+      "detail": "Pin VibeOS → Pin VibeOS → (after refresh) Unpin VibeOS; reverted"
+    },
+    {
+      "n": 11,
+      "id": "launcher",
+      "label": "Launcher icons on a real repo (OS launches stubbed)",
+      "status": "ok",
+      "detail": "editor, terminal, finder, remote, copy | footer: Open anthropics-skills with the default editor"
+    },
+    {
+      "n": 12,
+      "id": "multi-select",
+      "label": "Cmd-click multi-select + Clear selection",
+      "status": "ok",
+      "detail": "cmd-clicked 2 more cards, then Clear selection"
+    },
+    {
+      "n": 13,
+      "id": "table",
+      "label": "Table view: sort columns, open a row",
+      "status": "ok",
+      "detail": "sorted by Project, Owner, Language, Size, Touched; opened a row"
+    },
+    {
+      "n": 14,
+      "id": "tags",
+      "label": "Detail panel: add a tag then remove it",
+      "status": "ok",
+      "detail": "added then removed the tag \"zz-walkthrough\""
+    },
+    {
+      "n": 15,
+      "id": "related",
+      "label": "Detail panel: assert a curated link, then remove it",
+      "status": "ok",
+      "detail": "asserted \"50statesforukraine\" then removed it"
+    },
+    {
+      "n": 16,
+      "id": "footer",
+      "label": "Detail panel footer: Open in editor + full detail page",
+      "status": "ok",
+      "detail": "opened in the editor, opened the full detail page, came back"
+    },
+    {
+      "n": 17,
+      "id": "processes",
+      "label": "Processes: refresh (Kill deliberately not fired)",
+      "status": "ok",
+      "detail": "158 rows, 158 kill buttons — not fired"
+    },
+    {
+      "n": 18,
+      "id": "settings",
+      "label": "Settings: selects, identity, scan paths, Scan now (bounded)",
+      "status": "ok",
+      "detail": "removed 2 real scan path(s) on the copy; scan found 1, indexed 1, errors 0"
+    },
+    {
+      "n": 19,
+      "id": "tasks",
+      "label": "Task runner: expand, run, stop, clear (on the indexed fixture)",
+      "status": "ok",
+      "detail": "ran and stopped the fixture's serve task; output pane cleared"
+    },
+    {
+      "n": 20,
+      "id": "debug",
+      "label": "/debug: ping round-trip",
+      "status": "ok",
+      "detail": "ping → pong over IPC"
+    },
+    {
+      "n": 21,
+      "id": "palette",
+      "label": "Command palette: open and list actions",
+      "status": "ok",
+      "detail": "8 actions offered"
+    },
+    {
+      "n": 22,
+      "id": "danger.inventory",
+      "label": "Inventory the destructive controls that still exist (none fired)",
+      "status": "ok",
+      "detail": "rail menu → Stop scanning…"
+    },
+    {
+      "n": 23,
+      "id": "final",
+      "label": "Return to the catalog",
+      "status": "ok",
+      "detail": "catalog back with 239 cards"
+    }
+  ],
+  "issues": [],
+  "dangerNotFired": [
+    "/processes exposes 158 live \"Kill PID\" button(s) (158 rows listed)",
+    "rail menu → Stop scanning…"
+  ],
+  "seamActivity": {
+    "openExternal": [
+      "devin://file/Users/johns/Repos/ai-tools-and-frameworks/VibeOS",
+      "https://github.com/kaansenol5/VibeOS",
+      "devin://file/Users/johns/Repos/ai-tools-and-frameworks/claude-os"
+    ],
+    "showItemInFolder": [
+      "/Users/johns/Repos/ai-tools-and-frameworks/VibeOS"
+    ],
+    "clipboard": [
+      "/Users/johns/Repos/ai-tools-and-frameworks/VibeOS"
+    ]
+  },
+  "screenshots": [
+    "001-real-catalog.png",
+    "002-real-hidden-reasons.png",
+    "003-real-show-all.png",
+    "004-real-search.png",
+    "005-real-empty-culprit.png",
+    "006-real-empty-cleared.png",
+    "007-real-empty-near-miss.png",
+    "008-real-near-miss-picked.png",
+    "009-real-view-gallery.png",
+    "010-real-view-grid.png",
+    "011-real-view-table.png",
+    "012-real-rail.png",
+    "013-real-detail-panel.png",
+    "014-real-favorite.png",
+    "015-real-launcher.png",
+    "016-real-multi-select.png",
+    "017-real-table.png",
+    "018-real-tag-added.png",
+    "019-real-curate-dialog.png",
+    "020-real-related.png",
+    "021-real-repo-page.png",
+    "022-real-processes.png",
+    "023-real-settings.png",
+    "024-real-scan-now.png",
+    "025-real-tasks-open.png",
+    "026-real-task-running.png",
+    "027-real-tasks-cleared.png",
+    "028-real-debug.png",
+    "029-real-palette.png",
+    "030-real-final-catalog.png"
+  ],
+  "cosmeticSample": [
+    "Refused to load the image 'https://dcbadge.vercel.app/api/server/4t5vXHhu?style=flat' because it violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://avatars.githubusercontent.com\".\n",
+    "Refused to load the image 'https://img.shields.io/github/stars/AntonOsika/gpt-engineer?style=social' because it violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://avatars.githubusercontent.com\".\n",
+    "Refused to load the image 'https://img.shields.io/twitter/follow/antonosika?style=social' because it violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://avatars.githubusercontent.com\".\n",
+    "Refused to load the image 'https://deploy.workers.cloudflare.com/button' because it violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://avatars.githubusercontent.com\".\n",
+    "Failed to load resource: net::ERR_FILE_NOT_FOUND",
+    "Refused to load the image 'https://world.emergence.ai/EmergenceLogo.png' because it violates the following Content Security Policy directive: \"img-src 'self' data: blob: https://avatars.githubusercontent.com\".\n"
+  ]
+}

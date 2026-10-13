@@ -490,6 +490,31 @@ function buildRepo(seed: DemoSeed, index: number): Repo {
   };
 }
 
+// Three times the original library, with distinct names and identities rather
+// than duplicate cards. The originals remain unchanged for README examples.
+const EXTRA_NAMES = [
+  ["harbor-console", "atlas-ui"], ["audit-journal", "balance-api"],
+  ["event-relay", "inbox-worker"], ["gateway-config", "traffic-router"],
+  ["terrain-viewer", "mesh-tools"], ["sprite-editor", "shader-lab"],
+  ["rainfall-study", "station-importer"], ["agent-queue", "workflow-runner"],
+  ["platform-stack", "network-modules"], ["component-notes", "developer-guide"],
+  ["field-notes", "data-sketches"], ["archive-tool", "legacy-dashboard"],
+];
+const ORIGINAL_SEEDS = [...DEMO_SEEDS];
+for (const [index, seed] of ORIGINAL_SEEDS.entries()) {
+  for (const [variant, name] of (EXTRA_NAMES[index] ?? []).entries()) {
+    DEMO_SEEDS.push({
+      ...seed,
+      name,
+      remote: seed.remote ? `git@github.com:${seed.remote.includes("somebodyelse") ? "somebodyelse" : "ivy00johns"}/${name}.git` : null,
+      hoursAgo: seed.hoursAgo + (variant + 1) * 48,
+      favorite: false,
+      dirty: index % 5 === variant,
+      description: `${seed.description} ${variant === 0 ? "Companion tools" : "Integration workspace"}.`,
+    });
+  }
+}
+
 /** The catalog, newest commit first — the order the grid opens on. */
 export const DEMO_REPOS: Repo[] = DEMO_SEEDS.map(buildRepo).sort(
   (a, b) => Date.parse(b.lastCommitDate ?? "") - Date.parse(a.lastCommitDate ?? ""),
@@ -636,6 +661,14 @@ const CLUSTERS: Array<{ id: number; label: string; members: string[] }> = [
   { id: 4, label: "Notebooks", members: ["weatherbot", "sketchbook"] },
   { id: 5, label: "Legacy", members: ["old-experiment"] },
 ];
+
+for (const cluster of CLUSTERS) {
+  const originalMembers = [...cluster.members];
+  for (const name of originalMembers) {
+    const index = ORIGINAL_SEEDS.findIndex((seed) => seed.name === name);
+    cluster.members.push(...(EXTRA_NAMES[index] ?? []));
+  }
+}
 
 const CLUSTER_OF = new Map<string, number>(
   CLUSTERS.flatMap((cluster) =>
@@ -1602,6 +1635,14 @@ export const DEMO_LAUNCHER: DetectLauncherResult = {
       available: true,
       scheme: "zed",
       appPath: "/Applications/Zed.app",
+      cliPath: null,
+    },
+    {
+      id: "devin",
+      name: "Devin",
+      available: true,
+      scheme: "devin",
+      appPath: "/Applications/Devin.app",
       cliPath: null,
     },
     {

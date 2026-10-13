@@ -56,6 +56,7 @@ vi.mock("@main/security/allowlist", () => ({
 
 vi.mock("simple-git", () => {
   const factory = () => ({
+    env() { return this; },
     remote: async () => "git@github.com:user/acme.git\n",
   });
   return { default: factory, simpleGit: factory };

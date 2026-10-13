@@ -38,10 +38,8 @@ interface LauncherButtonsProps {
   className?: string;
   /**
    * When false (the default), the inline error pill renders inside
-   * a wrapping <div>. When true, the icon row renders as a bare
-   * flex span — the caller is responsible for arranging the error
-   * message externally. Used by tight layouts where the error
-   * surface lives elsewhere.
+   * a wrapping <div>. When true, the row and its error pill are positioned
+   * inside the card without a wrapper. Errors remain visible in both layouts.
    */
   inline?: boolean;
 }
@@ -163,7 +161,22 @@ export function LauncherButtons({
     </div>
   );
 
-  if (inline) return row;
+  if (inline) {
+    return (
+      <>
+        {row}
+        {error ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="absolute bottom-11 right-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-destructive/30 bg-card px-2 py-1 font-mono atr-label text-destructive shadow-raised"
+          >
+            {error.message}
+          </p>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1">

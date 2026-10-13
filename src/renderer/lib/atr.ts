@@ -140,6 +140,9 @@ import type {
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  TagCleanupApplyInput,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
   ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
@@ -148,6 +151,8 @@ import type {
   TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
+  TestEmbeddingInput,
+  TestEmbeddingResult,
 } from "@shared/types";
 
 /**
@@ -164,6 +169,12 @@ export interface AtrBridge {
     search(input: SearchReposInput): Promise<SearchReposResult>;
     rescan(input: RescanRepoInput): Promise<RescanRepoResult>;
     setTags(input: SetRepoTagsInput): Promise<SetRepoTagsResult>;
+    /** Read-only: heuristic tag changes a re-tag would make. */
+    tagCleanupPreview(): Promise<TagCleanupPreviewResult>;
+    /** Accept or reject tag-cleanup proposals, one decision per repo. */
+    tagCleanupApply(
+      input: TagCleanupApplyInput,
+    ): Promise<TagCleanupApplyResult>;
     /** ATR-028: drop one catalog row; the repo on disk is untouched. */
     delete(input: DeleteRepoInput): Promise<DeleteRepoResult>;
     smartFilter(input: SmartFilterInput): Promise<SmartFilterResult>;
@@ -235,6 +246,7 @@ export interface AtrBridge {
   };
 
   settings: {
+    testEmbedding(input: TestEmbeddingInput): Promise<TestEmbeddingResult>;
     get(): Promise<GetSettingsResult>;
     update(input: UpdateSettingsInput): Promise<UpdateSettingsResult>;
     /** Open the native folder picker; returns a path without saving it. */

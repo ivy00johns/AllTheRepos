@@ -57,11 +57,12 @@ vi.mock("@main/security/allowlist", () => ({
 }));
 
 vi.mock("simple-git", () => ({
-  default: vi.fn(),
+  simpleGit: vi.fn(),
 }));
 
 import {
   buildEditorUrl,
+  terminalCdCommand,
   editorScheme,
   normalizeRemoteUrl,
   __launcher_editor_table,
@@ -166,17 +167,17 @@ describe("buildEditorUrl", () => {
   // These tests pin the current (correct-by-encoder, debatable-by-contract)
   // behaviour so a future fix won't regress silently.
   // ---------------------------------------------------------------------------
-  it("file-scheme builders leave `?` un-encoded (encodeURI limitation)", () => {
+  it("file-scheme builders encode `?` as path data", () => {
     const url = buildEditorUrl("vscode", "/Users/me/weird?folder")!;
     // KNOWN GAP: encodeURI does NOT escape `?`. The `?folder` portion
     // would be parsed as a query string by clients that strictly follow
     // RFC 3986. Tracked as a Phase 3a LOW issue.
-    expect(url).toBe("vscode://file/Users/me/weird?folder");
+    expect(url).toBe("vscode://file/Users/me/weird%3Ffolder");
   });
 
-  it("file-scheme builders leave `#` un-encoded (encodeURI limitation)", () => {
+  it("file-scheme builders encode `#` as path data", () => {
     const url = buildEditorUrl("vscode", "/Users/me/weird#folder")!;
-    expect(url).toBe("vscode://file/Users/me/weird#folder");
+    expect(url).toBe("vscode://file/Users/me/weird%23folder");
   });
 
   it("JetBrains builders DO encode `?` via encodeURIComponent (no leak)", () => {
@@ -207,6 +208,17 @@ describe("buildEditorUrl", () => {
 // ---------------------------------------------------------------------------
 // normalizeRemoteUrl — SCP / ssh / https → https
 // ---------------------------------------------------------------------------
+
+describe("terminal path quoting", () => {
+  it("keeps shell expansion and quotes in a path literal", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const path = "/tmp/$(echo INJECTED)`echo BAD`it's a repo";
+    const line = terminalCdCommand(path);
+    // Replace cd with printf: inspect exactly the argv the shell would receive.
+    const result = execFileSync("/bin/sh", ["-c", line.replace("cd -- ", "printf '%s' ")], { encoding: "utf8" });
+    expect(result).toBe(path);
+  });
+});
 
 describe("normalizeRemoteUrl", () => {
   it("normalizes git@github.com:foo/bar.git → https://github.com/foo/bar", () => {

@@ -135,6 +135,9 @@ import type {
   SetGroupMembersResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
+  TagCleanupApplyInput,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
   ShowSpotlightResult,
   SmartFilterInput,
   SmartFilterResult,
@@ -143,6 +146,8 @@ import type {
   TrayOpenRepoPayload,
   UpdateSettingsInput,
   UpdateSettingsResult,
+  TestEmbeddingInput,
+  TestEmbeddingResult,
 } from "@shared/types";
 
 /**
@@ -202,6 +207,17 @@ export const api = {
         IPC.CATALOG.SET_TAGS,
         input,
       ) as Promise<SetRepoTagsResult>,
+    tagCleanupPreview: (): Promise<TagCleanupPreviewResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+      ) as Promise<TagCleanupPreviewResult>,
+    tagCleanupApply: (
+      input: TagCleanupApplyInput,
+    ): Promise<TagCleanupApplyResult> =>
+      ipcRenderer.invoke(
+        IPC.CATALOG.TAG_CLEANUP_APPLY,
+        input,
+      ) as Promise<TagCleanupApplyResult>,
     delete: (input: DeleteRepoInput): Promise<DeleteRepoResult> =>
       ipcRenderer.invoke(
         IPC.CATALOG.DELETE,
@@ -295,9 +311,7 @@ export const api = {
      * Subscribe to task stdout/stderr and lifecycle. Returns an
      * unsubscribe lambda the renderer MUST call on cleanup.
      */
-    onOutput: (
-      callback: (event: TaskOutputEvent) => void,
-    ): (() => void) => {
+    onOutput: (callback: (event: TaskOutputEvent) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, payload: TaskOutputEvent) => {
         callback(payload);
       };
@@ -371,6 +385,11 @@ export const api = {
   },
 
   settings: {
+    testEmbedding: (input: TestEmbeddingInput): Promise<TestEmbeddingResult> =>
+      ipcRenderer.invoke(
+        IPC.SETTINGS.TEST_EMBEDDING,
+        input,
+      ) as Promise<TestEmbeddingResult>,
     get: (): Promise<GetSettingsResult> =>
       ipcRenderer.invoke(IPC.SETTINGS.GET, {}) as Promise<GetSettingsResult>,
     update: (input: UpdateSettingsInput): Promise<UpdateSettingsResult> =>

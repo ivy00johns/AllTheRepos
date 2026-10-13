@@ -18,9 +18,10 @@
 import * as React from "react";
 import { createRoute } from "@tanstack/react-router";
 
+import { ErrorState } from "@renderer/components/ui/error-state";
 import { CatalogShell } from "@renderer/components/catalog/catalog-shell";
 import { useGroups } from "@renderer/hooks/use-groups";
-import { useRepos } from "@renderer/hooks/use-repos";
+import { useAllRepos } from "@renderer/hooks/use-repos";
 import { getAtr } from "@renderer/lib/atr";
 import type { RepoDetail } from "@shared/types";
 import { Route as RootRoute } from "./__root";
@@ -35,7 +36,10 @@ function IndexPage() {
   // `CatalogShell` reads filter state from the TanStack Router search
   // params, so we don't need to thread the Zustand `activeFilter` here
   // — the URL is the source of truth for the catalog page.
-  const reposQuery = useRepos({ limit: 200 });
+  // The whole catalog, not one page: the shell groups, sorts and counts
+  // client-side over this array, so a capped page left repos past row 200
+  // unreachable and made the rail disagree with the toolbar (ATR-042).
+  const reposQuery = useAllRepos();
   const groupsQuery = useGroups();
 
   const loadRepoDetail = React.useCallback(
@@ -54,6 +58,10 @@ function IndexPage() {
   const repos = reposQuery.data?.items ?? [];
   const totalCount = reposQuery.data?.total ?? 0;
   const groups = groupsQuery.data ?? [];
+
+  if (reposQuery.isError || groupsQuery.isError) {
+    return <ErrorState title="Could not load the catalog" error={reposQuery.error ?? groupsQuery.error} onRetry={() => { void reposQuery.refetch(); void groupsQuery.refetch(); }} />;
+  }
 
   return (
     <CatalogShell
