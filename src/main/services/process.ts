@@ -24,6 +24,11 @@
  * the snapshot's `(pid, port, repoSlug)` triple-set changes. The
  * subscription is hung in `src/main/index.ts` per the Phase 3a wiring.
  *
+ * Under E2E, `ATR_PROCESS_FIXTURE` can replace the sweep with a declared
+ * listener set — see {@link PROCESS_FIXTURE_ENV}. It exists so a screenshot of
+ * this app cannot depend on what happens to be listening on the machine
+ * rendering it.
+ *
  * SECURITY NOTE: this module uses `execFile` (NEVER `exec`) with a
  * literal argv array. The only dynamic arguments are PIDs that have
  * already been Zod-validated as positive integers in the IPC layer.
@@ -31,7 +36,7 @@
 
 import { EventEmitter } from "node:events";
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { promisify } from "node:util";
 
 import type {
@@ -215,6 +220,152 @@ export function parsePsTree(output: string): Map<number, number> {
     tree.set(pid, ppid);
   }
   return tree;
+}
+
+// ---------------------------------------------------------------------------
+// E2E input override
+// ---------------------------------------------------------------------------
+
+/**
+ * `ATR_PROCESS_FIXTURE=<path>` replaces the sweep's two host listings with the
+ * contents of a JSON file, so an E2E run reports the listeners the test
+ * declared rather than whatever happens to be listening on the machine running
+ * it.
+ *
+ * It exists because a screenshot is a claim about *this* app, and the process
+ * sweep is the one input to the catalog screen that is a claim about the host:
+ * the top bar draws a count badge whenever anything is listening
+ * (`processCount > 0` in `layout/top-bar.tsx`), so a committed baseline of the
+ * catalog depends on whether a dev server of the developer's happened to be up
+ * when it was captured. A runner is a fresh machine and stable; a laptop is
+ * neither, which is exactly how the `darwin27` table baseline came to pass CI
+ * and flake locally.
+ *
+ * The file is `{ "listen": [{ pid, port, command?, host? }], "ppid": {...},
+ * "cwd": {...} }`. `listen` is what the lsof sweep would have printed; `ppid`
+ * and `cwd` are the two maps the parent walk and the cwd to repo binding read,
+ * keyed by PID. Omitted, they are empty — the honest reading of a fixture that
+ * declares no ancestry, where nothing matches instead of something matching by
+ * accident. Privileged ports are filtered out of the fixture exactly as they
+ * are out of a real sweep.
+ *
+ * The override covers the sweep and nothing else: `kill` still signals a real
+ * PID through `ps` and `process.kill`, so a fixture row naming a PID that
+ * nothing is running reports as already gone (`noop`) rather than pretending to
+ * have killed it.
+ */
+export const PROCESS_FIXTURE_ENV = "ATR_PROCESS_FIXTURE";
+
+/**
+ * A parsed {@link PROCESS_FIXTURE_ENV} file, in the shape the sweep consumes.
+ *
+ * Exported for unit testing.
+ */
+export interface ProcessFixture {
+  listen: LsofListenRow[];
+  ppid: Map<number, number>;
+  cwd: Map<number, string>;
+}
+
+/**
+ * Parse the fixture JSON.
+ *
+ * Throws on anything malformed, deliberately. The caller turns that into an
+ * empty sweep and a line in the log rather than into the host's own listeners:
+ * a fixture the app cannot read is a mistake in the test that declared it, and
+ * quietly answering with the machine's process list would restore the very
+ * nondeterminism the fixture was declared to remove.
+ *
+ * Exported for unit testing.
+ */
+export function parseProcessFixture(raw: string): ProcessFixture {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("the process fixture must be a JSON object");
+  }
+  const record = parsed as Record<string, unknown>;
+
+  const listenRaw = record.listen ?? [];
+  if (!Array.isArray(listenRaw)) {
+    throw new Error("the process fixture's `listen` must be an array");
+  }
+  const listen = listenRaw.map((entry, index): LsofListenRow => {
+    const where = `the process fixture's listen[${index}]`;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(`${where} must be an object`);
+    }
+    const row = entry as Record<string, unknown>;
+    const pid = row.pid;
+    const port = row.port;
+    if (!isPositiveInt(pid)) throw new Error(`${where}.pid must be a positive integer`);
+    if (!isPositiveInt(port) || port > 65535) {
+      throw new Error(`${where}.port must be an integer in 1-65535`);
+    }
+    return {
+      pid,
+      port,
+      command: typeof row.command === "string" ? row.command : "",
+      host: typeof row.host === "string" ? row.host : "",
+    };
+  });
+
+  return {
+    listen,
+    ppid: numberMap(record.ppid, "ppid"),
+    cwd: stringMap(record.cwd, "cwd"),
+  };
+}
+
+function isPositiveInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+/** A fixture field keyed by PID whose values are numbers, or absent. */
+function numberMap(value: unknown, field: string): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const [key, entry] of fixtureEntries(value, field)) {
+    if (typeof entry !== "number" || !Number.isFinite(entry)) {
+      throw new Error(`the process fixture's \`${field}\` values must be numbers`);
+    }
+    out.set(key, entry);
+  }
+  return out;
+}
+
+/** A fixture field keyed by PID whose values are strings, or absent. */
+function stringMap(value: unknown, field: string): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const [key, entry] of fixtureEntries(value, field)) {
+    if (typeof entry !== "string") {
+      throw new Error(`the process fixture's \`${field}\` values must be strings`);
+    }
+    out.set(key, entry);
+  }
+  return out;
+}
+
+/**
+ * One fixture map as `[pid, value]` pairs, with the keys read as PIDs. A key
+ * that is not a positive integer is rejected rather than skipped: a fixture
+ * that names PID `"abc"` is a typo the test should hear about.
+ */
+function fixtureEntries(
+  value: unknown,
+  field: string,
+): Array<[number, number | string]> {
+  if (value === undefined) return [];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`the process fixture's \`${field}\` must be an object keyed by PID`);
+  }
+  return Object.entries(value as Record<string, number | string>).map(
+    ([key, entry]): [number, number | string] => {
+      const pid = Number.parseInt(key, 10);
+      if (!Number.isInteger(pid) || pid <= 0 || String(pid) !== key) {
+        throw new Error(`the process fixture's \`${field}\` key \`${key}\` is not a PID`);
+      }
+      return [pid, entry];
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +627,9 @@ class ProcessService {
   private inFlight: Promise<void> | null = null;
   /** Memo for `resolveRealPath` — see {@link REALPATH_MEMO_MAX}. */
   private readonly realPaths = new Map<string, string>();
+  /** Memo for {@link fixture} — read once per process. */
+  private fixtureLoaded = false;
+  private fixtureValue: ProcessFixture | null = null;
 
   /**
    * Idempotent AND awaitable: build the catalog trie and prime the snapshot
@@ -732,12 +886,13 @@ class ProcessService {
    */
   private async tick(): Promise<void> {
     const observedAt = Date.now();
+    const fixture = this.fixture();
 
-    // Independent of each other: both are whole-host listings.
-    const [listenRows, ppidByPid] = await Promise.all([
-      this.runLsofListen(),
-      this.readProcessTree(),
-    ]);
+    // Independent of each other: both are whole-host listings — or, under a
+    // declared fixture, both already in hand.
+    const [listenRows, ppidByPid] = fixture
+      ? [fixture.listen, fixture.ppid]
+      : await Promise.all([this.runLsofListen(), this.readProcessTree()]);
 
     // Lazy trie rebuild — no catalog events to listen to, so refresh once
     // per tick. Cost is one indexed SQLite SELECT.
@@ -747,12 +902,14 @@ class ProcessService {
     const ppidOf = (pid: number): number => ppidByPid.get(pid) ?? 0;
     // Skip privileged ports per the §5.2 rule, before any cwd work.
     const portRows = listenRows.filter((row) => row.port > 1024);
-    const cwdByPid = await this.readCwds(
-      cwdCandidates(
-        portRows.map((row) => row.pid),
-        ppidOf,
-      ),
-    );
+    const cwdByPid = fixture
+      ? fixture.cwd
+      : await this.readCwds(
+          cwdCandidates(
+            portRows.map((row) => row.pid),
+            ppidOf,
+          ),
+        );
     const cwdOf = (pid: number): string | null => cwdByPid.get(pid) ?? null;
     const lookup = (cwd: string): string | null =>
       lookupRepoSlug(trie, cwd, (path) => this.resolvedPath(path));
@@ -812,6 +969,34 @@ class ProcessService {
       };
       this.events.emit("update", payload);
     }
+  }
+
+  /**
+   * The declared {@link PROCESS_FIXTURE_ENV}, or null for a real sweep.
+   *
+   * Read once per process and memoised: one app launch is what a spec declares
+   * a fixture for, so a file that changed midway through a run would be a
+   * surprise rather than a feature. A fixture this app cannot read yields an
+   * *empty* sweep and a line in the log — never the host's listeners. See
+   * {@link parseProcessFixture} for why that direction is the deliberate one.
+   */
+  private fixture(): ProcessFixture | null {
+    if (this.fixtureLoaded) return this.fixtureValue;
+    this.fixtureLoaded = true;
+
+    const path = process.env[PROCESS_FIXTURE_ENV]?.trim();
+    if (!path) return (this.fixtureValue = null);
+
+    try {
+      this.fixtureValue = parseProcessFixture(readFileSync(path, "utf8"));
+    } catch (err) {
+      console.error(
+        `[backend] processService could not read ${PROCESS_FIXTURE_ENV}=${path}; sweeping nothing rather than this host's listeners`,
+        err,
+      );
+      this.fixtureValue = { listen: [], ppid: new Map(), cwd: new Map() };
+    }
+    return this.fixtureValue;
   }
 
   private rebuildTrie(): void {
