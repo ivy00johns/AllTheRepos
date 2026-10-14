@@ -279,6 +279,9 @@ export interface DeleteRepoResult {
 import type {
   CoverInputSchema,
   CoverResultSchema,
+  NotesGetInputSchema,
+  NotesSaveInputSchema,
+  NoteSchema,
   PickScanPathResultSchema,
   AddScanPathInputSchema,
   AddScanPathResultSchema,
@@ -355,6 +358,19 @@ export type TaskOutputEvent = import("zod").infer<typeof TaskOutputEventSchema>;
 
 export type RepoLinkKind = import("zod").infer<typeof RepoLinkKindSchema>;
 export type RepoLink = import("zod").infer<typeof RepoLinkSchema>;
+
+// ---------------------------------------------------------------------------
+// notes:*
+// ---------------------------------------------------------------------------
+
+/** Input for `notes:get` — one repo's note, keyed on the catalog row id. */
+export type NotesGetInput = import("zod").infer<typeof NotesGetInputSchema>;
+/** Input for `notes:save`. Blank content clears the note. */
+export type NotesSaveInput = import("zod").infer<typeof NotesSaveInputSchema>;
+/** Response of both `notes:get` and `notes:save`. */
+export type Note = import("zod").infer<typeof NoteSchema>;
+export type NotesGetResult = Note;
+export type NotesSaveResult = Note;
 
 export type GraphSignal = import("zod").infer<typeof GraphSignalSchema>;
 export type GraphNode = import("zod").infer<typeof GraphNodeSchema>;

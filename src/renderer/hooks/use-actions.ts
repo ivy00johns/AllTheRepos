@@ -18,6 +18,7 @@ import type {
 } from "@shared/types";
 
 import { getAtr, requireAtr } from "@renderer/lib/atr";
+import { invalidateRepoList, queryKeys } from "@renderer/lib/query-client";
 
 // ---------------------------------------------------------------------------
 // Favourites
@@ -36,10 +37,12 @@ export function useToggleFavorite() {
     mutationFn: async (input: { slug: string; favorite: boolean }) =>
       requireAtr().catalog.setFavorite(input),
     onMutate: async ({ slug, favorite }) => {
-      await queryClient.cancelQueries({ queryKey: ["catalog"] });
-      const snapshot = queryClient.getQueriesData({ queryKey: ["catalog"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.repos.all });
+      const snapshot = queryClient.getQueriesData({
+        queryKey: queryKeys.repos.all,
+      });
       queryClient.setQueriesData(
-        { queryKey: ["catalog"] },
+        { queryKey: queryKeys.repos.all },
         (old: unknown): unknown => {
           if (!old || typeof old !== "object" || !("items" in old)) return old;
           const list = old as { items: Repo[] };
@@ -59,7 +62,7 @@ export function useToggleFavorite() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void invalidateRepoList(queryClient);
     },
   });
 }
@@ -75,7 +78,7 @@ export function useFetchRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.fetch({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void invalidateRepoList(queryClient);
     },
   });
 }
@@ -87,7 +90,7 @@ export function usePullRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.pull({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void invalidateRepoList(queryClient);
     },
   });
 }

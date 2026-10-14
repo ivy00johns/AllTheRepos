@@ -46,6 +46,7 @@ import type {
   RepoLink,
   RepoLinkKind,
   RepoRelationsResult,
+  Note,
   RescanRepoResult,
   Settings,
 } from "@shared/types";
@@ -768,6 +769,62 @@ export function setTags(slug: string, tags: string[]): Repo {
   });
   touch();
   return repo;
+}
+
+/**
+ * Per-repo notes, held in memory.
+ *
+ * The app itself writes one file per repository under its own data directory
+ * (`services/notes.ts`). A browser tab has no main process to own that
+ * directory, so the demo store holds the notes instead — the same trade the
+ * favourites and tags here already make. The seed names repos the way the
+ * library does and is translated to slugs, like the curated links above; four
+ * repos carry a note so the Notes tab has something real to show on review.
+ */
+const SEEDED_NOTES: Readonly<Record<string, string>> = {
+  "lighthouse-ui":
+    "Waiting on the contrast tokens before the audit can be signed off.\n\n" +
+    "- [x] run the AA sweep at 800px\n" +
+    "- [ ] re-check the focus ring once `--accent` lands",
+  "ledger-core":
+    "Do not touch `reconcile()` until the Q3 close is done — it is load-bearing\n" +
+    "for the nightly run and has no coverage on the partial-settlement path.",
+  "terraform-live":
+    "The plan diff on `staging` is drift, not a real change: someone edited the\n" +
+    "console by hand. Re-import before the next apply.",
+  "sketchbook":
+    "Notes to self for the renderer rewrite:\n\n" +
+    "1. the dock badge pulls focus on every poll\n" +
+    "2. `useCatalogLive` needs an Off switch for the demo",
+};
+
+/** A fixed mtime for the seeded notes, so two reviews see the same picture. */
+const SEEDED_NOTE_TIME = "2026-01-01T12:00:00.000Z";
+
+interface StoredDemoNote {
+  content: string;
+  updatedAt: string;
+}
+
+const notes = new Map<string, StoredDemoNote>();
+for (const [name, content] of Object.entries(SEEDED_NOTES)) {
+  const repo = DEMO_REPOS.find((candidate) => candidate.name === name);
+  if (repo) notes.set(repo.slug, { content, updatedAt: SEEDED_NOTE_TIME });
+}
+
+/** Read one repo's note. A repo with no note reads as blank, not as an error. */
+export function note(slug: string): Note {
+  const hit = notes.get(slug);
+  return hit
+    ? { slug, content: hit.content, updatedAt: hit.updatedAt }
+    : { slug, content: "", updatedAt: null };
+}
+
+/** Write one repo's note. Blank content clears it, the way `notes:save` does. */
+export function saveNote(slug: string, content: string): Note {
+  if (content.trim() === "") notes.delete(slug);
+  else notes.set(slug, { content, updatedAt: now() });
+  return note(slug);
 }
 
 function requireRepo(slug: string): Repo {

@@ -30,6 +30,7 @@ import { registerSystemHandlers } from "./system";
 import { registerTaskHandlers } from "./tasks";
 import { registerUpdateHandlers } from "./update";
 import { registerGraphHandlers } from "./graph";
+import { registerNotesHandlers } from "./notes";
 
 /**
  * Idempotently register every IPC handler the app exposes.
@@ -55,4 +56,5 @@ export function registerIpcHandlers(): void {
   registerGraphHandlers();
   registerLauncherHandlers();
   registerClaudeHandlers();
+  registerNotesHandlers();
 }

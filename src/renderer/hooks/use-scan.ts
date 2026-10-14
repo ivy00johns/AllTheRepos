@@ -22,6 +22,7 @@ import { useCallback, useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { getAtr } from "@renderer/lib/atr";
+import { invalidateRepoList } from "@renderer/lib/query-client";
 import { useScanStore, type ScanState } from "@renderer/stores/scan";
 import type { StartScanInput } from "@shared/types";
 
@@ -112,6 +113,6 @@ function scheduleCatalogRefresh(queryClient: QueryClient): void {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    void invalidateRepoList(queryClient);
   }, REFRESH_INTERVAL_MS);
 }

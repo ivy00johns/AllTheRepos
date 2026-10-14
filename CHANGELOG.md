@@ -130,6 +130,21 @@ source of truth for the current version.
   and `role="alert"`. Result: no hang, no control that went missing, no screen a press could not re-open and
   no notice left stuck; six presses logged an error, and all six are the README image gap filed as U10.
 
+- Per-repo markdown notes. Every repository has a scratchpad now — a Notes tab beside Details and
+  Claude, with a plain markdown editor and a live, sanitized preview rendering the same allowlist a
+  README does. The editor autosaves on a short debounce and the save writes into the query cache
+  rather than invalidating, so a round-trip can never refetch over your caret; the status line says
+  `Saving…`, then `Saved`, and shows the error text when a write is refused. Notes are stored one
+  file per repository at `{userData}/notes/<repo-id>.md` — **inside the app's own data directory,
+  never in a repository** — keyed on the catalog row id so a note follows a repo you move, and written
+  with the same atomic temp-plus-rename the settings file uses. Clearing the editor empties the file
+  rather than deleting it — this app has no delete — and an emptied file reads as a blank note, the
+  same answer a repo with no note gives.
+  The plan's optional `<repo>/.alltherepos/notes.md` mirror and its tray quick-capture window were
+  both dropped, the first because it is precisely the write `docs/COMMAND-DISCLOSURE.md` §4 promises
+  never happens. New `notes:get` / `notes:save` channels; the demo library seeds notes on four repos
+  so the demo video's beat 6 has a real notes surface to show.
+
 ### Changed
 
 - run the fast CI job on Linux, and leave the Macs to the jobs that launch the app. `typecheck`, `lint`,
@@ -372,6 +387,20 @@ source of truth for the current version.
   evidence was already in each document.
 - clear the AI vocabulary the new gate caught, in the two archived planning docs and one audit
   heading, and the "is the point" construction it found four times in `RELEASING.md`.
+- The catalog refreshes when something actually changes it. Nine call sites invalidated `["catalog"]`,
+  a query key nothing has ever been registered under — the repo list lives at `["repos", "list", …]`
+  — and TanStack matches keys by prefix, so every one of those invalidations matched nothing and did
+  nothing. The visible cost was a scan that finished with the status bar reporting success and the
+  rows in SQLite while the grid still showed the count it had before, and the same dead key sat behind
+  adding or removing a scan root, a move, a folder rename, the git fetch/pull buttons, and the live
+  `catalog:on:changed` stream — so a repository appearing or vanishing on disk changed nothing on
+  screen until the app was restarted. Nothing caught it because an unmatched key is a legal no-op:
+  `invalidateQueries` accepts anything an author types, and this one threw, logged and failed no
+  check. The fix routes them through a single `invalidateRepoList(queryClient)` helper (with
+  `queryKeys.settings.all` for the settings half), and `tests/unit/renderer/
+  catalog-invalidation-keys.spec.ts` fails if the bare key reappears anywhere in the renderer, since a
+  source scan is the only shape that can catch a *future* call site rather than the ones already fixed.
+  Found by driving the demo-video scan beat, which had never been run against a live app.
 
 ## [0.1.8] - 2026-10-07
 
