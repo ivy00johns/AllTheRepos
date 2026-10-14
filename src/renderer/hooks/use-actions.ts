@@ -39,6 +39,8 @@ import { queryKeys } from "@renderer/lib/query-client";
  */
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
+  // The repo list and repo detail both live under the `repos` key, so this
+  // targets that prefix. Keying on another prefix leaves the grid stale.
   return useMutation({
     mutationFn: async (input: { slug: string; favorite: boolean }) =>
       requireAtr().catalog.setFavorite(input),
@@ -50,14 +52,20 @@ export function useToggleFavorite() {
       queryClient.setQueriesData(
         { queryKey: queryKeys.repos.all },
         (old: unknown): unknown => {
-          if (!old || typeof old !== "object" || !("items" in old)) return old;
-          const list = old as { items: Repo[] };
-          return {
-            ...list,
-            items: list.items.map((repo) =>
-              repo.slug === slug ? { ...repo, isFavorite: favorite } : repo,
-            ),
-          };
+          if (!old || typeof old !== "object") return old;
+          if ("items" in old) {
+            const list = old as { items: Repo[] };
+            return {
+              ...list,
+              items: list.items.map((repo) =>
+                repo.slug === slug ? { ...repo, isFavorite: favorite } : repo,
+              ),
+            };
+          }
+          if ("slug" in old && (old as Repo).slug === slug) {
+            return { ...(old as Repo), isFavorite: favorite };
+          }
+          return old;
         },
       );
       return { snapshot };
