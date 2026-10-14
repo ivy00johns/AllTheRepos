@@ -11,8 +11,19 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
 ### Added
 
+- mark a screen reading the invented library
+- give the map a group level, and frame it to the pane it actually has
+- render the real catalog in a browser tab, not just the demo one
+- let the browser bridge's edits stick, and size the shell to the window
+- replace LanceDB with sqlite-vec, and report keyword-only search
+- put the graph page's controls back on the design system
+- launch the app on Intel, not just on the machine we have
+- assert every architecture we ship has a binary for it
+- keep the front door from naming a release version
 - render the app in a plain browser tab. `electron-vite dev` serves the renderer at
   `http://localhost:5173`, which reads like a review URL, but every screen goes through `window.atr` — the
   preload bridge Electron mounts — so in a browser the catalog came up empty and the first control that
@@ -132,6 +143,63 @@ source of truth for the current version.
 
 ### Changed
 
+- refresh the test-count badge [skip ci]
+- drop the runner's process badge from the darwin23 visual baselines
+- declare the process sweep in E2E instead of observing the host
+- refresh the darwin27 baselines so the visual spec passes locally
+- regenerate the darwin23 baselines for the new Repos header nav
+- commit the demo video source and ignore its renders
+- say the CI billing budget assumes the private rate
+- license the public repository under MIT
+- refresh the test-count badge [skip ci]
+- drop the badge caveat that no longer applies to a public repo
+- embed the demo video in the README
+- refresh README screenshots and link the demo video
+- Keep CI and Docker tags when the tag cap is full
+- Add a reviewable tag cleanup and make rescan survive moved folders
+- refresh the test-count badge [skip ci]
+- refresh the test-count badge [skip ci]
+- fail a screen that names the tooling instead of the screen
+- add the demo video plan and a seeded demo library
+- Take the processes retry while its reads still fail, not after
+- refresh the test-count badge [skip ci]
+- Exempt the one spec that cannot load a faked platform at all
+- refresh the test-count badge [skip ci]
+- Fail a spec that asserts about the host platform, before a runner has to
+- refresh the test-count badge [skip ci]
+- Tell the SDKROOT spec which machine it describes, so it passes off a Mac
+- Run the SDK hook before pnpm builds a dependency, not after
+- Point a plain `pnpm rebuild` at an SDK that links, instead of at a person
+- Give the rebuild the SDKROOT the linker asked for, instead of asking a person for it
+- draw the tests badge from the suite this branch actually runs
+- Ask the linker the question a rebuild asks, not one it never asks
+- Come back the shape you left, and prove the machine before the suite runs
+- Seed a reused profile, not only a self-made one
+- Wait for an option, not for the rail container
+- Come back where you were, name a broken machine once, and survive ATR-057
+- Test the two things CI just proved by failing, and say why a rebuild died
+- Fix the three e2e failures CI found on PR #6
+- photograph the catalog's three view modes, so a screen that moves is caught
+- refresh the test-count badge [skip ci]
+- sweep the type scale on every screen, and take the screen list from the app
+- hold the macOS bill to a budget the workflows have to agree with
+- retire the Intel Electron leg, and keep the one the app ships
+- describe the store the merge left, and stop the fixture borrowing a signer
+- run the fast gate on Linux, and leave the Macs to the app
+- pin the x86_64 half of the semantic-search spec
+- decide against an Intel build, and price the alternatives
+- put a stored embedding and a query in the same test
+- close the UI/UX, prose and gate passes in the closure log and the changelog
+- gate the prose on the fast CI job, with the house style in a config
+- settle the prose gate's house style and clear the real AI tells
+- record the vector-store spec's run on both legs
+- review the app's UI/UX and file what the sweep found
+- refresh the test-count badge [skip ci]
+- let the Intel leg fail for the reason it exists
+- record what the Intel leg actually found, which is nothing
+- refresh the test-count badge [skip ci]
+- refresh the test-count badge [skip ci]
+- refresh the test-count badge [skip ci]
 - run the fast CI job on Linux, and leave the Macs to the jobs that launch the app. `typecheck`, `lint`,
   the prose gate, the document and architecture checks and the unit suite open no window and package
   nothing, and all three native modules the suite loads build or ship for Linux — while macOS runner
@@ -164,6 +232,22 @@ source of truth for the current version.
 
 ### Fixed
 
+- drop the pnpm cache that reds the doc-links job on a cache miss
+- drop an unused variable in the demo timeline builder
+- remove the file-management surface, and gate the read-only promise
+- stop shipping the debug page's development copy
+- land the UI/UX review's findings, and make ?reset-edits reset the view
+- stop a snapshot push hiding a failed process read
+- ask for a page of the catalog, not the whole thing, in two reads
+- make the satellite windows real, and open them in the sweep
+- name the 13px step, and drop the floor from the type guard
+- state whether this run is packaged, and let one rule gate dev-only actions
+- close the last five UI/UX findings, and give the type scale a guard
+- give every dead read a way out, and put the keyboard back in the controls
+- name the nav destinations, and make the repo card a container
+- make the scroll container the route's positioning context too
+- stop the window scrolling, so the catalog and the map fit it
+- name this platform's library file, and record the Linux re-verification
 - reset the saved catalog *view*, not only the edits, behind `?reset-edits`. The bridge tells a reviewer to
   "add `?reset-edits` to the URL to start from the catalog alone", and `clearPersistedEdits()` cleared the
   demo store's edit record while the scope, view mode, grouping, sort, folder selection, ownership filter and
@@ -942,7 +1026,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0
 [0.1.8]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.8
 [0.1.7]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.7
 [0.1.6]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.6
