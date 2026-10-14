@@ -14,6 +14,12 @@ and is nearly complete. Sequencing lives in
 
 ## Where we actually are
 
+**2026-10-10 tagging follow-up:** ATR-076 plans useful purpose/framework tags from
+scripts and manifests, with optional local Ollama cleanup after the deterministic
+baseline works. Manual tags stay authoritative. See the
+[tagging plan](plans/2026-10-10-useful-repo-tags.md) and the
+[tactical ledger](REMAINING-WORK.md#user-requested-addition-2026-10-10).
+
 After six build waves (1–5, plus the Wave 0 foundation), the app **builds, boots, and works on real
 data**, and is close to
 a complete daily-driver MVP:

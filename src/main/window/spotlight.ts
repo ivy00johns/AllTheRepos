@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { isUrlAllowed } from "../security/allowlist";
+import { isTrustedRendererUrl } from "../security/renderer-url";
 import { rendererAdditionalArguments } from "../build-info";
 
 const SPOTLIGHT_WIDTH = 720;
@@ -126,13 +127,7 @@ function create(): BrowserWindow {
 
   // Block any in-renderer navigation away from our origin.
   window.webContents.on("will-navigate", (event, targetUrl) => {
-    const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-    const isDevAllowed =
-      typeof rendererUrl === "string" &&
-      rendererUrl.length > 0 &&
-      targetUrl.startsWith(rendererUrl);
-    const isProdAllowed = targetUrl.startsWith("file://");
-    if (!isDevAllowed && !isProdAllowed) {
+    if (!isTrustedRendererUrl(targetUrl)) {
       event.preventDefault();
       if (isUrlAllowed(targetUrl)) {
         void shell.openExternal(targetUrl);

@@ -34,6 +34,7 @@ import type {
   SmartFilter,
   Tag,
 } from "@shared/types";
+import { applyTagRejections, type TagRejectionKind } from "../services/tag";
 import { getDb, getSqlite } from "./client";
 import {
   groups as groupsTable,
@@ -315,9 +316,9 @@ export function setRepoFavorite(slug: string, favorite: boolean): Repo | null {
       "UPDATE repos SET is_favorite = ?, favorited_at = ?, updated_at = ? WHERE slug = ?",
     )
     .run(favorite ? 1 : 0, favorite ? now : null, now, slug);
-  const raw = sqlite
-    .prepare("SELECT * FROM repos WHERE slug = ?")
-    .get(slug) as Record<string, unknown> | undefined;
+  const raw = sqlite.prepare("SELECT * FROM repos WHERE slug = ?").get(slug) as
+    | Record<string, unknown>
+    | undefined;
   return raw ? rowToRepo(mapRawRepoRow(raw)) : null;
 }
 
@@ -509,7 +510,14 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
     seen.add(t.value);
     mergedTags.push(t);
   }
-  for (const t of input.heuristicTags) {
+  // Remembered cleanup answers outrank the rules: a rejected addition stays
+  // off, and a kept tag stays on, across every rescan.
+  const heuristics = applyTagRejections(
+    input.heuristicTags,
+    existingTags,
+    readTagRejections(existing.id),
+  );
+  for (const t of heuristics) {
     if (seen.has(t.value)) continue;
     seen.add(t.value);
     mergedTags.push(t);
@@ -608,6 +616,23 @@ export async function removeRepoFromGroupBySlug(
   await db
     .delete(repoGroups)
     .where(and(eq(repoGroups.repoId, repoId), eq(repoGroups.groupId, groupId)));
+}
+
+/**
+ * The remembered tag-cleanup answers for one repo, keyed by tag value. Rows are
+ * written by `applyTagCleanup` (services/tag-cleanup.ts) and removed with the repo.
+ */
+export function readTagRejections(
+  repoId: number,
+): Map<string, TagRejectionKind> {
+  const rows = getSqlite()
+    .prepare("SELECT value, kind FROM tag_rejections WHERE repo_id = ?")
+    .all(repoId) as Array<{ value: string; kind: string }>;
+  const out = new Map<string, TagRejectionKind>();
+  for (const r of rows) {
+    if (r.kind === "add" || r.kind === "keep") out.set(r.value, r.kind);
+  }
+  return out;
 }
 
 export async function setUserTagsBySlug(

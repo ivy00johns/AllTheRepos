@@ -50,6 +50,15 @@
  *     kind of thing that can hide a real change, which is why the number is
  *     asserted rather than trusted.
  *
+ *   - And the process sweep is declared rather than observed. The top bar draws a
+ *     count badge as soon as anything is listening, so a capture taken while a dev
+ *     server of the developer's happened to be up carries a badge the next run
+ *     does not draw. That is how this spec came to pass on the runner and flake on
+ *     the laptop the same baseline was regenerated from. `_process-fixture.ts`
+ *     states the sweep this run sees, and the declaration is asserted below rather
+ *     than trusted — a fixture the app cannot read has to fail here loudly instead
+ *     of quietly falling back to the host's own listeners.
+ *
  * Owner: qe-agent (2026-10-08 UI/UX pass).
  */
 
@@ -64,6 +73,7 @@ import {
 } from "@playwright/test";
 
 import { launchApp } from "./_launch-app";
+import { NO_LISTENERS, processFixtureEnv } from "./_process-fixture";
 
 /** The catalog, which is the route the app opens on and the one with view modes. */
 const CATALOG = "/";
@@ -228,11 +238,24 @@ test.describe("the catalog, as pictures", () => {
   test.setTimeout(180_000);
 
   test("every view mode matches its committed baseline", async () => {
-    const { app, close } = await launchApp();
+    // Declared, not observed — see the last bullet of this file's header.
+    const { app, close } = await launchApp({
+      env: processFixtureEnv(NO_LISTENERS),
+    });
 
     try {
       const win = await app.firstWindow();
       await win.waitForLoadState("domcontentloaded");
+
+      /**
+       * The declaration has to have arrived, or this spec is back to
+       * photographing the host. The badge is absent when the sweep is empty, so
+       * the top bar's own words are the assertion: the Running destination reads
+       * "No running processes" until something is listening.
+       */
+      await expect(
+        win.getByRole("link", { name: /no running processes/i }),
+      ).toBeAttached();
 
       await resizeWindow(app, win, WINDOW.width, WINDOW.height);
       await settle(win, 3);

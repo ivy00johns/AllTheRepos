@@ -18,7 +18,7 @@
 
 import * as React from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 
 import type { Group, Repo, RepoDetail } from "@shared/types";
 
@@ -41,10 +41,17 @@ import { useSearch as useCatalogSearch } from "@renderer/hooks/use-search";
 import { useSettings } from "@renderer/hooks/use-settings";
 import { activityOf, lastTouched } from "@renderer/lib/activity";
 import {
+  HIDDEN_REASONS_ID,
+  emptyStateCopy,
+  hiddenReasons,
+  type HiddenReasonKey,
+} from "@renderer/lib/hidden-repos";
+import {
   inferIdentities,
   ownershipOf,
   type OwnershipInfo,
 } from "@renderer/lib/ownership";
+import { nearMisses } from "@renderer/lib/near-miss";
 import {
   isArchivedPath,
   isDirectlyIn,
@@ -53,6 +60,7 @@ import {
   tildify,
 } from "@renderer/lib/repo-tree";
 import { useCatalogView } from "@renderer/stores/catalog-view";
+import { useUiStore } from "@renderer/stores/ui";
 
 import { CatalogToolbar } from "./catalog-toolbar";
 import { DetailPanel } from "./detail-panel";
@@ -101,9 +109,17 @@ export function CatalogShell({
 
   const querySlug = search.repo ?? null;
   const queryQ = search.q ?? "";
+  const dirtyOnly = search.dirty === "true";
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const queryGroupId = search.groupId ? Number(search.groupId) : null;
 
   const [detail, setDetail] = React.useState<RepoDetail | null>(null);
+  /**
+   * Whether the count's "what is hidden" strip is open. Collapsed by default —
+   * the count states the difference, and the explanation is one click away
+   * rather than a row that appears above the catalog uninvited.
+   */
+  const [explainHidden, setExplainHidden] = React.useState(false);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [removingRoot, setRemovingRoot] = React.useState<string | null>(null);
   const [rootNotice, setRootNotice] = React.useState<string | null>(null);
@@ -118,6 +134,11 @@ export function CatalogShell({
   const order = useCatalogView((s) => s.order);
   const selection = useCatalogView((s) => s.selection);
   const toggleSelected = useCatalogView((s) => s.toggleSelected);
+  // The setters the count's "clear this filter" chips need. Each belongs to a
+  // control that already exists elsewhere in the UI.
+  const clearOwnership = useCatalogView((s) => s.clearOwnership);
+  const setFavoritesOnly = useCatalogView((s) => s.setFavoritesOnly);
+  const setIncludeArchived = useCatalogView((s) => s.setIncludeArchived);
 
   const settingsQuery = useSettings();
   const catalogLive = useCatalogLive();
@@ -272,24 +293,42 @@ export function CatalogShell({
     [initialRepos],
   );
 
+  /**
+   * Selecting an archived folder is an explicit request to look inside it, so
+   * the archived filter must not then hide everything in it — that would make
+   * `_archive` a row you can click into and find empty.
+   */
+  const scopeIsArchived = selectedDir ? isArchivedPath(selectedDir) : false;
+
+  /**
+   * Apply every filter, tallying which one is keeping each excluded repo out.
+   *
+   * The pass rejects on the first filter that objects, so the tally is
+   * disjoint: every repo missing from the grid is counted exactly once, under
+   * the filter actually responsible, and the chips that explain the count add
+   * up to the difference it states. Re-deriving a count per filter instead
+   * would double-count a repo that two filters both exclude.
+   */
   const filtered = React.useMemo(() => {
     const base = isSearching
       ? (searchQuery.data?.hits ?? []).map((hit) => hit.repo)
       : initialRepos;
 
-    // Selecting an archived folder is an explicit request to look inside
-    // it, so the archived filter must not then hide everything in it —
-    // that would make `_archive` a row you can click into and find empty.
-    const scopeIsArchived = selectedDir ? isArchivedPath(selectedDir) : false;
+    const hiddenBy: Partial<Record<HiddenReasonKey, number>> = {};
+    const reject = (key: HiddenReasonKey): false => {
+      hiddenBy[key] = (hiddenBy[key] ?? 0) + 1;
+      return false;
+    };
 
-    return base.filter((repo) => {
-      if (favoritesOnly && !repo.isFavorite) return false;
+    const repos = base.filter((repo) => {
+      if (dirtyOnly && !repo.isDirty) return reject("dirty");
+      if (favoritesOnly && !repo.isFavorite) return reject("favorites");
       if (
         !includeArchived &&
         !scopeIsArchived &&
         isArchivedPath(repo.fullPath)
       ) {
-        return false;
+        return reject("archived");
       }
       if (selectedDir) {
         // "directly in this folder" narrows to the folder's own repos;
@@ -297,40 +336,70 @@ export function CatalogShell({
         const inScope = selectedDirExact
           ? isDirectlyIn(repo.fullPath, selectedDir)
           : isUnder(repo.fullPath, selectedDir);
-        if (!inScope) return false;
+        if (!inScope) return reject("scope");
       }
       if (ownershipFilter.length > 0) {
         const kind = ownershipKindBySlug.get(repo.slug);
-        if (!kind || !ownershipFilter.includes(kind)) return false;
+        if (!kind || !ownershipFilter.includes(kind)) return reject("ownership");
       }
       if (activeGroup) {
         if (activeGroup.isSmart) {
           const f = activeGroup.smartFilter;
           if (f) {
-            if (f.language && repo.primaryLanguage !== f.language) return false;
-            if (f.dirtyOnly && !repo.isDirty) return false;
+            if (f.language && repo.primaryLanguage !== f.language) {
+              return reject("group");
+            }
+            if (
+              f.tagsInclude?.some(
+                (tag) => !repo.tags.some((t) => t.value === tag),
+              )
+            ) {
+              return reject("group");
+            }
+            if (
+              f.tagsExclude?.some((tag) =>
+                repo.tags.some((t) => t.value === tag),
+              )
+            ) {
+              return reject("group");
+            }
+            if (
+              f.sinceDays !== undefined &&
+              (activityOf(lastTouched(repo)).days ?? Infinity) > f.sinceDays
+            ) {
+              return reject("group");
+            }
+            if (f.dirtyOnly && !repo.isDirty) return reject("group");
             if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote) {
-              return false;
+              return reject("group");
             }
           }
         } else if (!manualMemberSlugs?.has(repo.slug)) {
-          return false;
+          return reject("group");
         }
       }
       return true;
     });
+
+    // Repos the search itself excluded never reach the pass above, so the search
+    // is attributed here rather than being silently missing from the total.
+    if (isSearching) hiddenBy.search = initialRepos.length - base.length;
+
+    return { repos, hiddenBy };
   }, [
     isSearching,
     searchQuery.data,
     initialRepos,
     includeArchived,
     favoritesOnly,
+    dirtyOnly,
     selectedDir,
     selectedDirExact,
     ownershipFilter,
     ownershipKindBySlug,
     activeGroup,
     manualMemberSlugs,
+    scopeIsArchived,
   ]);
 
   /**
@@ -341,7 +410,7 @@ export function CatalogShell({
    * set. Every other view is sorted by the chosen key.
    */
   const displayedRepos = React.useMemo(() => {
-    if (isSearching) return filtered;
+    if (isSearching) return filtered.repos;
     const direction = order === "asc" ? 1 : -1;
     const compare = (a: Repo, b: Repo): number => {
       // Pinning is a statement about importance, so it outranks whatever
@@ -383,8 +452,67 @@ export function CatalogShell({
         }
       }
     };
-    return [...filtered].sort(compare);
+    return [...filtered.repos].sort(compare);
   }, [isSearching, filtered, sort, order, folderLabelFor, ownershipFor]);
+
+  /**
+   * What is hidden, and why. `hiddenReasons` names the filters; the *actions*
+   * that clear them stay here, where the route params and the store live.
+   */
+  const hidden = React.useMemo(
+    () =>
+      hiddenReasons({
+        counts: filtered.hiddenBy,
+        query: trimmedQuery,
+        selectedDir,
+        selectedDirExact,
+        ownershipFilter,
+        groupName: activeGroup?.name ?? null,
+        dirtyOnly,
+      }),
+    [
+      filtered,
+      trimmedQuery,
+      selectedDir,
+      selectedDirExact,
+      ownershipFilter,
+      activeGroup,
+      dirtyOnly,
+    ],
+  );
+
+  /** The catalog's own size — what the count's "of N" and "Show all N" quote. */
+  const catalogTotal = totalCount || initialRepos.length;
+
+  /**
+   * The empty grid's words come from the same ranked reasons as the strip, so
+   * the two can never name different filters for the same blank screen.
+   */
+  const emptyState = React.useMemo(
+    () =>
+      emptyStateCopy(hidden, {
+        query: trimmedQuery,
+        totalCount: catalogTotal,
+      }),
+    [hidden, trimmedQuery, catalogTotal],
+  );
+
+  /**
+   * The repos closest to a search that matched nothing.
+   *
+   * Offered only when the search is what emptied the grid. Zero hits means the
+   * query missed the catalog; that is the case where the repo behind a mistyped
+   * word is more use than the advice to retype it. When the search *did* match
+   * and a filter hid the results, the culprit above already names the filter,
+   * and a list of "closest" repos would be a second, contradictory account of
+   * the same blank screen.
+   */
+  const nearMiss = React.useMemo(() => {
+    if (!isSearching) return [];
+    const hits = searchQuery.data?.hits;
+    if (!hits || hits.length > 0) return [];
+    return nearMisses(trimmedQuery, initialRepos, { limit: 3 });
+  }, [isSearching, searchQuery.data, trimmedQuery, initialRepos]);
 
   const coverFor = useCovers(displayedRepos);
 
@@ -415,6 +543,66 @@ export function CatalogShell({
     [updateParams],
   );
 
+  /**
+   * Clear one hiding filter. Each reason maps to a control that is already
+   * elsewhere in the UI — the count just names it and saves the trip to find it.
+   */
+  const clearHiddenReason = React.useCallback(
+    (key: HiddenReasonKey) => {
+      switch (key) {
+        case "search":
+          updateParams({ q: null });
+          break;
+        case "favorites":
+          setFavoritesOnly(false);
+          break;
+        case "archived":
+          setIncludeArchived(true);
+          break;
+        case "scope":
+          setSelectedDir(null);
+          break;
+        case "ownership":
+          clearOwnership();
+          break;
+        case "group":
+          updateParams({ groupId: null });
+          break;
+        case "dirty":
+          updateParams({ dirty: null });
+          break;
+      }
+    },
+    [
+      updateParams,
+      setFavoritesOnly,
+      setIncludeArchived,
+      setSelectedDir,
+      clearOwnership,
+    ],
+  );
+
+  /** Every hidden repo at once, which is what "Show all N" promises. */
+  const showAllRepos = React.useCallback(() => {
+    updateParams({ q: null, groupId: null, dirty: null });
+    setFavoritesOnly(false);
+    setIncludeArchived(true);
+    setSelectedDir(null);
+    clearOwnership();
+  }, [
+    updateParams,
+    setFavoritesOnly,
+    setIncludeArchived,
+    setSelectedDir,
+    clearOwnership,
+  ]);
+
+  // A strip that outlived the filters it describes would reopen, already empty,
+  // the next time anything is hidden.
+  React.useEffect(() => {
+    if (hidden.length === 0) setExplainHidden(false);
+  }, [hidden.length]);
+
   React.useEffect(() => {
     let cancelled = false;
     if (!querySlug) {
@@ -423,15 +611,41 @@ export function CatalogShell({
       return;
     }
     setDetailLoading(true);
+    setDetail(null);
     void loadRepoDetail(querySlug).then((loaded) => {
       if (cancelled) return;
       setDetail(loaded);
       setDetailLoading(false);
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      setDetailLoading(false);
+      useUiStore.getState().pushNotice(`Could not load repository: ${error instanceof Error ? error.message : String(error)}`);
     });
     return () => {
       cancelled = true;
     };
   }, [querySlug, loadRepoDetail]);
+
+  /**
+   * Clear whichever filter the empty grid is naming.
+   *
+   * The guard lives here rather than as a non-null assertion at the call site:
+   * the button is only rendered when there is a culprit, but the click handler
+   * is a closure over state that a re-render can have emptied.
+   */
+  const clearEmptyCulprit = React.useCallback(() => {
+    if (emptyState.culprit) clearHiddenReason(emptyState.culprit.key);
+  }, [emptyState.culprit, clearHiddenReason]);
+
+  /**
+   * Take a suggestion: search for that repo by the name a search can find, and
+   * open it. Both halves matter — rewriting the query is what puts the repo
+   * back in the grid, and the panel is what says it is the one you meant.
+   */
+  const pickNearMiss = React.useCallback(
+    (repo: Repo) => updateParams({ q: repo.name, repo: repo.slug }),
+    [updateParams],
+  );
 
   const { openInEditor: launchInEditor } = useLauncher();
 
@@ -567,21 +781,26 @@ export function CatalogShell({
    */
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
-      <DirRail
+      {!sidebarCollapsed ? <DirRail
         repos={initialRepos}
         groups={groups}
         ownershipBySlug={ownershipKindBySlug}
         scanPaths={scanPaths}
         activeGroupId={queryGroupId}
-        onSelectGroup={(id) =>
-          updateParams({ groupId: id === null ? null : String(id) })
-        }
+        onSelectGroup={(id) => {
+          setSelectedDir(null);
+          useCatalogView.getState().clearOwnership();
+          useCatalogView.getState().setFavoritesOnly(false);
+          updateParams({ groupId: id === null ? null : String(id), dirty: null, q: null, repo: null });
+        }}
+        dirtyOnly={dirtyOnly}
+        onToggleDirty={() => updateParams({ dirty: dirtyOnly ? null : "true" })}
         revealSlug={querySlug}
         onRescan={handleRescan}
         onStopScanning={setRemovingRoot}
         onAddScanPath={() => void handleAddScanPath()}
         addingScanPath={pickScanPath.isPending || addScanPath.isPending}
-      />
+      /> : null}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/*
@@ -593,16 +812,58 @@ export function CatalogShell({
           {scopeLabel ? `Catalog — ${scopeLabel}` : "Catalog"}
         </h1>
 
+        {activeGroup ? <div role="status" className="flex items-center gap-2 border-b border-border bg-accent/10 px-4 py-2 text-xs">
+          <span>Group: <strong>{activeGroup.name}</strong> · {displayedRepos.length} repos</span>
+          <button type="button" className="ml-auto text-accent hover:underline" onClick={() => updateParams({ groupId: null })}>Clear group</button>
+        </div> : null}
+
         <CatalogToolbar
           shownCount={displayedRepos.length}
-          totalCount={totalCount || initialRepos.length}
+          totalCount={catalogTotal}
           archivedCount={archivedCount}
           scopeLabel={scopeLabel}
           onClearScope={() => setSelectedDir(null)}
           onPull={() => void handlePull()}
           onFetch={() => void handleFetch()}
           syncing={fetchRepos.isPending || pullRepos.isPending}
+          explainingHidden={explainHidden}
+          onToggleHidden={() => setExplainHidden((prev) => !prev)}
         />
+
+        {hidden.length > 0 && explainHidden ? (
+          <div
+            id={HIDDEN_REASONS_ID}
+            aria-label="Repos hidden by filters"
+            className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-surface px-4 py-1.5"
+          >
+            <span className="atr-label text-muted-foreground">Hidden by</span>
+            {hidden.map((reason) => (
+              <button
+                key={reason.key}
+                type="button"
+                data-hidden-reason={reason.key}
+                data-hidden-count={reason.count}
+                onClick={() => clearHiddenReason(reason.key)}
+                aria-label={`Clear ${reason.label} — currently hiding ${reason.count} repo${reason.count === 1 ? "" : "s"}`}
+                title={`Clear ${reason.label} — currently hiding ${reason.count} repo${reason.count === 1 ? "" : "s"}`}
+                className="flex cursor-pointer items-center gap-1 rounded bg-secondary px-2 py-0.5 font-mono atr-label text-foreground transition-colors duration-150 hover:bg-surface-raised"
+              >
+                <span className="max-w-[240px] truncate">{reason.label}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {reason.count}
+                </span>
+                <X className="h-3 w-3 shrink-0" aria-hidden />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={showAllRepos}
+              className="ml-auto cursor-pointer rounded px-1.5 py-0.5 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised"
+            >
+              Show all {catalogTotal}
+            </button>
+          </div>
+        ) : null}
 
         {syncNotice ? (
           <div
@@ -696,15 +957,60 @@ export function CatalogShell({
             onToggleChecked={toggleSelected}
             onOpenEditor={openInEditor}
             loading={isSearching && searchQuery.isPending}
-            emptyTitle={
-              isSearching ? `Nothing matches “${trimmedQuery}”` : "Nothing here"
+            emptyTitle={emptyState.title}
+            emptyHint={emptyState.hint}
+            emptySuggestion={
+              nearMiss.length > 0 ? (
+                <div
+                  data-near-miss-list
+                  className="mt-1 flex flex-col items-center gap-1.5"
+                >
+                  <p className="atr-label text-muted-foreground">
+                    Did you mean
+                  </p>
+                  <ul className="flex flex-wrap items-center justify-center gap-2">
+                    {nearMiss.map(({ repo, field, matchedOn }) => (
+                      <li key={repo.slug}>
+                        <button
+                          type="button"
+                          data-near-miss={repo.slug}
+                          onClick={() => pickNearMiss(repo)}
+                          title={`Search for ${repo.name} — closest to “${trimmedQuery}” on its ${field} “${matchedOn}”`}
+                          className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-card px-2 py-1 transition-colors duration-150 hover:bg-surface-raised"
+                        >
+                          <span className="font-mono text-xs text-foreground">
+                            {repo.name}
+                          </span>
+                          <span className="atr-meta max-w-[160px] truncate">
+                            {folderLabelFor(repo)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null
             }
-            emptyHint={
-              selectedDir
-                ? "This folder is empty under the current filters. Clear the folder scope to see everything."
-                : archivedCount > 0 && !includeArchived
-                  ? `${archivedCount} archived repos are hidden — turn on Archived in the toolbar to include them.`
-                  : "Try a different search, or clear the filters."
+            emptyAction={
+              emptyState.culprit ? (
+                <>
+                  <button
+                    type="button"
+                    data-empty-culprit={emptyState.culprit.key}
+                    onClick={clearEmptyCulprit}
+                    className="cursor-pointer rounded border border-border px-2 py-1 font-mono atr-label text-foreground transition-colors duration-150 hover:bg-surface-raised"
+                  >
+                    Clear {emptyState.culprit.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={showAllRepos}
+                    className="cursor-pointer rounded px-2 py-1 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised"
+                  >
+                    Show all {catalogTotal}
+                  </button>
+                </>
+              ) : null
             }
           />
         </div>

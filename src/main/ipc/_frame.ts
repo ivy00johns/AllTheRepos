@@ -20,6 +20,7 @@
  */
 
 import type { IpcMainInvokeEvent } from "electron";
+import { isTrustedRendererUrl } from "../security/renderer-url";
 
 /**
  * True when we are NOT a packaged production build — i.e. running under
@@ -80,15 +81,7 @@ export function isFrameFromOurRenderer(
     // frame URL is treated as foreign and rejected (ATR-014).
     return devLike;
   }
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (rendererUrl && frameUrl.startsWith(rendererUrl)) {
-    return true;
-  }
-  // Production: renderer is loaded from a file:// URL pointing into out/renderer.
-  if (frameUrl.startsWith("file://")) {
-    return true;
-  }
-  return false;
+  return isTrustedRendererUrl(frameUrl);
 }
 
 /**
@@ -98,7 +91,8 @@ export function isFrameFromOurRenderer(
 export function assertRendererFrame(event: IpcMainInvokeEvent): void {
   const frame = event.senderFrame;
   const frameUrl = frame?.url ?? "";
-  if (!isFrameFromOurRenderer(frameUrl)) {
+  const isSubframe = Boolean(frame && event.sender?.mainFrame && frame !== event.sender.mainFrame);
+  if (isSubframe || !isFrameFromOurRenderer(frameUrl)) {
     throw new Error(
       `ipc:rejected:foreign_frame frame_url=${JSON.stringify(frameUrl)}`,
     );

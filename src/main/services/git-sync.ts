@@ -26,7 +26,8 @@
  * across the whole catalog.
  */
 
-import simpleGit, { type SimpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
+import { catalogGit } from "@main/security/catalog-git";
 
 import { getSqlite } from "@main/db/client";
 
@@ -192,7 +193,7 @@ class GitSyncService {
     repo: RepoRow,
     mode: "fetch" | "pull",
   ): Promise<SyncEntry> {
-    const git: SimpleGit = simpleGit({ baseDir: repo.full_path });
+    const git: SimpleGit = catalogGit(repo.full_path);
 
     let status;
     try {

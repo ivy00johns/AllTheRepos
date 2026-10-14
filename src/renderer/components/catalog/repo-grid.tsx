@@ -65,6 +65,19 @@ export interface RepoGridProps {
   /** Rendered when nothing matches — worded by the caller. */
   emptyTitle?: string;
   emptyHint?: string;
+  /**
+   * The repos closest to a search that matched nothing, above the recovery
+   * controls. A slot for the same reason as {@link RepoGridProps.emptyAction}:
+   * the words are the caller's, and this view stays ignorant of what a
+   * suggestion is derived from or what picking one does.
+   */
+  emptySuggestion?: React.ReactNode;
+  /**
+   * Recovery controls under the hint. A slot rather than a prop per button,
+   * so this view keeps knowing nothing about filters and the caller keeps
+   * owning what clearing one means.
+   */
+  emptyAction?: React.ReactNode;
 }
 
 interface Section {
@@ -193,6 +206,8 @@ export function RepoGrid({
   loading,
   emptyTitle = "Nothing here",
   emptyHint = "Try a different folder, or clear the filters.",
+  emptySuggestion,
+  emptyAction,
 }: RepoGridProps) {
   const mode = useCatalogView((s) => s.mode);
   const groupBy = useCatalogView((s) => s.groupBy);
@@ -208,10 +223,19 @@ export function RepoGrid({
 
   if (repos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 p-16 text-center">
+      <div
+        data-empty-state
+        className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/40 p-16 text-center"
+      >
         <FolderSearch className="h-6 w-6 text-muted-foreground" aria-hidden />
         <p className="font-mono text-sm text-foreground">{emptyTitle}</p>
         <p className="max-w-sm text-xs text-muted-foreground">{emptyHint}</p>
+        {emptySuggestion}
+        {emptyAction ? (
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+            {emptyAction}
+          </div>
+        ) : null}
       </div>
     );
   }

@@ -20,6 +20,8 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { BUNDLED_RENDERER_URL } from "@main/security/renderer-url";
+
 import {
   assertRendererFrame,
   isDevLikeEnvironment,
@@ -51,13 +53,13 @@ describe("isFrameFromOurRenderer", () => {
   it("accepts a file:// bundle URL in any environment", () => {
     expect(
       isFrameFromOurRenderer(
-        "file:///Applications/ATR.app/out/renderer/index.html",
+        BUNDLED_RENDERER_URL,
         false,
       ),
     ).toBe(true);
     expect(
       isFrameFromOurRenderer(
-        "file:///Applications/ATR.app/out/renderer/index.html",
+        BUNDLED_RENDERER_URL,
         true,
       ),
     ).toBe(true);
@@ -71,6 +73,13 @@ describe("isFrameFromOurRenderer", () => {
     // Still accepted even under a "production-like" devLike=false because the
     // URL itself matches the configured renderer origin.
     expect(isFrameFromOurRenderer(`${DEV_RENDERER_URL}/`, false)).toBe(true);
+  });
+
+  it("rejects arbitrary local files and URL-prefix lookalikes", () => {
+    process.env.ELECTRON_RENDERER_URL = DEV_RENDERER_URL;
+    expect(isFrameFromOurRenderer("file:///tmp/evil.html", false)).toBe(false);
+    expect(isFrameFromOurRenderer(`${DEV_RENDERER_URL}.evil.test/`, true)).toBe(false);
+    expect(isFrameFromOurRenderer(`${DEV_RENDERER_URL}0/`, true)).toBe(false);
   });
 
   it("rejects a foreign http(s) frame URL in any environment", () => {
@@ -151,7 +160,7 @@ describe("assertRendererFrame", () => {
 
   it("does not throw for a file:// frame", () => {
     expect(() =>
-      assertRendererFrame(eventWithFrameUrl("file:///out/renderer/index.html")),
+      assertRendererFrame(eventWithFrameUrl(BUNDLED_RENDERER_URL)),
     ).not.toThrow();
   });
 

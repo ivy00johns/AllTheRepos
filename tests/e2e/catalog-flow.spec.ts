@@ -20,6 +20,12 @@
  *      nothing else asserts; two specs in `workstream-b.spec.ts` depended on
  *      the *opposite* behaviour (a reload resetting the router to `/`, which
  *      is how memory history worked) and only CI noticed when it changed.
+ *   6. The empty grid is honest about itself: it names the filter that emptied
+ *      it, the grid and the count's strip name the same one, and a search that
+ *      matched nothing offers the repos closest to what was typed. The
+ *      real-data walkthrough asserts the same behaviour against a developer's
+ *      own catalog; this one asserts it against the three seeded repos, so the
+ *      behaviour is guarded on a machine that has no catalog to walk.
  *
  * We intentionally do NOT trigger a scan — a real scan needs disk +
  * Ollama and would be brittle. Scan logic is separately covered by
@@ -63,6 +69,7 @@ function isIgnored(message: ConsoleMessage): boolean {
 }
 
 test.describe("Phase 1 catalog flow", () => {
+
   test.beforeAll(() => {
     if (!existsSync(MAIN_ENTRY)) {
       throw new Error(
@@ -227,6 +234,108 @@ test.describe("Phase 1 catalog flow", () => {
           .getByRole("button", { name: /name family/i }),
         "the signal filter did not survive the reload",
       ).toHaveAttribute("aria-pressed", "false");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * A blank grid is the last place the catalog has to be honest about itself.
+   *
+   * It used to shrug — "Try a different search, or clear the filters" — which
+   * sends the reader hunting the rail, the chips and the search box for
+   * whichever control emptied the screen. It now names the filter responsible,
+   * derived from the same ranked reasons the count's strip shows, and when the
+   * search is what emptied it, offers the repos nearest what was typed.
+   *
+   * The two halves pull in opposite directions and both matter: a filter that
+   * is hiding everything must be named *without* a list of "closest" repos
+   * (nothing is close — the repos are right there, hidden), and a search that
+   * matched nothing must find the repo behind a one-letter typo without a trip
+   * through the toolbar.
+   */
+  test("an empty grid names the filter that emptied it, and the nearest repos", async () => {
+    const { app, close } = await launchApp();
+    try {
+      const win = await app.firstWindow();
+      await win.waitForLoadState("domcontentloaded");
+
+      const cards = win.locator("[data-repo-slug]");
+      const empty = win.locator("[data-empty-state]");
+      const culprit = win.locator("[data-empty-culprit]");
+      const searchBox = win
+        .getByRole("searchbox", { name: /search repos/i })
+        .first();
+
+      await expect(win.getByRole("link", { name: /^AllTheRepos$/i })).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(cards, "the seeded catalog is not on screen").toHaveCount(3, {
+        timeout: 20_000,
+      });
+
+      // ----- A search that matches nothing names the search. -----
+      await searchBox.click();
+      // One letter out from a seeded repo's name: the case the suggestion list
+      // exists for, and one no prefix search can reach.
+      await searchBox.fill("demo liberary");
+      await expect(cards).toHaveCount(0, { timeout: 15_000 });
+      await expect(empty).toBeVisible();
+      await expect(empty).toContainText("Nothing matches “demo liberary”");
+      await expect(empty).toContainText("Hidden by search “demo liberary”");
+      await expect(culprit).toHaveCount(1);
+      await expect(culprit).toHaveAttribute("data-empty-culprit", "search");
+
+      // The count's strip is the same explanation in another place, so it has
+      // to name the same filter and the same number of repos.
+      await win
+        .getByRole("button", { name: /of 3 repos shown/i })
+        .click();
+      const reason = win.locator('[data-hidden-reason="search"]');
+      await expect(reason).toHaveCount(1);
+      await expect(reason).toHaveAttribute("data-hidden-count", "3");
+      expect(
+        await culprit.getAttribute("data-empty-culprit"),
+        "the grid and the count's strip name different filters for one blank screen",
+      ).toBe(await reason.getAttribute("data-hidden-reason"));
+
+      // ----- And it offers the repo the typo was reaching for. -----
+      const suggestions = win.locator("[data-near-miss]");
+      await expect(suggestions).toHaveCount(1);
+      await expect(suggestions.first()).toHaveAttribute(
+        "data-near-miss",
+        /^demo-library-/,
+      );
+
+      // Picking one has to put it back on screen, not just be a label.
+      await suggestions.first().click();
+      await expect(searchBox).toHaveValue("Demo Library");
+      await expect(win.locator('[data-repo-slug^="demo-library-"]')).toHaveCount(1, {
+        timeout: 15_000,
+      });
+
+      // ----- The grid's own button clears the filter it named. -----
+      await searchBox.fill("demo liberary");
+      await expect(culprit).toBeVisible({ timeout: 15_000 });
+      await culprit.click();
+      await expect(cards).toHaveCount(3, { timeout: 15_000 });
+
+      // ----- A filter that empties the grid is named instead, with no list. -----
+      // Nothing is "close" to a query here: three repos are hidden by a control
+      // the reader turned on, and listing them as suggestions would be a
+      // second, contradictory account of the same blank screen.
+      const rail = win.getByRole("navigation", {
+        name: /catalog filters and folders/i,
+      });
+      await rail.getByRole("button", { name: /^Favourites/ }).click();
+      await expect(cards).toHaveCount(0, { timeout: 15_000 });
+      await expect(culprit).toHaveAttribute("data-empty-culprit", "favorites");
+      await expect(empty).toContainText("Hidden by Favourites only");
+      await expect(suggestions).toHaveCount(0);
+
+      // Clearing the named filter is what brings the catalog back.
+      await culprit.click();
+      await expect(cards).toHaveCount(3, { timeout: 15_000 });
     } finally {
       await close();
     }

@@ -19,7 +19,7 @@
  */
 
 import * as React from "react";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Activity,
   Brain,
@@ -29,6 +29,7 @@ import {
   ArrowDownToLine,
   RotateCw,
   Network,
+  FolderGit2,
 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
@@ -63,6 +64,7 @@ const IS_MAC =
  * collapses away when the window is genuinely too narrow for it.
  */
 const NAV_ITEMS = [
+  { to: "/", label: "Repos", Icon: FolderGit2, badge: null },
   { to: "/processes", label: "Running", Icon: Activity, badge: "processes" },
   { to: "/graph", label: "Map", Icon: Network, badge: null },
   { to: "/claude", label: "Claude", Icon: Brain, badge: null },
@@ -71,6 +73,8 @@ const NAV_ITEMS = [
 
 export function TopBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
+  const pathname = useLocation({ select: (location) => location.pathname });
   const update = useUpdate();
   const processCount = useProcessCount();
   // Stable for the life of the process — main states it once per window.
@@ -122,8 +126,13 @@ export function TopBar() {
       <Button
         variant="ghost"
         size="sm"
-        onClick={toggleSidebar}
+        onClick={() => {
+          if (pathname !== "/") void navigate({ to: "/" });
+          else toggleSidebar();
+        }}
         aria-label="Toggle sidebar"
+        aria-expanded={pathname === "/" && !sidebarCollapsed}
+        aria-controls="catalog-sidebar"
       >
         <Menu className="h-4 w-4" aria-hidden />
       </Button>
@@ -135,7 +144,7 @@ export function TopBar() {
         AllTheRepos
       </Link>
 
-      <div className="ml-4 min-w-0 flex-1">
+      <div className="ml-2 min-w-0 flex-1">
         <SearchBar
           value={value}
           onChange={setValue}
@@ -222,7 +231,12 @@ export function TopBar() {
             size="sm"
             className="relative gap-1.5 px-2"
           >
-            <Link to={to}>
+            <Link
+              to={to}
+              title={label}
+              activeOptions={{ exact: to === "/" }}
+              activeProps={{ className: "bg-accent/10 text-accent", "aria-current": "page" }}
+            >
               <Icon className="h-4 w-4" aria-hidden />
               {/*
                 Collapsed below `lg`, never absent: `hidden` is `display: none`,

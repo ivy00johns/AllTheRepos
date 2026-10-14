@@ -8,8 +8,9 @@
  *     NOTHING from app code or UI deps. It re-implements the two pieces
  *     of pure logic the fix introduces and pins their contract:
  *
- *       1. `useGroupMemberSlugs`'s queryFn: dial `catalog:list({ groupId,
- *          limit: 200 })` and project the items down to a `Set<slug>`.
+ *       1. `useGroupMemberSlugs`'s queryFn: read `catalog:list({ groupId })`
+ *          to completion — a 200-row page at a time — and project the items
+ *          down to a `Set<slug>`.
  *       2. `browseRepos`'s `groupMembership` predicate: for a MANUAL group
  *          a repo matches IFF its slug is in the member set; while the set
  *          is still loading (`null`) NOTHING matches (the original bug was
@@ -18,6 +19,7 @@
  *
  * KEEP IN LOCKSTEP with:
  *   - `src/renderer/hooks/use-groups.ts` (`useGroupMemberSlugs`)
+ *   - `src/renderer/hooks/use-repos.ts` (`readAllRepos` paging)
  *   - `src/renderer/components/catalog/catalog-shell.tsx` (`groupMembership`)
  */
 
@@ -48,7 +50,11 @@ interface RepoLite {
 }
 interface ListReposResultLite {
   items: { slug: string }[];
+  total?: number;
 }
+
+/** The contract's per-request ceiling, mirrored from `readAllRepos`. */
+const CATALOG_PAGE_SIZE = 200;
 
 function repo(slug: string, over: Partial<RepoLite> = {}): RepoLite {
   return {
@@ -64,16 +70,34 @@ function repo(slug: string, over: Partial<RepoLite> = {}): RepoLite {
 
 // --- (1) useGroupMemberSlugs queryFn, reproduced --------------------------
 
-/** Mirrors the queryFn in `useGroupMemberSlugs`. */
+/**
+ * Mirrors the queryFn in `useGroupMemberSlugs` — which reads the group through
+ * `readAllRepos`, so a group larger than one page is read in full rather than
+ * truncated at row 200.
+ */
 async function fetchMemberSlugs(
   list: (input: {
     groupId: number;
     limit: number;
+    offset: number;
   }) => Promise<ListReposResultLite>,
   groupId: number,
 ): Promise<Set<string>> {
-  const result = await list({ groupId, limit: 200 });
-  return new Set(result.items.map((r) => r.slug));
+  const first = await list({ groupId, limit: CATALOG_PAGE_SIZE, offset: 0 });
+  const slugs = first.items.map((r) => r.slug);
+  // A fake with no `total` is a single complete page, matching a real reply
+  // whose total equals its item count.
+  const total = first.total ?? slugs.length;
+  while (slugs.length < total) {
+    const next = await list({
+      groupId,
+      limit: CATALOG_PAGE_SIZE,
+      offset: slugs.length,
+    });
+    if (next.items.length === 0) break;
+    slugs.push(...next.items.map((r) => r.slug));
+  }
+  return new Set(slugs);
 }
 
 // --- (2) groupMembership predicate, reproduced ----------------------------
@@ -115,16 +139,48 @@ function groupMembership(
 
 describe("useGroupMemberSlugs queryFn (catalog:list by groupId)", () => {
   it("requests the contract max and projects items to a slug set", async () => {
-    const calls: Array<{ groupId: number; limit: number }> = [];
-    const list = async (input: { groupId: number; limit: number }) => {
+    const calls: Array<{ groupId: number; limit: number; offset: number }> = [];
+    const list = async (input: {
+      groupId: number;
+      limit: number;
+      offset: number;
+    }) => {
       calls.push(input);
       return { items: [{ slug: "alpha" }, { slug: "beta" }] };
     };
 
     const slugs = await fetchMemberSlugs(list, 7);
 
-    expect(calls).toEqual([{ groupId: 7, limit: 200 }]);
+    expect(calls).toEqual([{ groupId: 7, limit: 200, offset: 0 }]);
     expect(slugs).toEqual(new Set(["alpha", "beta"]));
+  });
+
+  it("pages past the 200-row ceiling instead of truncating a large group", async () => {
+    // A group of 450: one 200-row page is not the group, and a consumer that
+    // stopped at page one would strand 250 members (ATR-042).
+    const calls: Array<{ groupId: number; limit: number; offset: number }> = [];
+    const all = Array.from({ length: 450 }, (_, i) => ({ slug: `repo-${i}` }));
+    const list = async (input: {
+      groupId: number;
+      limit: number;
+      offset: number;
+    }) => {
+      calls.push(input);
+      return {
+        items: all.slice(input.offset, input.offset + input.limit),
+        total: all.length,
+      };
+    };
+
+    const slugs = await fetchMemberSlugs(list, 3);
+
+    expect(calls).toEqual([
+      { groupId: 3, limit: 200, offset: 0 },
+      { groupId: 3, limit: 200, offset: 200 },
+      { groupId: 3, limit: 200, offset: 400 },
+    ]);
+    expect(slugs.size).toBe(450);
+    expect(slugs.has("repo-449")).toBe(true);
   });
 
   it("yields an empty set for a group with no members", async () => {

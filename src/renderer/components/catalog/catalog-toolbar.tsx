@@ -11,6 +11,7 @@ import * as React from "react";
 import {
   Archive,
   ArrowDownUp,
+  ChevronDown,
   LayoutGrid,
   Rows3,
   Image as ImageIcon,
@@ -20,6 +21,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "@renderer/lib/cn";
+import { TagCleanupButton } from "./tag-cleanup-dialog";
+import { HIDDEN_REASONS_ID } from "@renderer/lib/hidden-repos";
 import {
   useCatalogView,
   type GroupBy,
@@ -129,6 +132,10 @@ interface CatalogToolbarProps {
   /** Refresh ahead/behind for the same set. Never touches a working tree. */
   onFetch: () => void;
   syncing: boolean;
+  /** Whether the count's "what is hidden" strip is open. */
+  explainingHidden: boolean;
+  /** Toggle that strip. */
+  onToggleHidden: () => void;
 }
 
 export function CatalogToolbar({
@@ -140,6 +147,8 @@ export function CatalogToolbar({
   onPull,
   onFetch,
   syncing,
+  explainingHidden,
+  onToggleHidden,
 }: CatalogToolbarProps) {
   const mode = useCatalogView((s) => s.mode);
   const setMode = useCatalogView((s) => s.setMode);
@@ -241,6 +250,7 @@ export function CatalogToolbar({
           the toolbar has ~700px, and the view/group/sort controls have a
           better claim on it than two words.
         */}
+        <TagCleanupButton />
         <button
           type="button"
           onClick={onFetch}
@@ -290,12 +300,38 @@ export function CatalogToolbar({
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           </div>
-        ) : (
+        ) : shownCount === totalCount ? (
           <span className={cn("atr-meta tabular-nums")}>
-            {shownCount === totalCount
-              ? `${totalCount} repos`
-              : `${shownCount} of ${totalCount}`}
+            {totalCount} repos
           </span>
+        ) : (
+          /*
+            A count that is smaller than the catalog is a question, not a
+            statement — so when they differ it becomes a control that names the
+            filters responsible and offers to clear them (see
+            `lib/hidden-repos.ts`). Clicking it opens the strip; the number and
+            the glyph are the whole affordance.
+          */
+          <button
+            type="button"
+            onClick={onToggleHidden}
+            aria-expanded={explainingHidden}
+            aria-controls={HIDDEN_REASONS_ID}
+            aria-label={`${shownCount} of ${totalCount} repos shown — see what is hidden and clear it`}
+            title="Some repos are hidden by a filter — see which, and clear it"
+            className="flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 transition-colors duration-150 hover:bg-surface-raised"
+          >
+            <span className={cn("atr-meta tabular-nums")}>
+              {shownCount} of {totalCount}
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-150",
+                explainingHidden && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
         )}
       </div>
     </div>

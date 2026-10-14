@@ -51,6 +51,7 @@ import {
   parseLsofListen,
   parseLsofCwdMap,
   parsePsTree,
+  parseProcessFixture,
   cwdCandidates,
   resolveRepoSlugFor,
   resolveRealPath,
@@ -259,6 +260,100 @@ describe("parsePsTree", () => {
 
   it("returns an empty map for empty input", () => {
     expect(parsePsTree("").size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseProcessFixture
+// ---------------------------------------------------------------------------
+
+/**
+ * The E2E override (`ATR_PROCESS_FIXTURE`). These cases are mostly about what
+ * a malformed fixture does, because the one thing this parser must not do is
+ * answer with something plausible: the fixture exists to remove dependence on
+ * the host, so a typo has to be a throw the service can log and sweep nothing
+ * over, never a quiet fallback to the machine's own listeners.
+ */
+describe("parseProcessFixture", () => {
+  it("reads a listener set into the shape the sweep consumes", () => {
+    const fixture = parseProcessFixture(
+      JSON.stringify({
+        listen: [
+          { pid: 4321, port: 3000, command: "node", host: "127.0.0.1" },
+          { pid: 8765, port: 5173 },
+        ],
+        ppid: { 4321: 1, 8765: 4321 },
+        cwd: { 4321: "/repos/demo-cli", 8765: "/repos/demo-cli" },
+      }),
+    );
+
+    expect(fixture.listen).toEqual([
+      { pid: 4321, port: 3000, command: "node", host: "127.0.0.1" },
+      { pid: 8765, port: 5173, command: "", host: "" },
+    ]);
+    expect(fixture.ppid.get(8765)).toBe(4321);
+    expect(fixture.cwd.get(4321)).toBe("/repos/demo-cli");
+  });
+
+  it("treats an empty fixture as a sweep that finds nothing", () => {
+    const fixture = parseProcessFixture("{}");
+    expect(fixture.listen).toEqual([]);
+    expect(fixture.ppid.size).toBe(0);
+    expect(fixture.cwd.size).toBe(0);
+  });
+
+  it("accepts an explicitly empty listener set", () => {
+    expect(parseProcessFixture('{"listen":[]}').listen).toEqual([]);
+  });
+
+  it("rejects a body that is not an object", () => {
+    expect(() => parseProcessFixture("[]")).toThrow(/JSON object/);
+    expect(() => parseProcessFixture("null")).toThrow(/JSON object/);
+    expect(() => parseProcessFixture("\"listen\"")).toThrow(/JSON object/);
+  });
+
+  it("rejects unparseable JSON", () => {
+    expect(() => parseProcessFixture("{oops}")).toThrow();
+  });
+
+  it("rejects a listen field that is not an array", () => {
+    expect(() => parseProcessFixture('{"listen":{}}')).toThrow(/array/);
+  });
+
+  it("rejects a listener with no usable pid", () => {
+    expect(() => parseProcessFixture('{"listen":[{"port":3000}]}')).toThrow(
+      /listen\[0\]\.pid/,
+    );
+    expect(() =>
+      parseProcessFixture('{"listen":[{"pid":0,"port":3000}]}'),
+    ).toThrow(/listen\[0\]\.pid/);
+    expect(() =>
+      parseProcessFixture('{"listen":[{"pid":"1234","port":3000}]}'),
+    ).toThrow(/listen\[0\]\.pid/);
+  });
+
+  it("rejects a listener port outside 1-65535", () => {
+    expect(() =>
+      parseProcessFixture('{"listen":[{"pid":1,"port":0}]}'),
+    ).toThrow(/port/);
+    expect(() =>
+      parseProcessFixture('{"listen":[{"pid":1,"port":70000}]}'),
+    ).toThrow(/port/);
+  });
+
+  it("rejects a map keyed by something that is not a PID", () => {
+    expect(() => parseProcessFixture('{"ppid":{"abc":1}}')).toThrow(/not a PID/);
+    expect(() => parseProcessFixture('{"cwd":{"0":"/x"}}')).toThrow(/not a PID/);
+    expect(() => parseProcessFixture('{"cwd":{"1.5":"/x"}}')).toThrow(/not a PID/);
+  });
+
+  it("rejects a cwd map whose values are not paths", () => {
+    expect(() => parseProcessFixture('{"cwd":{"1":2}}')).toThrow(/strings/);
+  });
+
+  it("rejects a ppid map whose values are not numbers", () => {
+    expect(() => parseProcessFixture('{"ppid":{"1":"2"}}')).toThrow(/numbers/);
+    expect(() => parseProcessFixture('{"ppid":{"1":null}}')).toThrow(/numbers/);
   });
 });
 

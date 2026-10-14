@@ -681,7 +681,7 @@ function buildEditorFileUrl(
   scheme: string,
   absolutePath: string,
 ): string | null {
-  const encodedPath = encodeURI(absolutePath);
+  const encodedPath = absolutePath.split("/").map(encodeURIComponent).join("/");
   const encodedFileParam = encodeURIComponent(absolutePath);
   const ensureLeadingSlash = (s: string): string =>
     s.startsWith("/") ? s : `/${s}`;

@@ -63,6 +63,10 @@ export const IPC = {
      * Payload conforms to `CatalogChangeEventSchema`.
      */
     ON_CHANGED: "catalog:on:changed",
+    /** Read-only: which repos' heuristic tags would change if re-tagged now. */
+    TAG_CLEANUP_PREVIEW: "catalog:tagCleanup:preview",
+    /** Accept or reject tag-cleanup proposals, one decision per repo. */
+    TAG_CLEANUP_APPLY: "catalog:tagCleanup:apply",
     /** Pin / unpin a repo. */
     SET_FAVORITE: "catalog:setFavorite",
   },
@@ -171,6 +175,7 @@ export const IPC = {
     GET: "settings:get",
     /** Partial update — only provided keys are applied. */
     UPDATE: "settings:update",
+    TEST_EMBEDDING: "settings:testEmbedding",
     /** Open the native folder picker. Returns a path without saving it. */
     PICK_SCAN_PATH: "settings:pickScanPath",
     /** Add a directory to the scan roots. */

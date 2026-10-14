@@ -74,6 +74,8 @@ interface DirRailProps {
   onAddScanPath?: () => void;
   /** True while a folder picker or scan kickoff is in flight. */
   addingScanPath?: boolean;
+  dirtyOnly?: boolean;
+  onToggleDirty?: () => void;
 }
 
 /** A count badge; dimmed until the row is hovered or selected. */
@@ -450,6 +452,8 @@ export function DirRail({
   onStopScanning,
   onAddScanPath,
   addingScanPath,
+  dirtyOnly = false,
+  onToggleDirty,
 }: DirRailProps) {
   const selectedDir = useCatalogView((s) => s.selectedDir);
   const selectedDirExact = useCatalogView((s) => s.selectedDirExact);
@@ -520,10 +524,11 @@ export function DirRail({
   );
 
   const allSelected =
-    selectedDir === null && ownershipFilter.length === 0 && !favoritesOnly;
+    selectedDir === null && ownershipFilter.length === 0 && !favoritesOnly && !dirtyOnly && activeGroupId === null;
 
   return (
     <nav
+      id="catalog-sidebar"
       aria-label="Catalog filters and folders"
       className="flex h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-4"
     >
@@ -604,11 +609,9 @@ export function DirRail({
             <button
               type="button"
               className="atr-rail-row"
-              data-selected="false"
-              onClick={() => {
-                setSelectedDir(null);
-                clearOwnership();
-              }}
+              data-selected={dirtyOnly ? "true" : "false"}
+              aria-pressed={dirtyOnly}
+              onClick={onToggleDirty}
               title={`${dirtyTotal} repos have uncommitted changes`}
             >
               <CircleDot
@@ -676,6 +679,7 @@ export function DirRail({
                   type="button"
                   className="atr-rail-row"
                   data-selected={activeGroupId === group.id ? "true" : "false"}
+                  aria-pressed={activeGroupId === group.id}
                   onClick={() =>
                     onSelectGroup(activeGroupId === group.id ? null : group.id)
                   }

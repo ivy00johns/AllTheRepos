@@ -384,7 +384,7 @@ describe("an exported catalog", () => {
 
     expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
     expect(store.source()).toBe("demo");
-    expect(store.listRepos()).toHaveLength(12);
+    expect(store.listRepos()).toHaveLength(36);
     expect(store.settings().scanPaths).toEqual(["/Users/demo/Code"]);
   });
 
@@ -394,7 +394,7 @@ describe("an exported catalog", () => {
 
     expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
     expect(store.source()).toBe("demo");
-    expect(store.listRepos()).toHaveLength(12);
+    expect(store.listRepos()).toHaveLength(36);
   });
 
   test("a malformed export is refused by the schema it would be rendered from", async () => {
@@ -409,7 +409,7 @@ describe("an exported catalog", () => {
     stubFetch(broken);
 
     expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
-    expect(store.listRepos()).toHaveLength(12);
+    expect(store.listRepos()).toHaveLength(36);
   });
 
   test("an unreadable response is reported and the demo library keeps serving", async () => {
@@ -422,7 +422,7 @@ describe("an exported catalog", () => {
     );
 
     expect(await store.loadExportedCatalog("/__atr/catalog.json")).toBe("demo");
-    expect(store.listRepos()).toHaveLength(12);
+    expect(store.listRepos()).toHaveLength(36);
   });
 });
 
@@ -584,7 +584,7 @@ describe("saved edits", () => {
     const storage = fakeStorage({ [DEMO_EDITS_KEY]: "{ this is not json" });
 
     expect(store.enablePersistence(storage)).toBe(true);
-    expect(store.listRepos()).toHaveLength(12);
+    expect(store.listRepos()).toHaveLength(36);
 
     // A record from a build this one does not read is refused the same way.
     const stale = await freshStore();
@@ -592,7 +592,7 @@ describe("saved edits", () => {
       [DEMO_EDITS_KEY]: JSON.stringify({ format: 99, source: "demo", repos: {} }),
     });
     expect(stale.enablePersistence(staleStorage)).toBe(true);
-    expect(stale.listRepos()).toHaveLength(12);
+    expect(stale.listRepos()).toHaveLength(36);
   });
 
   test("clearing the record leaves the library itself alone", async () => {

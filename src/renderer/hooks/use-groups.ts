@@ -22,6 +22,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { readAllRepos } from "./use-repos";
 import { getAtr } from "@renderer/lib/atr";
 import { queryKeys } from "@renderer/lib/query-client";
 import type {
@@ -58,9 +59,11 @@ export function useGroups(): UseQueryResult<ListGroupsResult, Error> {
  * the groups list alone. The authoritative read path is `catalog:list`
  * with a `groupId`: the main process resolves membership through the
  * `repo_groups` join (`src/main/db/queries.ts` — `listRepos`), returning
- * exactly the repos in that group. We ask for the contract max (`limit:
- * 200`) and project the result down to a `Set<slug>` the catalog grid can
- * intersect against.
+ * exactly the repos in that group. We read it to completion — one page at a
+ * time, since the contract caps a request at 200 rows — and project the result
+ * down to a `Set<slug>` the catalog grid can intersect against. A single capped
+ * page would strand every member past row 200, hiding them from the group the
+ * same way the catalog used to hide them from the rail (ATR-042).
  *
  * Passing `groupId === null` disables the query and yields `null`, the
  * "no manual-group restriction" sentinel the shell treats as "show all".
@@ -83,10 +86,7 @@ export function useGroupMemberSlugs(
           "Preload bridge unavailable — cannot fetch group members.",
         );
       }
-      const result = await atr.catalog.list({
-        groupId: groupId as number,
-        limit: 200,
-      });
+      const result = await readAllRepos({ groupId: groupId as number });
       return new Set(result.items.map((r) => r.slug));
     },
     enabled:

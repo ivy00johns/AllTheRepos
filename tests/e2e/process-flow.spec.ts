@@ -35,6 +35,16 @@
  * milliseconds: the main-side poller runs on an interval (3s focused, 15s
  * blurred), so a row that appears between ticks waits for the next one.
  *
+ * ## The third leg is the opposite of the second
+ *
+ * Leg 2 asserts the sweep found something. Leg 3 asserts it found *only* what
+ * the test declared, via `ATR_PROCESS_FIXTURE` (`_process-fixture.ts`). That is
+ * the mechanism a screenshot spec uses to stop photographing the developer's
+ * own dev servers, and it is worth one test here, in the spec about the sweep,
+ * because a declaration that silently did nothing would look exactly like a
+ * declaration that worked: the catalog baselines would keep passing on the
+ * runner and keep flaking on the laptop.
+ *
  * Owner: qe-agent (Phase 3a).
  */
 
@@ -44,6 +54,7 @@ import { dirname, join, resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { TEMPLATE_PROFILE_ENV, launchApp } from "./_launch-app";
+import { processFixtureEnv } from "./_process-fixture";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MAIN_ENTRY = resolve(REPO_ROOT, "out", "main", "index.js");
@@ -125,8 +136,13 @@ test.describe("Phase 3a process flow", () => {
 
       // The top-bar Activity icon links to /processes (aria-label
       // "Running processes"). Click it.
+      // `/running process/i`, not `…processes`: the link's accessible name
+      // carries the live count ("1 running process", "3 running processes"),
+      // so a plural-only pattern is a selector that stops matching on a machine
+      // that happens to have exactly one listener — the host deciding whether
+      // this test can find its own nav item.
       const processesLink = win.getByRole("link", {
-        name: /running processes/i,
+        name: /running process/i,
       });
       await expect(processesLink).toBeVisible({ timeout: 10_000 });
       await processesLink.click();
@@ -213,7 +229,7 @@ test.describe("Phase 3a process flow", () => {
       await expect(
         win.getByRole("link", { name: /^AllTheRepos$/i }),
       ).toBeVisible({ timeout: 15_000 });
-      await win.getByRole("link", { name: /running processes/i }).click();
+      await win.getByRole("link", { name: /running process/i }).click();
       await expect(
         win.getByRole("heading", { name: /^processes$/i }),
       ).toBeVisible({ timeout: 10_000 });
@@ -307,6 +323,65 @@ test.describe("Phase 3a process flow", () => {
       } catch {
         // ignore
       }
+      await close();
+    }
+  });
+
+  test("a declared sweep replaces the host's own listeners", async () => {
+    const declared = { pid: 4242, port: 4321 };
+
+    const { app, close } = await launchApp({
+      env: processFixtureEnv({
+        listen: [
+          {
+            pid: declared.pid,
+            port: declared.port,
+            command: "fixture-node",
+            host: "127.0.0.1",
+          },
+        ],
+      }),
+    });
+
+    try {
+      const win = await app.firstWindow();
+      await win.waitForLoadState("domcontentloaded");
+      await expect(
+        win.getByRole("link", { name: /^AllTheRepos$/i }),
+      ).toBeVisible({ timeout: 15_000 });
+      await win.getByRole("link", { name: /running process/i }).click();
+      await expect(
+        win.getByRole("heading", { name: /^processes$/i }),
+      ).toBeVisible({ timeout: 10_000 });
+
+      const refreshBtn = win.getByRole("button", { name: /^refresh$/i });
+      await expect(refreshBtn).toBeEnabled({ timeout: 10_000 });
+      await refreshBtn.click();
+
+      const rows = win.locator("tbody tr");
+      await expect(
+        rows
+          .filter({ has: win.locator(`span:text-is("${declared.port}")`) })
+          .filter({ has: win.locator(`td:text-is("${declared.pid}")`) }),
+        `the declared listener (PID ${declared.pid}, port ${declared.port}) never reached the table, ` +
+          `so the sweep did not read the fixture.`,
+      ).toHaveCount(1, { timeout: DETECTION_TIMEOUT_MS });
+
+      // The other half, and the one that gives the assertion teeth: a fixture
+      // that was ignored shows the host's listeners, and a fixture that could
+      // not be read shows none. Only "the declared row and nothing else" tells
+      // a working declaration from either.
+      await expect(
+        rows,
+        "the sweep reported rows the fixture never declared — this run is reading the host's listeners",
+      ).toHaveCount(1, { timeout: DETECTION_TIMEOUT_MS });
+
+      // The nav badge reads the same sweep, and it is the part a catalog
+      // screenshot would otherwise be measuring.
+      await expect(
+        win.getByRole("link", { name: /1 running process\b/i }),
+      ).toBeAttached();
+    } finally {
       await close();
     }
   });

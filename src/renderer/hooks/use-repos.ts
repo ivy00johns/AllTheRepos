@@ -27,11 +27,34 @@ import { queryKeys } from "@renderer/lib/query-client";
 import type {
   DeleteRepoInput,
   DeleteRepoResult,
+  TagCleanupApplyInput,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
   ListReposInput,
   ListReposResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
 } from "@shared/types";
+
+/** Page the catalog contract rather than silently truncating at 200 rows. */
+export async function readAllRepos(
+  filters: ListReposInput = {},
+): Promise<ListReposResult> {
+  const atr = requireAtr();
+  const first = await atr.catalog.list({ ...filters, limit: 200, offset: 0 });
+  const items = [...first.items];
+  let offset = first.items.length;
+  while (offset < first.total) {
+    const page = await atr.catalog.list({ ...filters, limit: 200, offset });
+    if (page.items.length === 0)
+      throw new Error(
+        "Catalog pagination stopped before all repositories were read. Retry the catalog.",
+      );
+    items.push(...page.items);
+    offset += page.items.length;
+  }
+  return { ...first, items, limit: items.length, offset: 0 };
+}
 
 export function useRepos(
   filters: ListReposInput = {},
@@ -43,7 +66,34 @@ export function useRepos(
       if (!atr) {
         throw new Error("Preload bridge unavailable — cannot fetch repos.");
       }
-      return atr.catalog.list(filters);
+      return readAllRepos(filters);
+    },
+    enabled: typeof window !== "undefined" && Boolean(getAtr()),
+  });
+}
+
+/**
+ * useAllRepos — every repo in the catalog, not the first page of it.
+ *
+ * `catalog:list` caps one request at 200 rows, so a consumer that wants the
+ * whole catalog has to page (see `readAllRepos` above). The catalog screen is
+ * exactly that consumer: it groups, sorts and counts client-side, and reads
+ * `initialRepos.length` off this array to label the rail. Asking for a single
+ * `{ limit: 200 }` page made every repo past row 200 unreachable and left the
+ * rail counting a page while the toolbar counted the catalog (ATR-042).
+ *
+ * Keyed under the `repos` prefix, so the existing `queryKeys.repos.all`
+ * invalidation after a mutation still drops and refetches it.
+ */
+export function useAllRepos(): UseQueryResult<ListReposResult, Error> {
+  return useQuery<ListReposResult, Error>({
+    queryKey: queryKeys.repos.list({ all: true }),
+    queryFn: async () => {
+      const atr = getAtr();
+      if (!atr) {
+        throw new Error("Preload bridge unavailable — cannot fetch repos.");
+      }
+      return readAllRepos();
     },
     enabled: typeof window !== "undefined" && Boolean(getAtr()),
   });
@@ -87,6 +137,42 @@ export function useSetRepoTags(): UseMutationResult<
       void queryClient.invalidateQueries({
         queryKey: queryKeys.repos.all,
       });
+    },
+  });
+}
+
+/**
+ * useTagCleanupPreview — read-only `catalog:tagCleanup:preview`.
+ *
+ * Runs only while the review dialog is open, and re-reads each time it opens
+ * so a proposal is never shown from an earlier scan.
+ */
+export function useTagCleanupPreview(
+  enabled: boolean,
+): UseQueryResult<TagCleanupPreviewResult, Error> {
+  return useQuery<TagCleanupPreviewResult, Error>({
+    queryKey: ["catalog", "tagCleanup", "preview"],
+    queryFn: () => requireAtr().catalog.tagCleanupPreview(),
+    enabled: enabled && Boolean(getAtr()),
+    staleTime: 0,
+  });
+}
+
+/**
+ * useApplyTagCleanup — mutation over `catalog:tagCleanup:apply`. Rewrites
+ * heuristic tags for accepted repos and remembers rejected ones. Every catalog
+ * list is refreshed, since tags surface on cards and can be active filters.
+ */
+export function useApplyTagCleanup(): UseMutationResult<
+  TagCleanupApplyResult,
+  Error,
+  TagCleanupApplyInput
+> {
+  const queryClient = useQueryClient();
+  return useMutation<TagCleanupApplyResult, Error, TagCleanupApplyInput>({
+    mutationFn: (input) => requireAtr().catalog.tagCleanupApply(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
     },
   });
 }

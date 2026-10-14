@@ -16,8 +16,11 @@ vi.mock("@main/services/settings", () => ({
   updateSettings: vi.fn(),
 }));
 
+vi.mock("@main/services/embedding", () => ({ ollamaEmbed: vi.fn() }));
+
+import { ollamaEmbed } from "@main/services/embedding";
 import { getSettings, updateSettings } from "@main/services/settings";
-import { handleSettingsGet, handleSettingsUpdate } from "@main/ipc/settings";
+import { handleSettingsGet, handleSettingsUpdate, handleTestEmbedding } from "@main/ipc/settings";
 import type { Settings } from "@shared/types";
 
 const defaultSettings: Settings = {
@@ -37,6 +40,28 @@ const defaultSettings: Settings = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("handleTestEmbedding", () => {
+  const input = { baseUrl: "http://localhost:11434", model: "nomic-embed-text" };
+  it("tests the supplied URL/model without changing saved settings", async () => {
+    vi.mocked(ollamaEmbed).mockResolvedValue([0.1, 0.2]);
+    const result = await handleTestEmbedding(input);
+    expect(result).toMatchObject({ ok: true, dimensions: 2 });
+    expect(ollamaEmbed).toHaveBeenCalledWith({ ...input, input: "AllTheRepos connection test" });
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+  it("returns the provider failure with actionable diagnostics", async () => {
+    vi.mocked(ollamaEmbed).mockRejectedValue(new Error("model not found"));
+    const result = await handleTestEmbedding(input);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("model not found");
+    expect(result.message).toContain("ollama pull nomic-embed-text");
+  });
+  it("rejects invalid input before contacting the provider", async () => {
+    await expect(handleTestEmbedding({ ...input, model: "" })).rejects.toThrow();
+    expect(ollamaEmbed).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleSettingsGet", () => {

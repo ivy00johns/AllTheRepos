@@ -37,6 +37,9 @@ import {
   CoverResultSchema,
   SetFavoriteInputSchema,
   SetFavoriteResultSchema,
+  TagCleanupApplyInputSchema,
+  TagCleanupApplyResultSchema,
+  TagCleanupPreviewResultSchema,
 } from "@shared/schemas";
 import type {
   DeleteRepoResult,
@@ -48,12 +51,15 @@ import type {
   SmartFilterResult,
   CoverResult,
   SetFavoriteResult,
+  TagCleanupApplyResult,
+  TagCleanupPreviewResult,
 } from "@shared/types";
 
 import { setRepoFavorite } from "@main/db/queries";
 import { catalogService } from "@main/services/catalog";
 import { coverService } from "@main/services/cover";
 import { searchService } from "@main/services/search";
+import { applyTagCleanup, previewTagCleanup } from "@main/services/tag-cleanup";
 
 import { assertRendererFrame } from "./_frame";
 
@@ -97,6 +103,19 @@ export async function handleCatalogDelete(
   const input = DeleteRepoInputSchema.parse(raw);
   const result = await catalogService.deleteRepo(input.slug);
   return DeleteRepoResultSchema.parse(result);
+}
+
+/** Read-only: the heuristic tag changes a re-tag would make. Takes no input. */
+export async function handleCatalogTagCleanupPreview(): Promise<TagCleanupPreviewResult> {
+  return TagCleanupPreviewResultSchema.parse(previewTagCleanup());
+}
+
+/** Accept or reject tag-cleanup proposals. Writes only the decided repos. */
+export async function handleCatalogTagCleanupApply(
+  raw: unknown,
+): Promise<TagCleanupApplyResult> {
+  const input = TagCleanupApplyInputSchema.parse(raw);
+  return TagCleanupApplyResultSchema.parse(applyTagCleanup(input));
 }
 
 export async function handleCatalogSetTags(
@@ -154,6 +173,8 @@ export function registerCatalogHandlers(): void {
     IPC.CATALOG.SMART_FILTER,
     IPC.CATALOG.COVER,
     IPC.CATALOG.SET_FAVORITE,
+    IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+    IPC.CATALOG.TAG_CLEANUP_APPLY,
   ] as const;
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
@@ -196,6 +217,22 @@ export function registerCatalogHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<SetRepoTagsResult> => {
       assertRendererFrame(event);
       return handleCatalogSetTags(raw);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CATALOG.TAG_CLEANUP_PREVIEW,
+    async (event: IpcMainInvokeEvent): Promise<TagCleanupPreviewResult> => {
+      assertRendererFrame(event);
+      return handleCatalogTagCleanupPreview();
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CATALOG.TAG_CLEANUP_APPLY,
+    async (event: IpcMainInvokeEvent, raw): Promise<TagCleanupApplyResult> => {
+      assertRendererFrame(event);
+      return handleCatalogTagCleanupApply(raw);
     },
   );
 
