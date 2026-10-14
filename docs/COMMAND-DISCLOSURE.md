@@ -235,6 +235,7 @@ Every write the application performs, exhaustively.
 | Path | Written by |
 | --- | --- |
 | `settings.json` | `services/settings.ts:89` (atomic temp + rename) |
+| `notes/<repo-id>.md` (per-repo markdown notes) | `services/notes.ts` (atomic temp + rename) |
 | `alltherepos.db` (SQLite catalog) | `db/client.ts:229` |
 | `lance/` (vector index) | vector service |
 | one-time migration copies from `~/.alltherepos/` | `db/migration.ts:84-90` |
@@ -258,6 +259,20 @@ it. It is not deleted. It is parked, whole and with its tests, on the
 `feat/file-management` branch. What is gone from this branch is every
 path to it, and §5 is what keeps it gone.
 
+This is why per-repo **notes** are stored in the app's own data
+directory — one file per repository at `notes/<repo-id>.md`
+(`services/notes.ts`), keyed on the catalog row id rather than the slug
+so a note follows a repository you move. The plan for notes also floated
+an optional copy at `<repo>/.alltherepos/notes.md`; that was **not**
+implemented, because writing inside a repository is exactly what this
+section promises never happens. Clearing a note empties its file rather
+than deleting it; a repository with no note and a repository whose note
+is empty answer identically, because there is no delete to call.
+
+There is no deletion in the main process at all: the gate refuses one in
+any file, with no waiver available (§5), so nothing the app does to your
+code is irreversible.
+
 **Removing a scan folder never deletes anything from disk**
 (`scan-roots.ts:16`, `:121`). With "forget repos" checked it drops rows
 from the catalog database; the code on disk is untouched and reappears
@@ -278,12 +293,12 @@ The guarantee in §1 and §4 is not maintained by care. It is maintained by
 | **write** | `writeFile`, `mkdir`, `rename`, `copyFile`, `cp`, `chmod`, `symlink`, `createWriteStream` in a file with no waiver. |
 | **unwaived** | a file that has a waiver, using a call its waiver does not name. |
 
-The four waivers are the app's own files: the data directory before
+The five waivers are the app's own files: the data directory before
 SQLite opens it (`db/client.ts`), the one-time migration out of
-`~/.alltherepos/` (`db/migration.ts`), `settings.json`
-(`services/settings.ts`), and window placement
-(`window/window-memory.ts`). A new writer is a failing build until
-somebody names it and the reason, deliberately.
+`~/.alltherepos/` (`db/migration.ts`), per-repo notes
+(`services/notes.ts`), `settings.json` (`services/settings.ts`), and
+window placement (`window/window-memory.ts`). A new writer is a failing
+build until somebody names it and the reason, deliberately.
 
 Copy is a write rather than a delete, because copying is how a file is
 quietly replaced — and a copy-then-delete is not merely discouraged here:

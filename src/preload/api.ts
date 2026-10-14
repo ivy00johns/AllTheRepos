@@ -106,6 +106,9 @@ import type {
   ListReposInput,
   ListReposResult,
   MenuCommandPayload,
+  Note,
+  NotesGetInput,
+  NotesSaveInput,
   NotifyInput,
   NotifyResult,
   OpenInEditorInput,
@@ -641,6 +644,20 @@ export const api = {
         IPC.LAUNCHER.COPY_PATH,
         input,
       ) as Promise<LauncherResult>,
+  },
+
+  /**
+   * `notes:*` namespace — per-repo markdown scratchpad (NEW-PLAN.md §5.9).
+   * One file per repository under `{userData}/notes/<id>.md`; nothing is
+   * written inside a repository. Addressed by slug, keyed on the row id.
+   */
+  notes: {
+    /** Read one repo's note. A repo with no note resolves `content: ""`. */
+    get: (input: NotesGetInput): Promise<Note> =>
+      ipcRenderer.invoke(IPC.NOTES.GET, input) as Promise<Note>,
+    /** Write one repo's note. Blank content clears it. */
+    save: (input: NotesSaveInput): Promise<Note> =>
+      ipcRenderer.invoke(IPC.NOTES.SAVE, input) as Promise<Note>,
   },
 
   /**

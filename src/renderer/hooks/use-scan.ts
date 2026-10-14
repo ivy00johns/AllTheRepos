@@ -22,7 +22,7 @@ import { useCallback, useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { getAtr } from "@renderer/lib/atr";
-import { queryKeys } from "@renderer/lib/query-client";
+import { invalidateRepoList } from "@renderer/lib/query-client";
 import { useScanStore, type ScanState } from "@renderer/stores/scan";
 import type { StartScanInput } from "@shared/types";
 
@@ -113,10 +113,9 @@ function scheduleCatalogRefresh(queryClient: QueryClient): void {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    // `queryKeys.repos.all`, not the `["catalog"]` root this used before the key
-    // registry existed: nothing is stored under `["catalog"]`, so the refetch
-    // above matched no query and the grid stayed on the count from before the
-    // scan — the exact symptom the invalidation was written to prevent.
-    void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+    // Through the one helper that owns the repo-list key. The pre-registry root
+    // it replaced matched no query, so a finished scan left the grid on the
+    // count from before it — the exact symptom this refresh exists to prevent.
+    void invalidateRepoList(queryClient);
   }, REFRESH_INTERVAL_MS);
 }

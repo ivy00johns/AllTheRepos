@@ -67,10 +67,12 @@ import {
   graph,
   groups,
   listRepos,
+  note,
   relations,
   removeLink,
   removeScanPath,
   rescan,
+  saveNote,
   setFavorite,
   setTags,
   settings,
@@ -320,6 +322,14 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
         await ready;
         return setFavorite(slug, favorite) as never;
       },
+    },
+    notes: {
+      // The real app owns `{userData}/notes/` in the main process. A tab has
+      // none, so these come from the demo store's in-memory set — the same
+      // trade the favourites and tags above make. Blank content clears a note
+      // rather than leaving an empty one behind.
+      get: async ({ slug }) => note(slug) as never,
+      save: async ({ slug, content }) => saveNote(slug, content) as never,
     },
     scan: {
       // `StartScanResult` is `{ jobId, status: "running", startedAt }` — there is

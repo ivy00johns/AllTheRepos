@@ -370,6 +370,23 @@ export const IPC = {
      */
     ON_UPDATE: "claude:on:update",
   },
+
+  /**
+   * Notes namespace — per-repo markdown scratchpad (NEW-PLAN.md §5.9).
+   *
+   * One file per repository, `{userData}/notes/<repo-id>.md`, keyed on
+   * the catalog row's `id` rather than its slug: a slug is
+   * `kebab(name)-shortHash(full_path)`, so moving a repo changes it,
+   * while the row id survives a move and a re-scan. The file lives in
+   * the app's own data directory and nothing is written into your
+   * repositories — see `docs/COMMAND-DISCLOSURE.md` §4.
+   */
+  NOTES: {
+    /** Read one repo's note. Absent is a normal answer, not an error. */
+    GET: "notes:get",
+    /** Write one repo's note. Blank content clears it. */
+    SAVE: "notes:save",
+  },
 } as const;
 
 /**
@@ -395,7 +412,8 @@ export type IpcChannel =
   | Exclude<
       (typeof IPC.CLAUDE)[keyof typeof IPC.CLAUDE],
       typeof IPC.CLAUDE.ON_UPDATE
-    >;
+    >
+  | (typeof IPC.NOTES)[keyof typeof IPC.NOTES];
 
 /**
  * Push-style event channels (main → renderer).
