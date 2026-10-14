@@ -196,6 +196,10 @@ interface Evidence {
   infrastructure: boolean;
   docs: boolean;
   hasManifest: boolean;
+  /** A runnable application (e.g. a `start` script), not a package to import. */
+  runnable: boolean;
+  /** Experiment or analysis code: notebooks, research folders, ML frameworks. */
+  research: boolean;
 }
 
 function addTag(set: Map<string, Tag>, value: string): void {
@@ -244,6 +248,7 @@ function detectPackageJson(
   }
   if (pkg.engines?.bun) addTag(out, "bun");
   if (pkg.bin !== undefined) ev.cli = true;
+  if (pkg.scripts?.start) ev.runnable = true;
   const hasEntry =
     pkg.main !== undefined ||
     pkg.exports !== undefined ||
@@ -318,6 +323,9 @@ function detectPython(root: string, out: Map<string, Tag>, ev: Evidence): void {
   if (py && /^\[tool\.poetry\.scripts\]/m.test(py)) ev.cli = true;
   if (py && /^\[project\]/m.test(py) && !/^\[project\.scripts\]/m.test(py)) {
     ev.library = true;
+  }
+  if (/pytorch|\btorch|tensorflow|\bjax\b|\btransformers\b/i.test(blob)) {
+    ev.research = true;
   }
 }
 
@@ -419,10 +427,22 @@ function detectDocsEvidence(root: string, ev: Evidence): void {
     existsFile(path.join(root, "mkdocs.yml")) ||
     existsFile(path.join(root, "book.toml")) ||
     existsFile(path.join(root, "docusaurus.config.js")) ||
-    existsFile(path.join(root, "docusaurus.config.ts")) ||
-    existsDir(path.join(root, "docs"))
+    existsFile(path.join(root, "docusaurus.config.ts"))
   ) {
     ev.docs = true;
+  }
+}
+
+/** Root-level research evidence: notebooks, or conventional research folders. */
+function detectResearchEvidence(root: string, ev: Evidence): void {
+  if (rootEntries(root).some((name) => name.endsWith(".ipynb"))) {
+    ev.research = true;
+  }
+  if (
+    existsDir(path.join(root, "research")) ||
+    existsDir(path.join(root, "papers"))
+  ) {
+    ev.research = true;
   }
 }
 
@@ -439,8 +459,10 @@ function purposeFrom(ev: Evidence, root: string): string | null {
   if (frontend || existsFile(path.join(root, "index.html"))) return "web-app";
   if ([...ev.frameworks].some((f) => SERVER_FRAMEWORKS.has(f))) return "api";
   if (ev.infrastructure) return "infrastructure";
-  if (ev.library) return "library";
-  if (ev.docs && !ev.hasManifest) return "docs";
+  // A runnable app or a research project is not a package to import, and a
+  // research project's docs folder is notes, not a documentation product.
+  if (ev.library && !ev.runnable && !ev.research) return "library";
+  if (ev.docs && !ev.hasManifest && !ev.research) return "docs";
   return null;
 }
 
@@ -458,6 +480,8 @@ export function inferTags(input: HeuristicInput): Tag[] {
     infrastructure: false,
     docs: false,
     hasManifest: false,
+    runnable: false,
+    research: false,
   };
 
   detectPackageJson(root, out, ev);
@@ -466,6 +490,7 @@ export function inferTags(input: HeuristicInput): Tag[] {
   detectPython(root, out, ev);
   detectRuby(root, out, ev);
   detectInfrastructureEvidence(root, ev);
+  detectResearchEvidence(root, ev);
   detectDocsEvidence(root, ev);
   detectDocker(root, out);
   detectCI(root, out);

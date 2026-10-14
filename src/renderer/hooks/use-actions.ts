@@ -18,6 +18,7 @@ import type {
 } from "@shared/types";
 
 import { getAtr, requireAtr } from "@renderer/lib/atr";
+import { queryKeys } from "@renderer/lib/query-client";
 
 // ---------------------------------------------------------------------------
 // Favourites
@@ -32,23 +33,33 @@ import { getAtr, requireAtr } from "@renderer/lib/atr";
  */
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
+  // The repo list and repo detail both live under the `repos` key, so this
+  // targets that prefix. Keying on another prefix leaves the grid stale.
   return useMutation({
     mutationFn: async (input: { slug: string; favorite: boolean }) =>
       requireAtr().catalog.setFavorite(input),
     onMutate: async ({ slug, favorite }) => {
-      await queryClient.cancelQueries({ queryKey: ["catalog"] });
-      const snapshot = queryClient.getQueriesData({ queryKey: ["catalog"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.repos.all });
+      const snapshot = queryClient.getQueriesData({
+        queryKey: queryKeys.repos.all,
+      });
       queryClient.setQueriesData(
-        { queryKey: ["catalog"] },
+        { queryKey: queryKeys.repos.all },
         (old: unknown): unknown => {
-          if (!old || typeof old !== "object" || !("items" in old)) return old;
-          const list = old as { items: Repo[] };
-          return {
-            ...list,
-            items: list.items.map((repo) =>
-              repo.slug === slug ? { ...repo, isFavorite: favorite } : repo,
-            ),
-          };
+          if (!old || typeof old !== "object") return old;
+          if ("items" in old) {
+            const list = old as { items: Repo[] };
+            return {
+              ...list,
+              items: list.items.map((repo) =>
+                repo.slug === slug ? { ...repo, isFavorite: favorite } : repo,
+              ),
+            };
+          }
+          if ("slug" in old && (old as Repo).slug === slug) {
+            return { ...(old as Repo), isFavorite: favorite };
+          }
+          return old;
         },
       );
       return { snapshot };
@@ -59,7 +70,7 @@ export function useToggleFavorite() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
     },
   });
 }
