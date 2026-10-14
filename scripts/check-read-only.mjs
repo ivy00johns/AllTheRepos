@@ -145,6 +145,10 @@ export const WRITE_WAIVERS = {
     calls: ["mkdirSync", "writeFileSync", "renameSync"],
     why: "settings.json, written atomically inside the app's data directory",
   },
+  [path.join("src", "main", "services", "notes.ts")]: {
+    calls: ["mkdirSync", "writeFileSync", "renameSync"],
+    why: "a repository's note, written atomically inside the app's own data directory — never inside a repository",
+  },
   [path.join("src", "main", "window", "window-memory.ts")]: {
     calls: ["mkdirSync", "writeFileSync", "renameSync"],
     why: "window placement, written atomically inside the app's data directory",

@@ -1518,3 +1518,63 @@ export type ClaudeOpenClaudeMdInputZ = z.infer<
 >;
 export type ClaudeUpdateEventZ = z.infer<typeof ClaudeUpdateEventSchema>;
 export type TranscriptEventZ = z.infer<typeof TranscriptEventSchema>;
+
+// ---------------------------------------------------------------------------
+// notes:* — per-repo markdown scratchpad (NEW-PLAN.md §5.9)
+// ---------------------------------------------------------------------------
+//
+// One markdown file per repository, `{userData}/notes/<id>.md`. The caller
+// addresses a note by SLUG (the only handle the renderer holds for a repo),
+// and the handler resolves that to the catalog row's `id` before touching
+// disk. The id — not the slug — is the storage key: a slug is `kebab(name)-
+// shortHash(full_path)`, so it changes when a repo moves, while the row id
+// survives a move and a re-scan. Nothing here is ever written inside a
+// repository — see `docs/COMMAND-DISCLOSURE.md` §4.
+
+/**
+ * Ceiling on a single note body. Comfortably above any realistic scratchpad
+ * (and above the demo library's seeded notes) while keeping one IPC payload
+ * bounded. 256 KiB of markdown is a long document.
+ */
+export const MAX_NOTE_BYTES = 262_144;
+
+export const NotesGetInputSchema = z
+  .object({
+    /** Slug of the repository whose note to read. */
+    slug: SlugSchema,
+  })
+  .strict();
+
+/**
+ * One repo's note. `content` is `""` and `updatedAt` is `null` when the repo
+ * has no note — an absent note is a normal answer, not an error.
+ */
+export const NoteSchema = z.object({
+  /** Slug the note was addressed by, echoed so the renderer can key on it. */
+  slug: SlugSchema,
+  /** Full markdown body. `""` when there is no note. */
+  content: z.string(),
+  /** ISO-8601 mtime of the backing file; `null` when there is no file. */
+  updatedAt: z.string().nullable(),
+});
+
+/** Response of `notes:get`. Same shape as the save response. */
+export const NotesGetResultSchema = NoteSchema;
+
+export const NotesSaveInputSchema = z
+  .object({
+    slug: SlugSchema,
+    /**
+     * Full desired body. Whitespace-only content DELETES the note file, so
+     * a user who clears the editor is not left with an empty file behind.
+     */
+    content: z.string().max(MAX_NOTE_BYTES),
+  })
+  .strict();
+
+/** Response of `notes:save`. Reflects what was actually stored. */
+export const NotesSaveResultSchema = NoteSchema;
+
+export type NoteZ = z.infer<typeof NoteSchema>;
+export type NotesGetInputZ = z.infer<typeof NotesGetInputSchema>;
+export type NotesSaveInputZ = z.infer<typeof NotesSaveInputSchema>;

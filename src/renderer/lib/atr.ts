@@ -111,6 +111,9 @@ import type {
   ListReposInput,
   ListReposResult,
   MenuCommandPayload,
+  Note,
+  NotesGetInput,
+  NotesSaveInput,
   NotifyInput,
   NotifyResult,
   OpenInEditorInput,
@@ -356,6 +359,17 @@ export interface AtrBridge {
     openInFinder(input: OpenSlugInput): Promise<LauncherResult>;
     openRemote(input: OpenSlugInput): Promise<LauncherResult>;
     copyPath(input: OpenSlugInput): Promise<LauncherResult>;
+  };
+  /**
+   * `notes:*` namespace — per-repo markdown scratchpad. One file per
+   * repository under the app's own data directory; addressed by slug and
+   * stored against the catalog row id so a note follows a repo that moves.
+   */
+  notes: {
+    /** Read one repo's note. A repo with no note resolves `content: ""`. */
+    get(input: NotesGetInput): Promise<Note>;
+    /** Write one repo's note. Blank content clears it. */
+    save(input: NotesSaveInput): Promise<Note>;
   };
   /**
    * Phase 3b `claude:*` namespace — Claude Code integration.

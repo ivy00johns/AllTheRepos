@@ -69,4 +69,27 @@ export const queryKeys = {
     all: ["graph"] as const,
     links: (slug: string) => ["graph", "links", slug] as const,
   },
+  notes: {
+    all: ["notes"] as const,
+    detail: (slug: string) => ["notes", "detail", slug] as const,
+  },
 } as const;
+
+/**
+ * Invalidate every repo-list read.
+ *
+ * `useRepos({...})` stores its result under `["repos", "list", filters]`, so
+ * `["repos"]` is the prefix that reaches all of them.
+ *
+ * Every call site used to spell this as the bare `catalog` key — a key no query
+ * is ever registered under, and therefore an invalidation that matched nothing. The
+ * symptom was quiet and specific: a scan finished (the status bar said so, and
+ * the rows were in SQLite) while the grid still showed the count it had before,
+ * because nothing told it to look again. The same dead key sat behind adding or
+ * removing a scan root, a move, a folder rename, the git sync buttons, and the
+ * live `catalog:on:changed` stream. One exported helper, so there is exactly one
+ * place to get this right — and one place for a test to pin.
+ */
+export function invalidateRepoList(queryClient: QueryClient): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+}

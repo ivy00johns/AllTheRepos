@@ -337,6 +337,16 @@ const TABLE: Record<string, Check> = {
     call: (b) => b.claude.onUpdate(() => {}),
   },
 
+  // --- notes ----------------------------------------------------------------
+  // A note lives in its own store, so these two never touch the catalog row the
+  // other entries point at. The save is still a write, and it sits with the writes.
+  "notes.get": returns(schemas.NotesGetResultSchema, (b, f) =>
+    b.notes.get({ slug: f.slug }),
+  ),
+  "notes.save": returns(schemas.NotesSaveResultSchema, (b, f) =>
+    b.notes.save({ slug: f.slug, content: "contract note" }),
+  ),
+
   // --- catalog (writes) — last, they change the browser's copy --------------
   "catalog.setFavorite": returns(schemas.SetFavoriteResultSchema, (b, f) =>
     b.catalog.setFavorite({ slug: f.slug, favorite: true }),

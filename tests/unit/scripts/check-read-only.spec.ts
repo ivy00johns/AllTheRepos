@@ -269,11 +269,12 @@ describe("the write waivers", () => {
   });
 
   test("name every file that may write, so a new one is a decision", () => {
-    // Four files, all of them inside the app's own data directory. A fifth is a
+    // Five files, all of them inside the app's own data directory. A sixth is a
     // change somebody has to make on purpose.
     expect(Object.keys(script.WRITE_WAIVERS).sort()).toEqual([
       "src/main/db/client.ts",
       "src/main/db/migration.ts",
+      "src/main/services/notes.ts",
       "src/main/services/settings.ts",
       "src/main/window/window-memory.ts",
     ]);
