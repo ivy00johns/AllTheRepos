@@ -186,6 +186,47 @@ describe("services/tag — heuristic inference", () => {
       expect(values(callWith([]))).not.toContain("library");
     });
 
+    it("a runnable node app with entry fields is not a library", () => {
+      write(
+        "package.json",
+        JSON.stringify({
+          name: "notes-app",
+          main: "index.js",
+          types: "index.d.ts",
+          scripts: { start: "node index.js" },
+        }),
+      );
+      expect(values(callWith([]))).not.toContain("library");
+    });
+
+    it("a python research project with torch is not a library", () => {
+      write(
+        "pyproject.toml",
+        `[project]\nname = "exp"\ndependencies = ["torch"]\n`,
+      );
+      expect(values(callWith([{ name: "Python", bytes: 1 }]))).not.toContain(
+        "library",
+      );
+    });
+
+    it("a notebook project is not a library", () => {
+      write(
+        "pyproject.toml",
+        `[project]\nname = "analysis"\nversion = "0.1.0"\n`,
+      );
+      write("analysis.ipynb", `{}\n`);
+      expect(values(callWith([{ name: "Python", bytes: 1 }]))).not.toContain(
+        "library",
+      );
+    });
+
+    it("a plain python package is still a library", () => {
+      write("pyproject.toml", `[project]\nname = "util"\nversion = "0.1.0"\n`);
+      expect(values(callWith([{ name: "Python", bytes: 1 }]))[0]).toBe(
+        "library",
+      );
+    });
+
     it("Terraform at the root is infrastructure", () => {
       write("main.tf", `resource "null_resource" "x" {}\n`);
       expect(values(callWith([{ name: "HCL", bytes: 1 }]))[0]).toBe(
@@ -197,6 +238,15 @@ describe("services/tag — heuristic inference", () => {
       write("mkdocs.yml", `site_name: notes\n`);
       write("docs/index.md", `# hi\n`);
       expect(values(callWith([{ name: "Markdown", bytes: 1 }]))[0]).toBe(
+        "docs",
+      );
+    });
+
+    it("a research project with a docs site is not docs", () => {
+      write("mkdocs.yml", `site_name: notes\n`);
+      write("docs/index.md", `# hi\n`);
+      write("research/results.md", `# results\n`);
+      expect(values(callWith([{ name: "Markdown", bytes: 1 }]))).not.toContain(
         "docs",
       );
     });
@@ -280,6 +330,14 @@ describe("services/tag — heuristic inference", () => {
       const tags = callWith([{ name: "TypeScript", bytes: 1 }]);
       expect(tags.length).toBeLessThanOrEqual(6);
       expect(tags[0]?.value).toBe("desktop-app");
+    });
+
+    it("a code repo with a docs folder but no docs site is not docs", () => {
+      write("docs/guide.md", `# guide\n`);
+      write("app.py", `print('hi')\n`);
+      expect(values(callWith([{ name: "Python", bytes: 1 }]))).not.toContain(
+        "docs",
+      );
     });
 
     it("keeps docker and ci when the cap is full of frameworks", () => {
