@@ -11,6 +11,8 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
 ### Added
 
 - save a filter as a group, instead of only making groups by hand. `groups:create` has taken
@@ -32,7 +34,6 @@ source of truth for the current version.
   Gated by
   `tests/unit/renderer/saved-filter.spec.ts`, `tests/unit/renderer/smart-filter.spec.ts` and the
   saved-filter walk in `tests/e2e/groups-flow.spec.ts`.
-
 - save the view you are looking at as a saved filter. The rail's `New saved filter` asks you to
   translate a grid into conditions; the toolbar's `Save filter` starts from the conditions already in
   force. It opens the same dialog with the boxes the view is using pre-ticked, and names the parts a
@@ -44,7 +45,6 @@ source of truth for the current version.
   that exclusion, and `filterIncludesArchived` is what the pass, the banner and the dialog all ask.
   Saving opens the new group and clears the view filters the rule now owns, so unticking a box in the
   dialog means something. Gated by the fourth walk in `tests/e2e/groups-flow.spec.ts`.
-
 - fill a group, and select more than one repo without a modifier key. ATR-043 had been the one gap
   a launch post had to leave out: `groups:setMembers` existed in the bridge with no caller, so a
   group could be created and stayed empty for good. Membership has three doors now — the detail
@@ -96,7 +96,6 @@ source of truth for the current version.
   `Add folder to scan` click runs the real resolve/validate/write/scan path — the folder's repo has to
   reach the grid — and picking the same folder again is refused with the notice strip while the
   single row stays put, which is the duplicate rule the two doors are supposed to share.
-
 - resolve an entered scan path in the browser demo, and refuse one that is relative.
   `demo-store.addScanPath` stripped trailing slashes and stored the string as typed, so `repos` became
   a root with nothing under it — `countUnder` said 0, the rail drew an empty row, and no scan could
@@ -107,7 +106,6 @@ source of truth for the current version.
   so it is refused here with a reason rather than stored. `removeScanPath` resolves the same way, or
   a root reached by a different spelling could be added and never dropped. Gated by two cases in
   `tests/unit/renderer/demo-store.spec.ts`.
-
 - refuse a settings write the shared schema rejects, in the browser demo. `demo-store.updateSettings`
   merged any patch it was handed, so a review tab would accept and then render a Settings the app can
   never hold — clearing the Ollama URL is the shortest route, which the desktop rejects at its IPC
@@ -118,7 +116,6 @@ source of truth for the current version.
   rejects everything the first would, one line later, so the store owns the only parse and the
   bridge keeps calling it. Gated by a case in `tests/unit/renderer/demo-store.spec.ts` and
   one in `tests/unit/renderer/browser-bridge-contract.spec.ts` that drives it through the bridge.
-
 - refuse a scan folder already covered by a root in the browser demo. `demo-store.addScanPath`
   checked for an exact duplicate and nothing else, so the browser tab would accept `~/Repos/work/apps`
   while `~/Repos/work` was already being scanned — the entry the desktop app refuses because the
@@ -128,7 +125,6 @@ source of truth for the current version.
   and a parent of existing roots (accepted, folding them into one entry). The two spellings of the
   duplicate message became one while the rules were being copied. Gated by two cases in
   `tests/unit/renderer/demo-store.spec.ts`.
-
 - file a repo that is a scan root in the rail's root row, not under phantom folders. `buildTreeAt`
   derived each repo's folder from its parent path, and for a repo whose `full_path` IS the tree's
   root there is no such folder inside the tree: it took the absolute parent and walked in from the
@@ -142,7 +138,6 @@ source of truth for the current version.
   card back. These two were the only path comparisons of this shape that disagreed: `isInside` in
   the scan-root service and in the watcher, `isUnder` in the rail, and the demo store's `isInside`
   all already treat a path as inside itself.
-
 - count a repo that is a scan root when that root is removed. Pointing the app at
   `~/Repos/my-project` catalogues that folder, so its `full_path` is the scan root path exactly —
   and both the confirmation's count and the forget behind it asked `full_path LIKE root/%`, which
@@ -154,7 +149,6 @@ source of truth for the current version.
   (count and forget on a root-shaped row) and a fourth walk in `tests/e2e/catalog-refresh.spec.ts`
   that scans a folder which is itself a repo, reads the count off the real confirmation and checks
   the card is gone.
-
 - refresh a repo's card when it is pinned. `useToggleFavorite` was still cancelling, snapshotting and
   invalidating the `["catalog"]` query root from before `queryKeys` existed, and nothing is stored
   there — so the optimistic write matched no query and the invalidation refreshed none. Pinning left
@@ -175,7 +169,6 @@ source of truth for the current version.
   option in that dialog, "Keep them in the catalog", and asserts the repo stays on the grid under
   `Outside scan folders` rather than being forgotten. All were checked to fail against the old keys
   before the fix was accepted.
-
 - render the demo poster where the `<video>` tag did not. The README embed added on 2026-10-11 was
   a `<video src="docs/demo-video/alltherepos-demo.mp4">`, and GitHub strips `<video>` from a
   README: the live page carried the sentence under it and no player above it, which nobody
@@ -1200,7 +1193,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0
 [0.1.8]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.8
 [0.1.7]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.7
