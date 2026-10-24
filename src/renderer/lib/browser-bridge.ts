@@ -451,9 +451,11 @@ function buildBridge(ready: Promise<CatalogSource>): AtrBridge {
       create: async () => refused(),
       rename: async () => refused(),
       // `deleted` is `z.literal(true)`, so a result cannot say "nothing was
-      // deleted" — the same reason the other three refuse.
+      // deleted" — the same reason the other four refuse. `updateFilter` joins
+      // them: there is no smart group in the demo whose rule could be rewritten.
       delete: async () => refused(),
       setMembers: async () => refused(),
+      updateFilter: async () => refused(),
     },
     app: {
       // `SetDockBadgeResult` is `{ badge }` — the badge text LEFT on the icon.

@@ -50,6 +50,7 @@ import {
   ListGroupsInputSchema,
   CreateGroupInputSchema,
   RenameGroupInputSchema,
+  UpdateGroupFilterInputSchema,
   DeleteGroupInputSchema,
   SetGroupMembersInputSchema,
   // ---- Phase 2 additions
@@ -370,10 +371,23 @@ describe("SmartFilterSchema", () => {
       tagsInclude: ["wasm"],
       tagsExclude: ["archived"],
       dirtyOnly: true,
+      favoritesOnly: true,
+      includeArchived: true,
       sinceDays: 30,
       hasRemote: true,
     };
     expect(SmartFilterSchema.parse(input)).toEqual(input);
+  });
+
+  it("accepts the two view-shaped conditions on their own", () => {
+    // A filter built from the toolbar can be nothing but "pinned" or "archived
+    // included"; the schema must not require a narrower condition beside them.
+    expect(SmartFilterSchema.parse({ favoritesOnly: true })).toEqual({
+      favoritesOnly: true,
+    });
+    expect(SmartFilterSchema.parse({ includeArchived: true })).toEqual({
+      includeArchived: true,
+    });
   });
 
   it("rejects a negative sinceDays", () => {
@@ -1266,6 +1280,35 @@ describe("DeleteGroupInputSchema", () => {
 
   it("rejects a missing id", () => {
     expect(() => DeleteGroupInputSchema.parse({})).toThrow();
+  });
+});
+
+describe("UpdateGroupFilterInputSchema", () => {
+  it("accepts an id and a nested rule", () => {
+    const input = {
+      id: 3,
+      smartFilter: { language: "TypeScript", tagsInclude: ["cli"], sinceDays: 30 },
+    };
+    expect(UpdateGroupFilterInputSchema.parse(input)).toEqual(input);
+  });
+
+  it("rejects a null filter — a saved filter is not made empty in place", () => {
+    expect(() =>
+      UpdateGroupFilterInputSchema.parse({ id: 3, smartFilter: null }),
+    ).toThrow();
+  });
+
+  it("rejects a missing filter", () => {
+    expect(() => UpdateGroupFilterInputSchema.parse({ id: 3 })).toThrow();
+  });
+
+  it("rejects a non-integer id and an invalid nested value", () => {
+    expect(() =>
+      UpdateGroupFilterInputSchema.parse({ id: 3.5, smartFilter: {} }),
+    ).toThrow();
+    expect(() =>
+      UpdateGroupFilterInputSchema.parse({ id: 3, smartFilter: { sinceDays: -1 } }),
+    ).toThrow();
   });
 });
 

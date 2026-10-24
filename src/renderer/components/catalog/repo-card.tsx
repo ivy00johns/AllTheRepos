@@ -32,6 +32,7 @@ import type { OwnershipInfo } from "@renderer/lib/ownership";
 import { colorForLanguage } from "./language-colors";
 import { FavoriteStar } from "./favorite-star";
 import { RepoCover } from "./repo-cover";
+import { SelectionCheckbox } from "./selection-checkbox";
 import {
   ActivityBar,
   BranchMark,
@@ -174,6 +175,22 @@ export function RepoCard({
         )}
       >
         <div className="flex min-w-0 shrink-0 items-center gap-2">
+          {/*
+            First in the row, and therefore first in the tab order: the title
+            button follows it, and the port chip, star and launchers after that
+            (`nav-card-a11y.spec.ts` walks exactly that order from the title).
+          */}
+          <SelectionCheckbox
+            name={repo.name}
+            checked={checked ?? false}
+            /*
+             * `true` for "additive" in both directions, because a checkbox is
+             * a membership toggle: ticking one repo must not throw away the
+             * four already ticked. The `additive: false` branch in the store
+             * exists for a plain click on a card, which replaces the selection.
+             */
+            onCheckedChange={() => onToggleChecked?.(repo.slug, true)}
+          />
           <h3 className="atr-truncate font-mono text-sm font-semibold text-foreground">
             <button
               type="button"

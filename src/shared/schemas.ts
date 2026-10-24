@@ -129,6 +129,8 @@ export const SmartFilterSchema = z.object({
   tagsInclude: z.array(z.string()).optional(),
   tagsExclude: z.array(z.string()).optional(),
   dirtyOnly: z.boolean().optional(),
+  favoritesOnly: z.boolean().optional(),
+  includeArchived: z.boolean().optional(),
   sinceDays: z.number().int().nonnegative().optional(),
   hasRemote: z.boolean().optional(),
 });
@@ -938,6 +940,12 @@ export const RenameGroupInputSchema = z.object({
   name: z.string().min(1),
 });
 export const RenameGroupResultSchema = GroupSchema;
+
+export const UpdateGroupFilterInputSchema = z.object({
+  id: z.number().int(),
+  smartFilter: SmartFilterSchema,
+});
+export const UpdateGroupFilterResultSchema = GroupSchema;
 
 export const DeleteGroupInputSchema = z.object({
   id: z.number().int(),

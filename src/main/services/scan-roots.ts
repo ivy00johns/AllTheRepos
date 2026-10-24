@@ -51,14 +51,24 @@ function isInside(child: string, parent: string): boolean {
   return child === parent || child.startsWith(withSep);
 }
 
-/** Slugs of every catalog row living beneath `dir`. */
+/**
+ * Slugs of every catalog row living under `dir`, including one AT `dir`.
+ *
+ * The equality branch is not redundant: a scan root can be a repository itself
+ * — point the app at `~/Repos/my-project` and the scanner catalogues that
+ * folder as a repo. `full_path LIKE 'dir/%'` does not match the root, so without
+ * this the removal dialog said "No repos have been catalogued here" about the
+ * one repo it was most obviously about, and "forget what is here" left it in
+ * the catalog under Outside scan folders.
+ */
 function slugsUnder(dir: string): string[] {
-  const prefix = `${normalize(dir)}/`;
+  const root = normalize(dir);
+  const escaped = root.replace(/[\\%_]/g, "\\$&");
   const rows = getSqlite()
     .prepare(
-      "SELECT slug FROM repos WHERE full_path LIKE ? ESCAPE '\\' ORDER BY full_path",
+      "SELECT slug FROM repos WHERE full_path = ? OR full_path LIKE ? ESCAPE '\\' ORDER BY full_path",
     )
-    .all(`${prefix.replace(/[\\%_]/g, "\\$&")}%`) as Array<{ slug: string }>;
+    .all(root, `${escaped}/%`) as Array<{ slug: string }>;
   return rows.map((row) => row.slug);
 }
 

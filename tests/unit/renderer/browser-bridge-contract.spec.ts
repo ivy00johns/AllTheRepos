@@ -201,9 +201,9 @@ const TABLE: Record<string, Check> = {
     b.groups.list(),
   ),
   // Membership in the demo library is derived from where a repo lives, so the
-  // three group writes cannot change anything a reviewer would then see. They
-  // refuse, in the same voice as the bridge's other refusals, and `delete`
-  // answers with a result because "there is nothing to delete" is an answer.
+  // group writes cannot change anything a reviewer would then see. They refuse,
+  // in the same voice as the bridge's other refusals, and `delete` answers with
+  // a result because "there is nothing to delete" is an answer.
   "groups.create": {
     kind: "refuses",
     call: (b) => b.groups.create({ name: "contract" }),
@@ -215,6 +215,10 @@ const TABLE: Record<string, Check> = {
   "groups.setMembers": {
     kind: "refuses",
     call: (b) => b.groups.setMembers({ groupId: 1, slugs: [] }),
+  },
+  "groups.updateFilter": {
+    kind: "refuses",
+    call: (b) => b.groups.updateFilter({ id: 1, smartFilter: { dirtyOnly: true } }),
   },
   // `deleted` is `z.literal(true)` — there is no shape for "nothing deleted".
   "groups.delete": {
@@ -510,4 +514,27 @@ describe("the browser bridge answers to the contract its callers read", () => {
     expect(named(Object.keys(TABLE))).toEqual([]);
   });
 
+  /*
+   * The table above is about what a method RESOLVES. This one is about what it
+   * refuses: `settings.update` used to merge any patch it was handed, so the
+   * tab would store and render a Settings the shared schema rejects, while the
+   * desktop refuses the same write at its IPC boundary. Both halves are checked
+   * here because they are two different comparisons — a value the schema
+   * rejects, and a key it does not know.
+   */
+  it("refuses a settings patch the schema rejects, and drops an unknown key", async () => {
+    await expect(
+      (bridge.settings.update as (patch: unknown) => Promise<unknown>)({
+        ollamaBaseUrl: "",
+      }),
+    ).rejects.toThrow();
+
+    const parsed = schemas.UpdateSettingsResultSchema.parse(
+      await (bridge.settings.update as (patch: unknown) => Promise<unknown>)({
+        ollamaBaseUrl: "http://localhost:11434",
+        notASetting: "x",
+      }),
+    );
+    expect(parsed).not.toHaveProperty("notASetting");
+  });
 });

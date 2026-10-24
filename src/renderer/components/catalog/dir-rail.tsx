@@ -26,15 +26,24 @@ import {
   Layers,
   Sparkles,
   FolderSearch,
+  Filter,
   MoreHorizontal,
+  Pencil,
   RefreshCw,
   FolderMinus,
   Plus,
   Star,
+  Trash2,
 } from "lucide-react";
 
 import type { Group, Repo } from "@shared/types";
 
+import {
+  CreateGroupDialog,
+  DeleteGroupDialog,
+  RenameGroupDialog,
+  SavedFilterDialog,
+} from "@renderer/components/groups/group-dialogs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +62,12 @@ import {
   type TreeNode,
 } from "@renderer/lib/repo-tree";
 import { OWNERSHIP_HINTS, type Ownership } from "@renderer/lib/ownership";
+import {
+  languagesInCatalog,
+  matchesSmartFilter,
+} from "@renderer/lib/smart-filter";
 import { useCatalogView } from "@renderer/stores/catalog-view";
+import { useUiStore } from "@renderer/stores/ui";
 
 interface DirRailProps {
   repos: Repo[];
@@ -669,37 +683,291 @@ export function DirRail({
         </button>
       ) : null}
 
-      {groups.length > 0 ? (
-        <>
-          <SectionLabel>Groups</SectionLabel>
-          <ul>
-            {groups.map((group) => (
-              <li key={group.id}>
-                <button
-                  type="button"
-                  className="atr-rail-row"
-                  data-selected={activeGroupId === group.id ? "true" : "false"}
-                  aria-pressed={activeGroupId === group.id}
-                  onClick={() =>
-                    onSelectGroup(activeGroupId === group.id ? null : group.id)
-                  }
-                >
-                  <Sparkles
-                    className={cn(
-                      "ml-6 h-3.5 w-3.5 shrink-0",
-                      group.isSmart ? "text-accent" : "text-muted-foreground",
-                    )}
-                    aria-hidden
-                  />
-                  <span className="atr-truncate">{group.name}</span>
-                  <CountBadge count={group.repoCount} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
+      <GroupSection
+        groups={groups}
+        repos={repos}
+        activeGroupId={activeGroupId}
+        onSelectGroup={onSelectGroup}
+      />
     </nav>
+  );
+}
+
+/**
+ * The groups list, and the only place a group can be made, renamed or deleted.
+ *
+ * Before this, the app could *show* groups but not manage them: the sidebar
+ * that owned create/rename/delete (`components/groups/group-sidebar.tsx`) was
+ * never mounted, so the feature existed as an IPC channel and a component file
+ * with nothing between them. It also drew a second navigation column beside
+ * this rail, which is why mounting it was never the answer — the rail already
+ * lists the groups, so management belongs on the rows it already draws.
+ *
+ * Two creation rows, not one: a manual group is a list you fill yourself, and a
+ * saved filter is a rule that fills the group for you. They are the same entity
+ * in SQLite (`is_smart` plus a filter), and only the first could be made from
+ * the UI — so the second existed in the backend and nowhere a person could
+ * reach it.
+ *
+ * Both rows are rendered even when there are no groups. A section that only
+ * appears once something is in it is a section nobody can put anything into.
+ */
+function GroupSection({
+  groups,
+  repos,
+  activeGroupId,
+  onSelectGroup,
+}: {
+  groups: Group[];
+  /** The catalog, for counting what each saved filter matches. */
+  repos: Repo[];
+  activeGroupId: number | null;
+  onSelectGroup: (id: number | null) => void;
+}) {
+  const [creating, setCreating] = React.useState(false);
+  const [creatingFilter, setCreatingFilter] = React.useState(false);
+  const [editingFilter, setEditingFilter] = React.useState<Group | null>(null);
+  const [menu, setMenu] = React.useState<{
+    group: Group;
+    action: "rename" | "delete";
+  } | null>(null);
+  const pushNotice = useUiStore((s) => s.pushNotice);
+
+  /**
+   * A saved filter's count is computed, not stored.
+   *
+   * `repoCount` counts rows in `repo_groups`, which a smart group never has — it
+   * matches by rule. Reading it would put a badge saying 0 beside a filter whose
+   * grid opens with twelve repos, so the rail counts through the same predicate
+   * the grid filters with. Once per list rather than once per row, because the
+   * predicate reads the clock for `sinceDays`.
+   */
+  const countsByGroupId = React.useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const group of groups) {
+      counts.set(
+        group.id,
+        group.isSmart
+          ? repos.filter((repo) => matchesSmartFilter(repo, group.smartFilter))
+              .length
+          : group.repoCount,
+      );
+    }
+    return counts;
+  }, [groups, repos]);
+
+  /** Languages a filter can choose between — the ones actually in the catalog. */
+  const languages = React.useMemo(() => languagesInCatalog(repos), [repos]);
+
+  return (
+    <>
+      <SectionLabel>Groups</SectionLabel>
+      <ul>
+        {groups.map((group) => (
+          <li key={group.id}>
+            <div
+              className="atr-rail-row group/row"
+              data-selected={activeGroupId === group.id ? "true" : "false"}
+            >
+              <button
+                type="button"
+                aria-pressed={activeGroupId === group.id}
+                onClick={() =>
+                  onSelectGroup(activeGroupId === group.id ? null : group.id)
+                }
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
+              >
+                <Sparkles
+                  className={cn(
+                    "ml-6 h-3.5 w-3.5 shrink-0",
+                    group.isSmart ? "text-accent" : "text-muted-foreground",
+                  )}
+                  aria-hidden
+                />
+                <span className="atr-truncate">{group.name}</span>
+                <CountBadge count={countsByGroupId.get(group.id) ?? 0} />
+              </button>
+
+              {/*
+                Every group, smart or manual, offers rename and delete. Leaving
+                the menu off saved filters meant the groups you could now create
+                were the ones you could not manage — a filter with a typo in its
+                name had no way out but the database.
+              */}
+              <GroupRowMenu
+                group={group}
+                onEdit={() => setEditingFilter(group)}
+                onRename={() => setMenu({ group, action: "rename" })}
+                onDelete={() => setMenu({ group, action: "delete" })}
+              />
+            </div>
+          </li>
+        ))}
+
+        <li>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            title="A list you fill by hand — pick repos, then Add to group"
+            className="atr-rail-row text-muted-foreground"
+          >
+            <Plus className="ml-6 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="atr-truncate">New group</span>
+          </button>
+        </li>
+
+        <li>
+          <button
+            type="button"
+            onClick={() => setCreatingFilter(true)}
+            title="A group that fills itself — every repo matching the conditions you choose"
+            className="atr-rail-row text-muted-foreground"
+          >
+            <Filter className="ml-6 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="atr-truncate">New saved filter</span>
+          </button>
+        </li>
+      </ul>
+
+      <CreateGroupDialog
+        open={creating}
+        onOpenChange={setCreating}
+        /*
+         * Deliberately does NOT open the new group.
+         *
+         * A new group has no members, so opening it shows an empty catalog —
+         * and the way to fill a group is to select repos, which you cannot do
+         * from a grid showing none. The notice names the next step instead,
+         * and the group is waiting in this rail with its count.
+         */
+        onCreated={(group) =>
+          pushNotice(
+            `Created “${group.name}” — select repos in the catalog, then choose Add to group.`,
+          )
+        }
+      />
+
+      <SavedFilterDialog
+        open={creatingFilter}
+        onOpenChange={setCreatingFilter}
+        languages={languages}
+        repos={repos}
+        /*
+         * Opened, unlike a manual group.
+         *
+         * A manual group is empty the moment it exists, so opening it shows a
+         * grid with nothing in it. A saved filter has members the instant it is
+         * saved — opening it is the one way to see the rule work, and changing
+         * your mind means editing the filter rather than an empty list.
+         */
+        onSaved={(group) => onSelectGroup(group.id)}
+      />
+
+      {/*
+        Editing is a separate instance rather than a flag on the one above: it is
+        mounted only while a group is being edited, so closing it cannot leave the
+        create copy on screen for the length of an exit animation.
+      */}
+      {editingFilter ? (
+        <SavedFilterDialog
+          open
+          group={editingFilter}
+          onOpenChange={(open) => {
+            if (!open) setEditingFilter(null);
+          }}
+          languages={languages}
+          repos={repos}
+        />
+      ) : null}
+
+      {menu?.action === "rename" ? (
+        <RenameGroupDialog
+          group={menu.group}
+          open
+          onOpenChange={(open) => {
+            if (!open) setMenu(null);
+          }}
+        />
+      ) : null}
+
+      {menu?.action === "delete" ? (
+        <DeleteGroupDialog
+          group={menu.group}
+          open
+          onOpenChange={(open) => {
+            if (!open) setMenu(null);
+          }}
+          /*
+           * Deleting the group you are standing in leaves the catalog asking a
+           * route param that no longer names anything. Leave first, then the
+           * row disappears.
+           */
+          onDeleted={() => {
+            if (activeGroupId === menu.group.id) onSelectGroup(null);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Edit / rename / delete for one group, behind a row-level overflow menu.
+ *
+ * `Edit filter…` exists only for saved filters, and not as a convenience: a tag
+ * typo or a window that should have been 90 days instead of 30 is the ordinary
+ * case, and without it the only way to correct one was to delete the group and
+ * build it again under the same name.
+ */
+function GroupRowMenu({
+  group,
+  onEdit,
+  onRename,
+  onDelete,
+}: {
+  group: Group;
+  onEdit: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Actions for group ${group.name}`}
+          className={cn(
+            "shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity duration-150",
+            "hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100",
+            open && "opacity-100",
+          )}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        {group.isSmart ? (
+          <DropdownMenuItem onSelect={onEdit}>
+            <Filter className="h-3.5 w-3.5" aria-hidden />
+            Edit filter…
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onSelect={onRename}>
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Rename…
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={onDelete}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          Delete…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

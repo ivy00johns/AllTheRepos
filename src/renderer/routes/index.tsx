@@ -11,8 +11,9 @@
  * components that don't exist (`catalog-grid`, `repo-detail-panel`,
  * `layout/sidebar`). The frontend-components agent shipped a single
  * `<CatalogShell />` that wraps the actual primitives (`repo-grid`,
- * `detail-panel`, `group-sidebar`), so we delegate to it instead of
- * trying to compose the pieces by hand.
+ * `detail-panel`, `dir-rail`), so we delegate to it instead of trying to
+ * compose the pieces by hand. The old `group-sidebar` is gone: it was never
+ * mounted, and group management now lives on the rail's own group rows.
  */
 
 import * as React from "react";

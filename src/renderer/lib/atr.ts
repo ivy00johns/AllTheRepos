@@ -138,6 +138,8 @@ import type {
   SetDockBadgeResult,
   SetGroupMembersInput,
   SetGroupMembersResult,
+  UpdateGroupFilterInput,
+  UpdateGroupFilterResult,
   SetRepoTagsInput,
   SetRepoTagsResult,
   TagCleanupApplyInput,
@@ -264,6 +266,9 @@ export interface AtrBridge {
     rename(input: RenameGroupInput): Promise<RenameGroupResult>;
     delete(input: DeleteGroupInput): Promise<DeleteGroupResult>;
     setMembers(input: SetGroupMembersInput): Promise<SetGroupMembersResult>;
+    updateFilter(
+      input: UpdateGroupFilterInput,
+    ): Promise<UpdateGroupFilterResult>;
   };
   /**
    * Facts about the running build, read synchronously off the preload — no

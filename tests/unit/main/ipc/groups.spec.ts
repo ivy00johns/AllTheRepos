@@ -17,6 +17,7 @@ vi.mock("@main/services/catalog", () => ({
     renameGroup: vi.fn(),
     deleteGroup: vi.fn(),
     setGroupMembers: vi.fn(),
+    updateGroupFilter: vi.fn(),
   },
 }));
 
@@ -27,6 +28,7 @@ import {
   handleGroupsRename,
   handleGroupsDelete,
   handleGroupsSetMembers,
+  handleGroupsUpdateFilter,
 } from "@main/ipc/groups";
 
 const fixtureGroup = {
@@ -170,5 +172,48 @@ describe("handleGroupsSetMembers", () => {
       handleGroupsSetMembers({ groupId: 1, slugs: [""] }),
     ).rejects.toThrow();
     expect(catalogService.setGroupMembers).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleGroupsUpdateFilter", () => {
+  it("forwards the id and the new rule to the service", async () => {
+    const updated = {
+      ...fixtureGroup,
+      id: 2,
+      name: "Rust",
+      isSmart: true,
+      smartFilter: { language: "rust" },
+    };
+    vi.mocked(catalogService.updateGroupFilter).mockResolvedValue(updated);
+    const out = await handleGroupsUpdateFilter({
+      id: 2,
+      smartFilter: { language: "rust" },
+    });
+    expect(catalogService.updateGroupFilter).toHaveBeenCalledWith(2, {
+      language: "rust",
+    });
+    expect(out.smartFilter).toEqual({ language: "rust" });
+  });
+
+  it("rejects a non-integer id", async () => {
+    await expect(
+      handleGroupsUpdateFilter({ id: 1.5, smartFilter: { dirtyOnly: true } }),
+    ).rejects.toThrow();
+    expect(catalogService.updateGroupFilter).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing filter rather than clearing the rule", async () => {
+    await expect(handleGroupsUpdateFilter({ id: 2 })).rejects.toThrow();
+    await expect(
+      handleGroupsUpdateFilter({ id: 2, smartFilter: null }),
+    ).rejects.toThrow();
+    expect(catalogService.updateGroupFilter).not.toHaveBeenCalled();
+  });
+
+  it("rejects a filter the schema does not recognise", async () => {
+    await expect(
+      handleGroupsUpdateFilter({ id: 2, smartFilter: { sinceDays: -1 } }),
+    ).rejects.toThrow();
+    expect(catalogService.updateGroupFilter).not.toHaveBeenCalled();
   });
 });

@@ -225,6 +225,88 @@ describe("settings", () => {
     expect(graph.nodes.filter((node) => node.folder.startsWith(root))).toHaveLength(0);
   });
 
+  test("a folder inside a root is refused, naming the root that covers it", async () => {
+    // The same rule main's scan-root service applies: the scanner already walks
+    // into a covered folder, so a second entry only doubles the work and splits
+    // the rail in two.
+    const store = await freshStore();
+    const root = store.settings().scanPaths[0] as string;
+    const result = AddScanPathResultSchema.parse(
+      store.addScanPath(`${root}/frontend`),
+    );
+    expect(result.added).toBe(false);
+    expect(result.reason).toBe(`Already covered by ${root}.`);
+    expect(store.settings().scanPaths).toEqual([root]);
+  });
+
+  test("a relative path is refused instead of becoming an empty root", async () => {
+    // The desktop resolves a relative path against its own working directory
+    // and then fails to find it, so it is refused there too; a tab has no
+    // working directory and no `stat`, so it refuses the path itself. Stored
+    // verbatim it would be a root nothing in the catalog could ever be under.
+    const store = await freshStore();
+    const before = [...store.settings().scanPaths];
+    const result = AddScanPathResultSchema.parse(store.addScanPath("repos"));
+    expect(result.added).toBe(false);
+    expect(result.reason).toContain("full path");
+    expect(store.settings().scanPaths).toEqual(before);
+  });
+
+  test("a path with . and .. resolves to the folder it means", async () => {
+    const store = await freshStore();
+    const root = store.settings().scanPaths[0] as string;
+    const name = root.split("/").pop();
+
+    // Resolved, this is the root already being scanned — not a folder beside
+    // it, which is what the raw string asked for.
+    const again = AddScanPathResultSchema.parse(
+      store.addScanPath(`${root}/../${name}`),
+    );
+    expect(again.added).toBe(false);
+    expect(again.reason).toBe("That folder is already being scanned.");
+
+    // Repeated separators and a trailing one are the same folder too.
+    expect(
+      AddScanPathResultSchema.parse(store.addScanPath("//Users//demo//Extra/"))
+        .added,
+    ).toBe(true);
+    expect(store.settings().scanPaths).toContain("/Users/demo/Extra");
+
+    // Removal resolves the same way, or the root could be added and not dropped.
+    const dropped = RemoveScanPathResultSchema.parse(
+      store.removeScanPath("//Users//demo//Extra/../Extra", false),
+    );
+    expect(dropped.removed).toBe(true);
+    expect(store.settings().scanPaths).not.toContain("/Users/demo/Extra");
+  });
+
+  test("adding a parent folds the roots it covers into one entry", async () => {
+    const store = await freshStore();
+    const side = "/Users/demo/Side";
+    expect(AddScanPathResultSchema.parse(store.addScanPath(side)).added).toBe(
+      true,
+    );
+
+    const parent = "/Users/demo";
+    const result = AddScanPathResultSchema.parse(store.addScanPath(parent));
+    expect(result.added).toBe(true);
+    // Both covered roots go, rather than staying behind as duplicate coverage.
+    expect(store.settings().scanPaths).toEqual([parent]);
+  });
+
+  test("an invalid value is refused rather than stored", async () => {
+    /*
+     * The desktop refuses this twice — once when the IPC layer parses the patch,
+     * once when the service re-parses the merged blob — and keeps the old value.
+     * A tab that stored it would render a Settings its own schema rejects, which
+     * is the state no screenshot of the app can ever be in.
+     */
+    const store = await freshStore();
+    const before = settingsParse(store);
+    expect(() => store.updateSettings({ ollamaBaseUrl: "" })).toThrow();
+    expect(settingsParse(store)).toEqual(before);
+  });
+
   test("a patch merges without blanking an untouched optional field", async () => {
     const store = await freshStore();
     const before = settingsParse(store);

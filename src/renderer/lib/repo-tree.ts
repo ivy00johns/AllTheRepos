@@ -99,6 +99,18 @@ export function buildTreeAt(
   const byPath = new Map<string, TreeNode>([[root.path, root]]);
 
   for (const repo of repos) {
+    /*
+     * A repo can BE the root: a scan root that is itself a repository. Its
+     * parent lies outside the tree, so the walk below would derive the chain
+     * from the absolute path — phantom folders named `Users`, `j` and so on
+     * under the root, with the repo at the bottom of them. It belongs in the
+     * root's own rows.
+     */
+    if (repo.fullPath === root.path) {
+      root.repos.push(repo);
+      continue;
+    }
+
     const dir = repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/"));
     // Walk from the root down, creating intermediate nodes on the way.
     const relative = dir.startsWith(root.path)
@@ -170,17 +182,24 @@ export function isUnder(path: string, ancestor: string): boolean {
 }
 
 /**
- * True when `path` sits *directly* inside `dir` — one level, not deeper.
+ * True when `path` sits *directly* in `dir` — one level, not deeper.
  *
  * `isUnder` answers "is this inside the folder"; this answers "is this in
  * the folder itself". The rail's "directly in this folder" row needs the
  * second question: selecting the folder shows the whole subtree, and this
  * is what lets the row narrow the catalog to the repos sitting at its top
  * level alone.
+ *
+ * A repo whose path IS the folder counts: a scan root can be a repository,
+ * and `buildTreeAt` files that one in the root's own rows, which is the same
+ * list this predicate filters. Without the equality branch the row would
+ * count that repo and then show an empty grid.
  */
 export function isDirectlyIn(path: string, dir: string): boolean {
+  const folder = dir.replace(/\/+$/, "");
+  if (path === folder) return true;
   const parent = path.slice(0, path.lastIndexOf("/"));
-  return parent === dir.replace(/\/+$/, "");
+  return parent === folder;
 }
 
 /** Every ancestor path of `path` up to and including `root`. */

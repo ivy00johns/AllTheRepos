@@ -15,12 +15,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AddScanPathResult, RemoveScanPathResult } from "@shared/types";
 
 import { getAtr, requireAtr } from "@renderer/lib/atr";
+import { queryKeys } from "@renderer/lib/query-client";
 
 function useRootInvalidator() {
   const queryClient = useQueryClient();
   return () => {
-    void queryClient.invalidateQueries({ queryKey: ["settings"] });
-    void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.settings.all });
+    // The repos are keyed under `["repos"]`; `["catalog"]` held nothing, so adding
+    // or forgetting a root left the grid exactly as it was.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
   };
 }
 

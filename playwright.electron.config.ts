@@ -80,13 +80,44 @@ export default defineConfig({
   // viewport-fit.spec.ts — the two routes that were taller than the window they
   // render in, at 1280x800, measured as `documentElement.scrollHeight` against
   // `innerHeight`.
+  // groups-flow.spec.ts — the group lifecycle through the real window: create a
+  // group in the rail, put a repo in it from the detail panel, open it, rename
+  // it, delete it. Written because every part of that existed and was unit-
+  // tested while the app could not do any of it, and no unit test can see a
+  // component that nothing mounts.
+  // catalog-refresh.spec.ts — a scan of a folder the window has never seen puts
+  // its card on the grid without a reload; removing a scan root drops its repos
+  // without one; and the same removal with "Keep them in the catalog" leaves
+  // them on the grid under Outside scan folders. All three are one query
+  // invalidation downstream of a write in the main process, and a wrong key
+  // there fails silently — a stale grid with no error — so all three are
+  // asserted on the rendered catalog, with the removals driven through the
+  // rail's own menu and confirmation. A fourth walk removes a root that is
+  // itself a repository, which is the one shape the old `full_path LIKE root/%`
+  // count could not see: it asserts what the confirmation promised, next to a
+  // real scan rather than a seeded row, and reads the rail either side of it —
+  // the root's own `directly in this folder` row, which is where the tree and the
+  // folder filter have to agree that a repo at the root is in the root.
+  // settings-scan-paths.spec.ts — both doors into the scan list. The Settings
+  // box is typed into: a relative path and the refusal it draws, then a real
+  // folder followed into the rail, because the two doors share one write and a
+  // path the rail would refuse must not get in through the form. The folder it
+  // adds holds a repo, so the add's scan has to find it and the removal from the
+  // same screen has to keep it: the walk removes the path and watches the card
+  // move to Outside scan folders — four where there were three — rather than
+  // disappear. A second root stays behind, because that row only exists when
+  // something is outside a root. The rail's own `Add folder to scan` is clicked
+  // for real too, with the native picker answered from the main process: it
+  // adds and scans the folder it is handed, and refuses one already scanned with
+  // the notice strip rather than a second row. A door that only works when a
+  // test types into the other one is how the form drifted from the rail.
   testMatch:
     // Both passes' additions, since each one names a spec the other branch did
     // not have: the UI/UX pass added accessibility, detail-readme,
     // retry-and-loading and viewport-fit, and the graph pass added
     // window-route-restore. Every name here has a spec beside it, and each one
     // has its paragraph above.
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup|groups-flow|catalog-refresh|settings-scan-paths)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
