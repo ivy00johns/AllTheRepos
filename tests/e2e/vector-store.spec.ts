@@ -72,6 +72,8 @@ interface StoreProbe {
   /** Which step failed, and its message. `failure: null` when nothing did. */
   phase: "resolve" | "load" | "query" | null;
   failure: string | null;
+  /** Where the failure was thrown, because a message names the symptom only. */
+  stack: string | null;
   version: string | null;
   /** Distance of the nearest neighbour to its own vector — `0` when the store works. */
   selfDistance: number | null;
@@ -102,6 +104,7 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
       path: "",
       phase: null as "resolve" | "load" | "query" | null,
       failure: null as string | null,
+      stack: null as string | null,
       version: null as string | null,
       selfDistance: null as number | null,
     };
@@ -122,6 +125,7 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
       } catch (error) {
         result.phase = phase;
         result.failure = error instanceof Error ? error.message : String(error);
+        result.stack = error instanceof Error ? (error.stack ?? null) : null;
         return null;
       }
     };
@@ -199,7 +203,8 @@ test.describe("the vector store the app ships", () => {
         `the vector store probe failed at the "${probe.phase}" step on ` +
           `${probe.arch}: ${probe.failure}. If it read or loaded the shipped ` +
           `sqlite-vec extension, that is the whole of semantic search on this ` +
-          `machine — search will still answer, with keywords, and say so.`,
+          `machine — search will still answer, with keywords, and say so.\n\n` +
+          `${probe.stack ?? "(no stack)"}`,
       ).toBeNull();
 
       expect(

@@ -29,7 +29,10 @@
 #
 # `pnpm badges` is `pnpm test` plus a JSON report, and the badge the README
 # shows is drawn from that same run — which is what stops the test count being
-# a number somebody has to remember to update.
+# a number somebody has to remember to update. CI compares the result against the
+# committed SVG and fails when the two disagree; it does not commit the new one,
+# because `main` is protected and a bot push cannot clear its own required
+# checks (see the step's comment).
 #
 # The link check is NOT here: it needs the network and a schedule, so it lives
 # in `.github/workflows/doc-links.yml`.
@@ -68,12 +71,6 @@ jobs:
   check:
     name: typecheck + unit
     runs-on: ubuntu-latest
-    # `contents: write` is for one step: the badge refresh below commits the SVG
-    # when the counts moved. The rest of the job only reads. Worth knowing: a
-    # push made with the default `GITHUB_TOKEN` does not start a new workflow
-    # run, so the refresh cannot set this job off in a loop.
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       # Reads the pinned `packageManager` field (pnpm 9.15.0).
@@ -233,22 +230,32 @@ jobs:
       # the runner is already Linux.
       - name: The unit suite again, on a platform this runner is not
         run: pnpm unit-platform:check
-      # Committed rather than checked, so the badge cannot be left stale by
-      # forgetting to run anything. Only on main: a pull request's branch is not
-      # what the README describes, and a fork cannot write anyway.
-      - name: Commit the badge when the counts moved
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # Checked rather than committed, and that is a change of mechanism rather
+      # than of promise.
+      #
+      # This step used to commit the freshly drawn badge and push it to main.
+      # That stopped being possible the day main was protected: the push is a new
+      # commit, and a new commit has never passed the three required checks, so
+      # the branch rejects it — `GH006: Protected branch update failed ... 3 of 3
+      # required status checks are expected`. Every push that moved the counts
+      # left main red for the one thing the step was supposed to handle, and no
+      # credential this repository has would change that.
+      #
+      # So the badge is now verified where it can be: the same run that draws it
+      # fails when the committed SVG disagrees with the totals it just produced,
+      # on a pull request as well as on main. The count still cannot drift — the
+      # only thing that writes it is the suite it describes — and the fix for a
+      # red run is one command, `pnpm badges`, and a commit, which is what a
+      # pull request is for.
+      - name: The badge, and the counts this run produced
         run: |
           if git diff --quiet -- docs/images/tests.svg; then
             echo "the badge already matches this run"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/images/tests.svg
-          git commit -m "chore: refresh the test-count badge [skip ci]" \
-            -m "Drawn from the unit suite that just ran, so it cannot drift from it."
-          git push origin HEAD:main
+          echo "::error::docs/images/tests.svg does not match this run's totals — run `pnpm badges` and commit the SVG."
+          git diff --stat -- docs/images/tests.svg
+          exit 1
 
   # Separate job on purpose: this one flips the native ABI to Electron's and
   # builds the bundle, which is exactly the state the check job must not be in
