@@ -1,6 +1,6 @@
 # Launch posts — Facebook and Reddit
 
-Draft posts for the 0.3.0 launch, written to be pasted as they are. Not linked from `README.md` or
+Draft posts for the 0.3.1 launch, written to be pasted as they are. Not linked from `README.md` or
 `START-HERE.md`: this is the copy, not part of the project's documentation.
 
 Last checked against the shipped build on **2026-10-24**. If a number or a limitation here stops
@@ -10,7 +10,7 @@ being true, the post is wrong — fix the post, do not soften it in the comments
 
 | Claim                                                         | Where it is true today                                                                                                                              |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Version 0.3.0, published 2026-10-24                           | [`alltherepos-releases` v0.3.0](https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.0) — DMG 129,407,205 bytes, plus the update feed |
+| Version 0.3.1, published 2026-10-24                           | [`alltherepos-releases` v0.3.1](https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.1) — DMG 129,414,815 bytes, plus the update feed |
 | Free, MIT licensed, source public                             | [`LICENSE`](../LICENSE); `github.com/ivy00johns/AllTheRepos`                                                                                        |
 | macOS, Apple silicon only                                     | the DMG is `arm64`; there is no Intel, Windows or Linux build                                                                                       |
 | Ad-hoc signed, **not** notarised                              | the release notes and `READ-ME-FIRST.txt` inside the DMG both say so                                                                                |
@@ -27,7 +27,7 @@ or Windows or Linux.
 Groups **are** fillable in this build — ATR-043 closed on 2026-10-22. A group is filled from the
 repo's own panel, from a selection in the toolbar, or in one step when it is created; a saved
 filter is a group defined by a rule instead of a list. The 0.2.0 DMG still in the releases
-repository can do none of that, so every link in these posts has to point at **v0.3.0**.
+repository can do none of that, so every link in these posts has to point at **v0.3.1**.
 
 ## Facebook
 
@@ -131,8 +131,8 @@ what the spam filters are looking for.
 - [ ] Install the published DMG the way a stranger would: download it in a browser, mount, drag to
       Applications, launch, take the refusal, do the Open Anyway step, then scan a folder and
       search. Nothing in this repository can prove that path works on somebody else's Mac.
-- [ ] Check that every link lands on **v0.3.0**: the DMG name carries the version, and a saved
-      `…/releases/latest` URL is fine only while 0.3.0 is the newest release.
+- [ ] Check that every link lands on **v0.3.1**: the DMG name carries the version, and a saved
+      `…/releases/latest` URL is fine only while 0.3.1 is the newest release.
 - [ ] Upload the demo video natively on both platforms. Facebook throttles link posts; Reddit's
       video player is what people press.
 - [ ] Post from your own account on a weekday morning US time, then stay in the thread for the
