@@ -1,47 +1,146 @@
-<!-- Draft launch post, written for Show HN. Not linked from README.md or START-HERE.md yet. Assumes the source is still private, so it names the disclosure document and the ledger without linking them; link both if the repository goes public before this ships. -->
+# Launch posts — Facebook and Reddit
 
-# AllTheRepos
+Draft posts for the 0.2.0 launch, written to be pasted as they are. Not linked from `README.md` or
+`START-HERE.md`: this is the copy, not part of the project's documentation.
 
-## Show HN: one window for every git repository on your machine
+Last checked against the shipped build on **2026-10-21**. If a number or a limitation here stops
+being true, the post is wrong — fix the post, do not soften it in the comments.
 
-I keep a few dozen git repositories spread across `~/Projects`, `~/Work` and an archive folder. Every week or so I need something from one of them and can't remember which. Finder search is the wrong tool, grepping all of them is slower, and my editor only knows the folders I happened to open.
+## What the posts may claim
 
-AllTheRepos is a macOS desktop app that solves that one problem. Point it at the folders where you keep code. It walks them, indexes every repository it finds into SQLite with FTS5 full-text search, and gives you one window to search, filter, tag and open them. When Ollama is running it also embeds the repositories and ranks results by meaning; when Ollama is not running, search falls back to FTS5 instead of failing.
+| Claim                                                         | Where it is true today                                                                                                                              |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Version 0.2.0, published 2026-10-14                           | [`alltherepos-releases` v0.2.0](https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0) — DMG 129,400,132 bytes, plus the update feed |
+| Free, MIT licensed, source public                             | [`LICENSE`](../LICENSE); `github.com/ivy00johns/AllTheRepos`                                                                                        |
+| macOS, Apple silicon only                                     | the DMG is `arm64`; there is no Intel, Windows or Linux build                                                                                       |
+| Ad-hoc signed, **not** notarised                              | the release notes and `READ-ME-FIRST.txt` inside the DMG both say so                                                                                |
+| No account, no telemetry, one SQLite file on your disk        | [`docs/COMMAND-DISCLOSURE.md`](./COMMAND-DISCLOSURE.md) inventories every command, write and request                                                |
+| The updater is the only automatic network call                | same document; the check is anonymous and hands you the release page                                                                                |
+| Full-text search by default, vector ranking when Ollama runs  | `src/main/services/search.ts`; without Ollama the results say they are keyword-only                                                                 |
+| MCP server for coding agents, added by hand                   | [`mcp/README.md`](../mcp/README.md) — the app never starts it                                                                                       |
+| ~3 seconds to the shell (measured, 6.6s before)               | `scripts/measure-cold-start.mjs`, recorded in the 0.2.0 changelog                                                                                   |
 
-Once it has scanned, you get:
+Do **not** claim: notarised install, a one-click first launch, "open source" without naming MIT,
+Windows or Linux, or that groups can be filled from the UI. The last one is a real gap — a group
+can be created on the rail and it stays empty, because nothing in the interface calls
+`groups.setMembers` yet (ATR-043). Keep groups out of the post until that lands.
 
-- One search field over every repository at once, with a folder rail, so `~/Work` and `~/Archive` are filters rather than separate apps.
-- Tags, favourites, groups, and curated links between repositories you know belong together, drawn as a relationship map.
-- An activity ramp from "minutes ago" to "dormant", so the repo you touched yesterday looks different from the one you abandoned in 2023.
-- Ownership marks derived from the git remote, so a clone of somebody else's project cannot be mistaken for your work.
-- Dev-server and port detection for the repositories you actually have running, and a dock badge that counts them.
-- `⌘K` for everything, a global spotlight window for a search that does not raise the main window, and a menu-bar presence.
+## Facebook
 
-## What it does to your machine
+Facebook is the warmer room: write as yourself, not as a brand. **Upload the demo video natively**
+(the file is `docs/demo-video/alltherepos-demo.mp4`, 3.4 MB, 91 seconds) and put the links in the
+first comment — a post whose only content is an outbound link reaches almost nobody.
 
-The app touches your whole repository collection, so the part worth reading is the disclosure. There is no account, no telemetry and no cloud index: the catalog is one SQLite file inside `~/Library/Application Support/AllTheRepos/`. Every git command, filesystem write and network request the app can make is inventoried with file and line citations in the repository's command disclosure. The entire git surface is nine `simple-git` methods, and two of them write anything (`git fetch --prune` and `git pull --ff-only`). No destructive git command exists in the codebase, nothing deletes a file you own, and nothing fetches or pulls on a timer. If you find behaviour that document does not list, that is a bug, and I want to hear about it.
+> I built a small thing for a problem I kept having, and it is finally good enough to hand to
+> other people.
+>
+> I keep a few dozen git repos across ~/Projects, ~/Work and an archive folder. Every week or so I
+> need something from one of them and I cannot remember which. Finder is the wrong tool, grepping
+> all of them is slower, and my editor only knows the folders I happened to open.
+>
+> AllTheRepos points at the folders where you keep code and indexes every repository it finds into
+> one SQLite file on your disk. One window to search, filter, tag and open them: recency, language,
+> dirty trees, which ones are clones of somebody else's work, which ones have a dev server running.
+> No account, no telemetry, no cloud index.
+>
+> It is macOS on Apple silicon, it is alpha, and it is free — MIT, source on GitHub.
+>
+> One honest warning: I do not have an Apple Developer membership, so the build is not notarised
+> and macOS will refuse the first launch. You allow it once through System Settings → Privacy &
+> Security → Open Anyway and it behaves after that. The DMG has the steps in a READ-ME-FIRST.txt
+> because once the launch has been refused there is nothing on screen that can explain it.
+>
+> Download: github.com/ivy00johns/alltherepos-releases/releases/latest
+> Source: github.com/ivy00johns/AllTheRepos
 
-There is also an MCP server beside the app, so a Claude Code session can read the catalog and record how repositories relate to one another. Six tools, two of which write, both of them to the same `repo_links` table. The app never starts that server; you install and launch it yourself.
+First comment:
 
-## What alpha means here
+> For the curious: it is Electron, so the DMG is 128 MB. Search is SQLite FTS5; if you happen to
+> run Ollama it also embeds the repos and fuses vector ranking into the results, and if you do not,
+> search still works and says the results are keyword-only. There is a small MCP server beside it
+> so a coding agent can read the catalog and the links between repos, but you install that
+> yourself — the app never starts it.
 
-This is pre-1.0 and it shows in specific, known ways:
+## Reddit
 
-- The build is ad-hoc signed and not notarised, because notarisation needs an Apple Developer Program membership. macOS refuses the first launch, and you allow it once through **System Settings → Privacy & Security → Open Anyway**. The DMG carries those steps in `READ-ME-FIRST.txt`, because once the launch has been refused there is nothing on screen that could explain anything.
-- The updater checks for new versions anonymously, then hands you the release page. It does not install updates on an ad-hoc build, and it says so in Settings rather than offering an install macOS would refuse.
-- Cold start was about 5 seconds on the machine this was built on, and it was mostly waiting: the window was created only after the process scan, the editor detection and the session index had all finished. The window now opens first and those boot behind it — measured, 5381ms to 1345ms — but the first paint after that still loads the whole renderer bundle at once, and there is no progress on it.
-- Apple silicon only. Linux and Windows are not started.
-- The source is private for now, the downloads live in a public releases-only repository, and there is no license file yet, so nothing here grants reuse rights.
+Two posts, one room each. Do not paste the same text into both on the same day; that pattern is
+what the spam filters are looking for.
 
-## Try it
+### r/macapps
 
-1. Download the `.dmg` from the [releases repository](https://github.com/ivy00johns/alltherepos-releases/releases/latest). The `.zip`, `.blockmap` and `latest-mac.yml` next to it are the update feed, not a second installer.
-2. macOS will refuse the first launch. Open **System Settings → Privacy & Security** and click **Open Anyway**, the way `READ-ME-FIRST.txt` inside the DMG describes.
-3. In the app, add a folder that contains repositories (the rail's *Add folder to scan*).
-4. Press **Scan**, then use the top-bar field or `⌘K`.
+**Title:** AllTheRepos — a local-first Mac app to search every git repo on your disk (free, MIT, alpha)
 
-The screenshots in the README are generated, not staged. A script launches the real app against a throwaway profile seeded with demo data, and refuses to write the images if any repository outside that demo data appears on screen.
+> I have 271 git repositories on this machine across four scan roots, and I could not reliably
+> answer "which repo was that?" — so I built the app I wanted.
+>
+> **What it does.** Point it at the folders where you keep code. It walks them in a worker thread,
+> indexes every repository into one SQLite file (FTS5, plus sqlite-vec if Ollama is running) and
+> gives you one window to search, filter, tag and open them. The grid carries the things you would
+> otherwise ask git one repo at a time: when you last touched it, what it is written in, whether
+> the tree is dirty, whether the folder has moved, and whether it is yours, a clone, or local-only.
+> On top of that: tags, favourites, curated links between repos you know belong together, a
+> relationship map, `⌘K` for everything, a spotlight window that does not raise the main window,
+> and a menu-bar presence with a dock badge for the dev servers it detects.
+>
+> **What it does not do.** No account, no telemetry, no cloud index — the catalog is one SQLite
+> file in `~/Library/Application Support/AllTheRepos/`. Every git command, filesystem write and
+> network request the app can make is inventoried with file and line citations in the repository's
+> command disclosure. The only automatic call is an anonymous update check against GitHub, and it
+> hands you the release page rather than installing anything.
+>
+> **The part you will hit first.** The build is ad-hoc signed and not notarised, because
+> notarisation needs an Apple Developer Program membership I do not have. macOS will refuse the
+> first launch. The way through is **System Settings → Privacy & Security → Open Anyway** after
+> trying to open it — the right-click → Open shortcut older macOS accepted is gone in macOS 15.
+> That is one time per install; every launch after it is a normal double-click. The DMG carries a
+> `READ-ME-FIRST.txt` with exactly those steps, and the app explains itself once inside.
+>
+> It is **alpha**: Apple silicon only, no Windows or Linux, and the repo keeps a tactical list of
+> what is known to be broken rather than pretending the list is empty. Several surfaces are still
+> rough — groups can be created but not yet filled from the UI, and the Claude Code tab only shows
+> what it can read from `~/.claude`.
+>
+> Free, MIT, source and issues here: <repo link>
+> Download (DMG, 128 MB): <releases link>
+>
+> Happy to answer anything about how it scans, what it writes, or why the DMG is that big.
 
-## Why
+### r/SideProject
 
-Built nights and weekends, and given away. No account, no paid tier, no telemetry. If it saves you one "which repo was that?", star the releases repository, tell somebody with a folder full of mystery repositories, or file a concrete bug. If something breaks, the tactical ledger in the repository is the list of what is already known to be broken, and it is longer than I would like.
+**Title:** I built a local-first Mac app to find the repo I forgot the name of (free, MIT)
+
+> Same app, shorter post: years of side projects scattered over four folders, and no way to
+> answer "which one had that queue worker in it?". AllTheRepos indexes every git repo under the
+> folders you point it at, then gives you one searchable window — recency, language, dirty trees,
+> ownership, dev servers, tags and a link map between repos.
+>
+> It is alpha, Apple silicon, and not notarised (macOS needs one Open Anyway from System Settings
+> on first launch). Free and MIT.
+>
+> 90-second demo with no voiceover fluff: <video>
+> <repo link> · <releases link>
+
+## Before posting
+
+- [ ] Install the published DMG the way a stranger would: download it in a browser, mount, drag to
+      Applications, launch, take the refusal, do the Open Anyway step, then scan a folder and
+      search. Nothing in this repository can prove that path works on somebody else's Mac.
+- [ ] Upload the demo video natively on both platforms. Facebook throttles link posts; Reddit's
+      video player is what people press.
+- [ ] Post from your own account on a weekday morning US time, then stay in the thread for the
+      first two hours. Both platforms weight early replies, and "dev answered every question" is
+      the difference between a launch and a link drop.
+- [ ] Check the room's rules before posting: r/macapps allows developer posts that disclose they
+      are the developer; r/programming and r/webdev do not, and a removed post costs you the
+      account's standing. r/SideProject exists for this.
+- [ ] Point the repo's GitHub *Website* field and its topics at the release page before posting, so
+      the sidebar of the source repo offers a download instead of nothing.
+- [ ] Have the two answers ready before anyone asks: **why is it 128 MB** (Electron, with the fonts
+      and the map renderer bundled) and **why does macOS say it is damaged** (it is not — it is
+      un-notarised, and the Open Anyway step is the fix).
+
+## Still true, and worth saying out loud in the thread
+
+Notarisation (ATR-046) is the one launch gap no amount of writing fixes: it needs a paid Apple
+Developer Program membership, and until then every first launch costs a person a trip to System
+Settings. Everything else on this page is copy; that one is a purchase.

@@ -1,15 +1,18 @@
 # Demo video — pre-production plan
 
-**Status:** pre-production. Nothing built yet, and nothing buildable yet.
+**Status:** shipped. The film is [`demo-video/alltherepos-demo.mp4`](demo-video/alltherepos-demo.mp4)
+— 91.7 seconds, 1920x1080, H.264 with a local Kokoro voiceover and burned-in captions — committed
+on 2026-10-11 and linked from the README. Its HyperFrames source is [`demo/`](../demo/), where
+`SCRIPT.md` is the read that was recorded and `BRIEF.md` is the build's brief.
 
-> **On this branch (2026-10-10):** the demo library is `scripts/demo-data.mjs` (`pnpm demo`). The
-> capture harness `scripts/make-demo-video.mjs` and per-repo notes, both described below as built,
-> are not on `main` yet; they sit uncommitted in the `dfc163dd` hyperframes worktree.
+> This is the pre-production plan, kept as the record of how the film was shot. It planned a 2:42
+> piece; the edit came in at 90 seconds, so the beat times below, the 1:1 cut and the readiness
+> checklist in §4 describe the plan rather than the film. The pre-production decisions — synth
+> voice, storyboard, burned-in captions, one clip per beat — are the ones that shipped.
 
-The video is downstream of two things that are not finished: the **UI changes** (landing and
-being tested) and the **demo database**. This document is the part that does not have to wait —
-the plan, the asset inventory and the capture mechanism — so that the creation run itself is
-mostly execution.
+The film depended on two things being finished first: the **UI changes** and the **demo database**.
+This document was the part that did not have to wait — the plan, the asset inventory and the
+capture mechanism — so that the creation run itself was mostly execution.
 
 Owner: John. Planned creation run: the **HyperFrames** skill (`/hyperframes`), which renders
 video from HTML and can carry captured app footage, titles, callouts and captions.

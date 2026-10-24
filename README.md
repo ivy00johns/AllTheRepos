@@ -91,9 +91,13 @@ pnpm electron:dev                  # rebuilds natives, then launches the app
 
 ## 🖥️ The App
 
-<video src="docs/demo-video/alltherepos-demo.mp4" controls width="900" aria-label="AllTheRepos demo video, about 90 seconds"></video>
+<div align="center">
 
-▶️ [Watch the demo video (about 90 seconds)](docs/demo-video/alltherepos-demo.mp4) — the scan, search, triage, links and graph, shown on the demo library below.
+<a href="docs/demo-video/alltherepos-demo.mp4"><img src="docs/images/demo-poster.png" alt="The AllTheRepos demo video — the catalog with languages and last-commit dates, then the search field and the triage columns" width="900" /></a>
+
+</div>
+
+▶️ [Watch the demo video (about 90 seconds)](docs/demo-video/alltherepos-demo.mp4) — the scan, search, triage, links and graph, shown on the demo library below. The poster is a frame from the film and links to the file, which GitHub plays in its own viewer — a `<video>` tag in a README is stripped before the page is served.
 
 <div align="center">
 
@@ -174,7 +178,7 @@ flowchart LR
 | Git | `simple-git` |
 | Contracts | Zod schemas shared by both processes |
 | Testing | Vitest (unit) · Playwright (Electron E2E) |
-| CI / releases | GitHub Actions on macOS (arm64 + Intel), publishing to a public releases repo |
+| CI / releases | GitHub Actions — the fast job on Linux, the jobs that launch the app on macOS arm64 — publishing to a public releases repo |
 
 ---
 

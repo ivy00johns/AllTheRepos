@@ -65,7 +65,9 @@ hyped. Let the screens carry the energy and the voice carry the meaning.
 
 ## Cut, and why
 
-- **"Free" and "open source"** — the repo is private with no LICENSE file; nothing says it's free.
+- **"Free" and "open source"** — cut because the repo was private with no LICENSE file. It is
+  public under MIT since 2026-10-11, after this read was recorded, so the line is now true; the
+  film is not re-cut for it.
 - **"Every network request is logged"** — nothing logs at runtime. The accurate claim is that the
   disclosure document lists them, with source lines.
 - **"A built-in MCP server"** — `mcp/` is a separate package the user adds to a coding agent by hand.
