@@ -65,6 +65,16 @@ source of truth for the current version.
 
 ### Changed
 
+- keep the Electron suite off the screen. Each spec launch now creates its window and never calls
+  `show` (`window/main-window.ts`), where it used to call `showInactive()`: the dock icon was
+  already hidden, but the window still painted over the desktop in sequence, one per spec, and the
+  type-scale sweep's spotlight and tray popover called `show()` and `focus()` on top of whatever
+  was already there. The window keeps rendering — `backgroundThrottling` is off for the run, so a
+  hidden surface does not slow the renderer — and Playwright drives it over the debugger protocol,
+  which reads the page rather than the screen. The committed catalog baselines and the type-scale
+  sweep pass unchanged, so this is the same window to a test and an absent one to the person using
+  the machine. `ATR_E2E=1` is the only thing that turns it on; a normal launch is untouched.
+
 - rewrite the launch draft for the rooms it is going to. [`docs/announcement.md`](./docs/announcement.md)
   was a Show HN post written when the source was private, the licence did not exist and the only
   download was the releases repository; all three had changed by the time it would have been sent.
@@ -75,6 +85,22 @@ source of truth for the current version.
   out; the posts now include groups and saved filters, because this release ships them.
 
 ### Fixed
+
+- index the projects under a scan root that is itself a repository. `find-git-repositories` records
+  the first `.git` it meets and never queues that directory's children
+  (`cpp/src/FindGitRepos.cpp`, the `if (!isGitRepo) foundPaths.splice(...)` at the end of the walk),
+  which is right for a folder of projects and wrong for the folder itself. Pointing the app at
+  `~/Repos` after an accidental `git init` there catalogued exactly one repository, drew a green
+  "done · 1 repos", and hid every project underneath; the same pruning kept a monorepo's
+  checkout-shaped sub-projects out of the catalog. Discovery now pre-expands a root that carries a
+  `.git` directory — each child is searched on its own, where the root's `.git` no longer stands in
+  the walker's way — and a root that is not a repository is still one walk, so nothing got slower.
+  A repository found *inside* another repository is still a leaf: pre-expanding every one would walk
+  every `node_modules` in the catalog to catch a shape that is rare outside vendored checkouts, and
+  that half of SC-1 is recorded as open in the ledger rather than quietly claimed here. Gated by
+  `tests/unit/main/services/scan-discovery.spec.ts`, which runs against the real addon and carries a
+  control asserting the pruning it works around, and by a fifth walk in
+  `tests/e2e/catalog-refresh.spec.ts` that scans such a root and reads six cards where one arrived.
 
 - add a scan path from Settings through the same call the rail uses. The box appended whatever was typed
   to `settings:update` — a wholesale array write with no rules behind it — so a relative path, a
