@@ -200,6 +200,26 @@ describe("the jobs that were already here", () => {
     expect(workflow).toContain("pull_request:");
   });
 
+  test("verifies the badge, and does not try to push it onto a protected main", () => {
+    // The step used to commit the refreshed SVG and push it to `main`. That is a
+    // new commit, and a new commit has never passed the three required checks,
+    // so protection rejected every such push (`GH006`, once per run that moved
+    // the counts) and left main red over the badge. The run now fails when the
+    // committed SVG disagrees with the totals it just produced, which is a gate
+    // on the pull request that would have introduced the stale number.
+    const check = commands(jobBlock("check"));
+
+    expect(check).not.toContain("git push");
+    expect(check).toContain("git diff --quiet -- docs/images/tests.svg");
+    // Drawing it and checking it, in that order: the comparison is against the
+    // badge this run produced, not one from an earlier tree.
+    expect(check.indexOf("pnpm badges")).toBeLessThan(
+      check.indexOf("git diff --quiet -- docs/images/tests.svg"),
+    );
+    // Nothing here writes to the repository any more, so nothing asks for that.
+    expect(check).not.toContain("contents: write");
+  });
+
   test("installs lsof, which the socket tests in the suite drive", () => {
     // The Ubuntu image does not carry `lsof`, and two tests in the unit suite
     // bind a real listening socket and expect the sweep to find it. Without the

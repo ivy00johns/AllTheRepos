@@ -10,9 +10,11 @@
  * update is a number that is wrong most of the time.
  *
  * So the badge is an SVG in the repository now, generated from the JSON report
- * of a test run, and CI regenerates it on every push to `main` and commits the
- * result when the counts move. That is the whole point: the count cannot drift,
- * because the only thing that writes it is the suite it describes.
+ * of a test run. CI draws it from every run and fails when the committed copy
+ * disagrees with the totals that run just produced — on a pull request as well
+ * as on main, which is why a stale badge is caught before it lands rather than
+ * by a bot push that `main`'s protection would reject anyway. The count cannot
+ * drift, because the only thing that writes it is the suite it describes.
  *
  * The report is Vitest's `--reporter=json`, which is Jest-compatible —
  * `numTotalTests`, `numFailedTests` and `success`. The badge reports the total
