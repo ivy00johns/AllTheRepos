@@ -224,6 +224,23 @@ function bootServicesBehindTheWindow(): void {
   })();
 }
 
+/*
+ * E2E: a background-only app, decided before `ready`.
+ *
+ * `app.dock.hide()` at ready makes the app an *accessory*, and an accessory
+ * app can still become the frontmost app: launching the process takes the
+ * keyboard from whoever is typing, and the suite launches one process per spec,
+ * so a run pulls focus away every few seconds. The activation policy is read
+ * by macOS at launch, which is why this is set before `ready` rather than
+ * beside the dock call — `prohibited` means the process can never be activated.
+ * Playwright drives the renderer over the debugger protocol, which does not
+ * need the app to be frontmost, and no spec asserts on activation. A normal
+ * launch is untouched.
+ */
+if (process.platform === "darwin" && process.env.ATR_E2E === "1") {
+  app.setActivationPolicy("prohibited");
+}
+
 /** Acquire the single-instance lock before doing anything else. */
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -242,13 +259,9 @@ if (!gotSingleInstanceLock) {
   app
     .whenReady()
     .then(async () => {
-      // 0. E2E only — run as a macOS accessory app so the suite never steals
-      //    focus. Launching a normal app ACTIVATES it, which interrupts
-      //    whatever the developer is typing; the suite launches one app per
-      //    spec, so that adds up fast. Hiding the dock icon (LSUIElement
-      //    behaviour) keeps the app out of the activation path entirely.
-      //    Playwright drives the window over the debugger protocol and never
-      //    needs it focused. No E2E spec asserts on dock or activation state.
+      // 0. E2E only — the dock icon goes too. The activation policy above is
+      //    what stops the process taking focus; this keeps it out of the Dock
+      //    and the app switcher for the length of the run.
       if (process.env.ATR_E2E === "1") {
         app.dock?.hide();
       }

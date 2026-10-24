@@ -157,6 +157,14 @@ function show(): void {
     win = create();
   }
   positionOnActiveDisplay(win);
+  /*
+   * Under E2E the panel is created and rendered but never surfaced. It is
+   * borderless and `alwaysOnTop`, so a test that opens it to read its DOM (the
+   * type-scale sweep does) drops a focused panel over whatever the person at
+   * the machine is doing. Playwright reads the same DOM without a surface, and
+   * nothing asserted here is a property of the screen.
+   */
+  if (process.env.ATR_E2E === "1") return;
   win.show();
   win.focus();
 }

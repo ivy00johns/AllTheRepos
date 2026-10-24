@@ -26,7 +26,8 @@ import { parentPort, workerData } from "node:worker_threads";
 
 import type { ScanEvent } from "@shared/types";
 
-import { readRepoMetadata, canonicalPath, slugFromNameAndPath } from "../services/metadata";
+import { readRepoMetadata, slugFromNameAndPath } from "../services/metadata";
+import { discoverRepoRoots, type FindGitRepos } from "../services/scan-discovery";
 
 // ---------------------------------------------------------------------------
 // Worker boot
@@ -44,10 +45,6 @@ interface WorkerInit {
 // `find-git-repositories` is a CommonJS native module. The Vite ESM bundle
 // cannot `import` it; load via createRequire instead.
 const requireCjs = createRequire(import.meta.url);
-type FindGitRepos = (
-  rootPath: string,
-  cb?: (paths: string[]) => void,
-) => Promise<string[]>;
 const findGitRepos = requireCjs("find-git-repositories") as FindGitRepos;
 
 // ---------------------------------------------------------------------------
@@ -96,52 +93,35 @@ parentPort.on("message", (msg: unknown) => {
 async function run(): Promise<void> {
   const init = (workerData ?? { paths: [], ignorePaths: [] }) as WorkerInit;
   const paths = init.paths ?? [];
-  const ignoreSet = new Set(
-    (init.ignorePaths ?? []).map((p) => canonicalPath(p)),
-  );
   const startedAt = Date.now();
 
-  const discovered: string[] = [];
-  const seen = new Set<string>();
-
-  // Phase 1: discover all `.git` directories.
-  for (const raw of paths) {
-    if (cancelled) break;
-    if (!raw || typeof raw !== "string") continue;
-    const root = canonicalPath(raw);
-    if (ignoreSet.has(root)) continue;
-    try {
-      // `find-git-repositories` requires a progress callback even when its
-      // promise resolves to the full list. Pass a no-op so it doesn't throw
-      // (memory observation 599 — MVP scanner pattern).
-      const found = (await findGitRepos(root, () => {})) as string[];
-      for (const gitDir of found) {
-        const repoRoot = canonicalPath(
-          gitDir.endsWith("/.git") ? gitDir.slice(0, -5) : gitDir,
-        );
-        if (seen.has(repoRoot)) continue;
-        if (ignoreSet.has(repoRoot)) continue;
-        seen.add(repoRoot);
-        discovered.push(gitDir);
-      }
-    } catch (err) {
+  // Phase 1: discover every repository root under the configured paths.
+  // `find-git-repositories` requires a progress callback even when its
+  // promise resolves to the full list, which is why `discoverRepoRoots`
+  // passes a no-op (memory observation 599 — MVP scanner pattern).
+  const discovered = await discoverRepoRoots({
+    roots: paths,
+    ignorePaths: init.ignorePaths ?? [],
+    findGitRepos,
+    isCancelled: () => cancelled,
+    onError: (root, err) => {
       emit({
         kind: "error",
         path: root,
         message: err instanceof Error ? err.message : String(err),
       });
-    }
-  }
+    },
+  });
 
   const totalFound = discovered.length;
 
   // Phase 2: read metadata + emit per-repo events.
   for (let i = 0; i < discovered.length; i++) {
     if (cancelled) break;
-    const gitDir = discovered[i];
+    const repoRoot = discovered[i];
     const processed = i + 1;
     try {
-      const { fullPath, metadata } = await readRepoMetadata(gitDir);
+      const { fullPath, metadata } = await readRepoMetadata(repoRoot);
 
       emit({
         kind: "progress",
@@ -159,7 +139,7 @@ async function run(): Promise<void> {
     } catch (err) {
       emit({
         kind: "error",
-        path: gitDir,
+        path: repoRoot,
         message: err instanceof Error ? err.message : String(err),
       });
     }

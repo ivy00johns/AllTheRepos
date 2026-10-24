@@ -158,6 +158,10 @@ function showAt(trayBounds: Rectangle): void {
     win = create();
   }
   positionNearTray(win, trayBounds);
+  // Same rule as the spotlight: rendered under E2E, never surfaced (see
+  // `window/spotlight.ts`). The popover anchors to the menu bar and focuses
+  // itself, so a test that opens it would otherwise interrupt the machine.
+  if (process.env.ATR_E2E === "1") return;
   win.show();
   win.focus();
 }
