@@ -19,8 +19,12 @@ import { defineConfig } from "@playwright/test";
 
 // Mark the whole run as E2E. Every spec spreads `...process.env` into its
 // `_electron.launch({ env })`, so setting it here reaches all of them without
-// touching a single spec. The main process uses it to show the window
-// inactive and to hide the dock icon, so a run no longer steals focus.
+// touching a single spec. The main process uses it to hide the dock icon and to
+// never surface a window at all — not even inactive — because a run launches one
+// app per spec and a sequence of windows painting over the desktop is
+// interruption whether or not it takes the keyboard. Playwright reads the
+// rendered page over the debugger protocol, so the window a spec drives and the
+// window a person would see are not the same requirement.
 process.env.ATR_E2E = "1";
 
 export default defineConfig({

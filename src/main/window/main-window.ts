@@ -104,6 +104,10 @@ export function createMainWindow(): BrowserWindow {
       // the app that ships — stated where it is known and read by the preload off
       // `process.argv`. See `@shared/build-info`.
       additionalArguments: rendererAdditionalArguments(),
+      // A window that is never shown is a window Chromium may throttle. The E2E
+      // suite drives that window for minutes at a time and asserts on rendered
+      // output, so its timers keep full speed even without a surface on screen.
+      backgroundThrottling: process.env.ATR_E2E === "1" ? false : undefined,
       // electron-vite outputs preload as CommonJS; main bundle sits at
       // `out/main/index.js`, so the preload is one level up + over.
       preload: join(__dirname, "../preload/index.cjs"),
@@ -111,17 +115,19 @@ export function createMainWindow(): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
-    // Under E2E (`ATR_E2E=1`, set by playwright.electron.config.ts) show the
-    // window WITHOUT activating it. A plain `show()` makes macOS focus the
-    // app, so a test run repeatedly yanks keyboard focus away from whatever
-    // the developer is typing into — and the suite launches one app per spec.
-    // `showInactive()` renders identically for Playwright, which drives the
-    // window over the debugger protocol and never needs it focused.
-    if (process.env.ATR_E2E === "1") {
-      window.showInactive();
-    } else {
-      window.show();
-    }
+    /*
+     * Under E2E (`ATR_E2E=1`, set by playwright.electron.config.ts) the window
+     * is never shown. It used to be `showInactive()`, which keeps focus where
+     * it was — but an inactive window still sits on top of whatever is behind
+     * it, and the suite launches one app per spec, so a run painted over the
+     * desktop in a sequence of windows nobody asked to see. Playwright drives
+     * the window over the debugger protocol and reads the rendered page, not
+     * the screen, so a window that is never surfaced is the same window to a
+     * test and an absent one to the person using the machine. `show: false`
+     * in the constructor is what it stays at.
+     */
+    if (process.env.ATR_E2E === "1") return;
+    window.show();
   });
 
   // Defense in depth: any anchor with target=_blank or a window.open()
