@@ -74,9 +74,42 @@ interface StoreProbe {
   failure: string | null;
   /** Where the failure was thrown, because a message names the symptom only. */
   stack: string | null;
+  /** What the `load` step was depending on, sampled before it ran. */
+  modules: ModuleFacts;
   version: string | null;
   /** Distance of the nearest neighbour to its own vector — `0` when the store works. */
   selfDistance: number | null;
+}
+
+/**
+ * What `better-sqlite3` resolves for itself, and what it finds when it looks.
+ *
+ * The failure this was added for is `require(...) is not a function`, thrown
+ * from inside `better-sqlite3` by `require("bindings")("better_sqlite3.node")`:
+ * a message that names neither the file that resolved nor the frame that called
+ * it, on a runner where the same extension loads for the app next door. These
+ * are the facts that tell the possibilities apart — which copy of the package
+ * resolved, whether *its own* `bindings` lookup is callable, which binary that
+ * lookup is about to open, and which runtime the binary has to match.
+ */
+interface ModuleFacts {
+  /** The package entry that resolved from the app's directory. */
+  entry: string | null;
+  bindings: {
+    /** Where the package's own `require("bindings")` lands. */
+    resolved: string | null;
+    /** `typeof` its export: `function` is the only answer that can be called. */
+    type: string;
+    /** The message when the lookup itself threw, or when the entry did not resolve. */
+    error: string | null;
+  };
+  addon: {
+    path: string | null;
+    exists: boolean;
+    sizeBytes: number | null;
+    modified: string | null;
+  };
+  runtime: { node: string; modules: string; electron: string | null };
 }
 
 /**
@@ -98,13 +131,86 @@ interface StoreProbe {
 async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
   return app.evaluate(() => {
     const { createRequire } = process.getBuiltinModule("node:module");
+    const fs = process.getBuiltinModule("node:fs");
+    const nodePath = process.getBuiltinModule("node:path");
     const load = createRequire(`${process.cwd()}/e2e-vector-store-probe.cjs`);
+
+    const message = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
+
+    /**
+     * Sample the load step's dependencies before asking it to load.
+     *
+     * `bindings` is reached from **the package's own** directory rather than
+     * from this probe's, because that is the lookup the failing frame performs:
+     * under pnpm a transitive dependency is not resolvable from the project root
+     * at all, so asking from here would report a missing module that the package
+     * itself can see, or the reverse.
+     *
+     * Every step is caught and written down instead of thrown: a diagnostic that
+     * fails replaces the failure it was added to explain.
+     */
+    const describeModules = (): ModuleFacts => {
+      const facts: ModuleFacts = {
+        entry: null,
+        bindings: { resolved: null, type: "not reached", error: null },
+        addon: { path: null, exists: false, sizeBytes: null, modified: null },
+        runtime: {
+          node: process.versions.node,
+          modules: process.versions.modules,
+          electron: process.versions.electron ?? null,
+        },
+      };
+
+      const entry = (() => {
+        try {
+          return load.resolve("better-sqlite3");
+        } catch (error) {
+          facts.bindings.error = `better-sqlite3 did not resolve: ${message(error)}`;
+          return null;
+        }
+      })();
+      if (entry === null) return facts;
+      facts.entry = entry;
+
+      const fromPackage = createRequire(entry);
+      try {
+        facts.bindings.resolved = fromPackage.resolve("bindings");
+        // `typeof` rather than a truthiness test: a lookup that resolves to `{}`
+        // is exactly the state that produces `require(...) is not a function`,
+        // and it is indistinguishable from success without this.
+        facts.bindings.type = typeof fromPackage("bindings");
+      } catch (error) {
+        facts.bindings.error = message(error);
+      }
+
+      facts.addon.path = nodePath.resolve(
+        nodePath.dirname(entry),
+        "..",
+        "build",
+        "Release",
+        "better_sqlite3.node",
+      );
+      try {
+        const stat = fs.statSync(facts.addon.path);
+        facts.addon.exists = true;
+        facts.addon.sizeBytes = stat.size;
+        facts.addon.modified = stat.mtime.toISOString();
+      } catch {
+        // Absent is a fact too: `bindings` then falls through to a prebuild,
+        // and which of the two it opened is the difference between a stale
+        // binary and no binary at all.
+      }
+      return facts;
+    };
+
     const result = {
       arch: process.arch,
       path: "",
       phase: null as "resolve" | "load" | "query" | null,
       failure: null as string | null,
       stack: null as string | null,
+      modules: describeModules(),
       version: null as string | null,
       selfDistance: null as number | null,
     };
@@ -124,7 +230,7 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
         return fn();
       } catch (error) {
         result.phase = phase;
-        result.failure = error instanceof Error ? error.message : String(error);
+        result.failure = message(error);
         result.stack = error instanceof Error ? (error.stack ?? null) : null;
         return null;
       }
@@ -183,6 +289,35 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
   });
 }
 
+/**
+ * The load step's dependencies, as lines to read in a failed run.
+ *
+ * Formatted outside the probe because Playwright sends only that function's own
+ * source to the main process — a helper it closed over would not travel with it
+ * — and because this is message building rather than measuring.
+ */
+function describeModuleFacts(probe: StoreProbe): string {
+  const facts = probe.modules;
+  const lines = [
+    `runtime: node ${facts.runtime.node}, NODE_MODULE_VERSION ` +
+      `${facts.runtime.modules}, electron ${facts.runtime.electron ?? "none"}`,
+    `better-sqlite3: ${facts.entry ?? "did not resolve"}`,
+    `  require("bindings") -> ${facts.bindings.resolved ?? "did not resolve"} ` +
+      `(typeof ${facts.bindings.type})`,
+  ];
+  if (facts.bindings.error !== null) {
+    lines.push(`  lookup threw: ${facts.bindings.error}`);
+  }
+  lines.push(
+    `  addon: ${
+      facts.addon.exists
+        ? `${facts.addon.sizeBytes} bytes, mtime ${facts.addon.modified}`
+        : "absent at build/Release/better_sqlite3.node"
+    }`,
+  );
+  return lines.join("\n");
+}
+
 test.describe("the vector store the app ships", () => {
   test.beforeAll(() => {
     if (!existsSync(MAIN_ENTRY)) {
@@ -204,6 +339,8 @@ test.describe("the vector store the app ships", () => {
           `${probe.arch}: ${probe.failure}. If it read or loaded the shipped ` +
           `sqlite-vec extension, that is the whole of semantic search on this ` +
           `machine — search will still answer, with keywords, and say so.\n\n` +
+          `What the load step was depending on:\n` +
+          `${describeModuleFacts(probe)}\n\n` +
           `${probe.stack ?? "(no stack)"}`,
       ).toBeNull();
 
