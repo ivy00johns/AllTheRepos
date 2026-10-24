@@ -38,6 +38,9 @@ const KEPT_ROOT = "root-kept-root";
 const KEPT_REPO = "kept-repo";
 const OTHER_ROOT = "root-that-stays";
 const SELF_REPO = "root-that-is-a-repo";
+const NESTED_ROOT = "root-that-holds-projects";
+const NESTED_CHILD = "child-project";
+const NESTED_DEEP = "deep-project";
 
 /**
  * The folder the template profile's own repos live in.
@@ -424,6 +427,69 @@ test("removing a scan root that is itself a repo forgets it", async () => {
     await expect(win.getByText("3 repos")).toBeVisible({ timeout: 20_000 });
     await expect(rootMenu).toHaveCount(0);
     await expect(card).toHaveCount(0);
+  } finally {
+    await close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A scan root that is a repository indexes the projects *beneath* it too.
+ *
+ * The native walker stops at the first `.git` it meets: it records the
+ * directory and never queues that directory's children. That is the right
+ * answer for a folder of projects and the wrong one for the folder itself — so
+ * pointing the app at `~/Repos` after an accidental `git init` there catalogued
+ * exactly one repository, drew a green "done · 1 repos", and hid every project
+ * below it (ATR-033, audit SC-1). The blob is not an error, which is why only a
+ * scan of this shape can show it.
+ *
+ * The fixture has both depths on purpose: a project directly inside the root,
+ * and one under a plain folder, because the fix is the root's expansion and a
+ * fix that only looked at direct children would pass with the second missing.
+ * Before it, this scan found one card; the assertion is six (three seeded plus
+ * the root's own repository and both projects).
+ */
+test("a scan root that is itself a repo indexes the projects beneath it", async () => {
+  const root = join(templateReposDir(), NESTED_ROOT);
+  initRepo(root);
+  initRepo(join(root, NESTED_CHILD));
+  initRepo(join(root, "work", NESTED_DEEP));
+  const { app, close } = await launchApp();
+
+  try {
+    const win = await app.firstWindow();
+    await win.waitForLoadState("domcontentloaded");
+
+    await expect(win.locator("[data-repo-slug]")).toHaveCount(3, {
+      timeout: 20_000,
+    });
+
+    const started = await win.evaluate(async (path) => {
+      const result = await window.atr!.scan.start({ paths: [path] });
+      return result.status;
+    }, root);
+    expect(started, "scan:start refused to run").toBe("running");
+
+    // Six: the three seeded repos, the root's own repository, and both
+    // projects — the scan that used to find one finds all three of its own.
+    await expect(win.locator("[data-repo-slug]")).toHaveCount(6, {
+      timeout: 60_000,
+    });
+    await expect(win.getByText("6 repos")).toBeVisible({ timeout: 30_000 });
+
+    // By path, not by card text: every card under this root draws the root's
+    // name in its folder label, so a text match cannot tell the three apart.
+    const paths = await win.evaluate(async () => {
+      const result = await window.atr!.catalog.list({ limit: 200 });
+      return result.items.map((item) => item.fullPath);
+    });
+    for (const name of [NESTED_ROOT, NESTED_CHILD, NESTED_DEEP]) {
+      expect(
+        paths.some((repoPath) => repoPath.endsWith(`/${name}`)),
+        `${name} is missing from the catalog`,
+      ).toBe(true);
+    }
   } finally {
     await close();
     rmSync(root, { recursive: true, force: true });
