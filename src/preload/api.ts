@@ -144,6 +144,8 @@ import type {
   StartScanInput,
   StartScanResult,
   TrayOpenRepoPayload,
+  UpdateGroupFilterInput,
+  UpdateGroupFilterResult,
   UpdateSettingsInput,
   UpdateSettingsResult,
   TestEmbeddingInput,
@@ -444,6 +446,13 @@ export const api = {
         IPC.GROUPS.SET_MEMBERS,
         input,
       ) as Promise<SetGroupMembersResult>,
+    updateFilter: (
+      input: UpdateGroupFilterInput,
+    ): Promise<UpdateGroupFilterResult> =>
+      ipcRenderer.invoke(
+        IPC.GROUPS.UPDATE_FILTER,
+        input,
+      ) as Promise<UpdateGroupFilterResult>,
   },
 
   /**

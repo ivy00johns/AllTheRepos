@@ -13,13 +13,33 @@ import {
   ArrowDownUp,
   ChevronDown,
   LayoutGrid,
+  ListChecks,
+  Minus,
   Rows3,
   Image as ImageIcon,
   X,
   DownloadCloud,
+  Filter,
+  FolderPlus,
   RefreshCw,
 } from "lucide-react";
 
+import type { Group } from "@shared/types";
+
+import { CreateGroupDialog } from "@renderer/components/groups/group-dialogs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@renderer/components/ui/dropdown-menu";
+import {
+  useAddGroupMembers,
+  useRemoveGroupMembers,
+} from "@renderer/hooks/use-groups";
+import { useUiStore } from "@renderer/stores/ui";
 import { cn } from "@renderer/lib/cn";
 import { TagCleanupButton } from "./tag-cleanup-dialog";
 import { HIDDEN_REASONS_ID } from "@renderer/lib/hidden-repos";
@@ -136,6 +156,18 @@ interface CatalogToolbarProps {
   explainingHidden: boolean;
   /** Toggle that strip. */
   onToggleHidden: () => void;
+  /** Manual groups a selection can be added to. */
+  groups: Group[];
+  /** The group the catalog is scoped to, when it is scoped to one. */
+  activeGroup: Group | null;
+  /** How many repos are on screen, i.e. what "select all" would select. */
+  visibleCount: number;
+  /** Whether every one of them is already selected. */
+  allVisibleSelected: boolean;
+  /** Select every repo currently shown. */
+  onSelectAllVisible: () => void;
+  /** Open the saved-filter dialog, seeded from the filters in force. */
+  onSaveAsFilter: () => void;
 }
 
 export function CatalogToolbar({
@@ -149,6 +181,12 @@ export function CatalogToolbar({
   syncing,
   explainingHidden,
   onToggleHidden,
+  groups,
+  activeGroup,
+  visibleCount,
+  allVisibleSelected,
+  onSelectAllVisible,
+  onSaveAsFilter,
 }: CatalogToolbarProps) {
   const mode = useCatalogView((s) => s.mode);
   const setMode = useCatalogView((s) => s.setMode);
@@ -250,6 +288,21 @@ export function CatalogToolbar({
           the toolbar has ~700px, and the view/group/sort controls have a
           better claim on it than two words.
         */}
+        {/*
+          The other way to make a saved filter: instead of describing a rule, keep
+          the one you are looking at. The dialog opens with whatever this view's
+          filters a saved filter can hold, and says which of them it cannot.
+        */}
+        <button
+          type="button"
+          onClick={onSaveAsFilter}
+          className="atr-segment"
+          title="Save these filters as a saved filter — a group that fills itself"
+          aria-label="Save these filters as a saved filter"
+        >
+          <Filter className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden xl:inline">Save filter</span>
+        </button>
         <TagCleanupButton />
         <button
           type="button"
@@ -275,6 +328,25 @@ export function CatalogToolbar({
           <span className="hidden xl:inline">Pull</span>
         </button>
 
+        {/*
+          The one-step version of ⌘-clicking every row, which is the difference
+          between "work on these three" and "work on this whole filtered view".
+          Hidden once everything shown is selected — the selection block then
+          carries the useful control, which is the way out.
+        */}
+        {visibleCount > 0 && !allVisibleSelected ? (
+          <button
+            type="button"
+            onClick={onSelectAllVisible}
+            title={`Select all ${visibleCount} repos shown`}
+            aria-label={`Select all ${visibleCount} repos shown`}
+            className="atr-segment"
+          >
+            <ListChecks className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden xl:inline">Select all</span>
+          </button>
+        ) : null}
+
         <span aria-hidden className="h-4 w-px bg-border" />
         {scopeLabel ? (
           <button
@@ -291,6 +363,10 @@ export function CatalogToolbar({
         {selection.length > 0 ? (
           <div className="flex items-center gap-1.5">
             <span className="atr-meta">{selection.length} selected</span>
+            <AddToGroupMenu groups={groups} slugs={selection} />
+            {activeGroup && !activeGroup.isSmart ? (
+              <RemoveFromGroupButton group={activeGroup} slugs={selection} />
+            ) : null}
             <button
               type="button"
               onClick={clearSelection}
@@ -335,5 +411,147 @@ export function CatalogToolbar({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Add to group" — a menu over the manual groups, plus a way to make one from
+ * what is selected.
+ *
+ * This is the only place the selection turns into membership, and it lives
+ * where the selection already is (the toolbar's "N selected" block) rather than
+ * in a dialog you have to find first. Creating from here is one step, not two:
+ * the new group is created and the selection is written into it in the same
+ * action, so "collect these in a group" is never a group that then has to be
+ * filled from a second screen.
+ */
+function AddToGroupMenu({ groups, slugs }: { groups: Group[]; slugs: string[] }) {
+  const addMembers = useAddGroupMembers();
+  const clearSelection = useCatalogView((s) => s.clearSelection);
+  const pushNotice = useUiStore((s) => s.pushNotice);
+  const [creating, setCreating] = React.useState(false);
+
+  const manual = groups.filter((group) => !group.isSmart);
+
+  const add = (groupId: number, name: string) => {
+    addMembers.mutate(
+      { groupId, slugs },
+      {
+        onSuccess: (result) => {
+          if (result.added === 0) {
+            // The write moved nothing, so the selection stays: the next click
+            // is probably a different group.
+            pushNotice(`Already in ${name}`);
+            return;
+          }
+          pushNotice(
+            `Added ${result.added} repo${result.added === 1 ? "" : "s"} to ${name}`,
+          );
+          clearSelection();
+        },
+        onError: (error) =>
+          pushNotice(`Could not add to ${name} — ${error.message}`),
+      },
+    );
+  };
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={addMembers.isPending}
+            className="atr-segment disabled:cursor-wait disabled:opacity-60"
+            title="Put the selected repos in a group"
+          >
+            <FolderPlus className="h-3.5 w-3.5" aria-hidden />
+            <span className="whitespace-nowrap">Add to group</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>Add {slugs.length} to</DropdownMenuLabel>
+          {manual.length === 0 ? (
+            <p className="px-2 pb-1.5 text-xs text-muted-foreground">
+              No groups yet.
+            </p>
+          ) : (
+            manual.map((group) => (
+              <DropdownMenuItem
+                key={group.id}
+                onSelect={() => add(group.id, group.name)}
+              >
+                <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                <span className="font-mono atr-micro text-muted-foreground">
+                  {group.repoCount}
+                </span>
+              </DropdownMenuItem>
+            ))
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setCreating(true)}>
+            <FolderPlus className="h-3.5 w-3.5" aria-hidden />
+            New group…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <CreateGroupDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(group) => add(group.id, group.name)}
+      />
+    </>
+  );
+}
+
+/**
+ * "Remove from group" — offered only while a manual group is the active scope,
+ * which is the one place where "these repos, out of this group" is a complete
+ * instruction.
+ */
+function RemoveFromGroupButton({
+  group,
+  slugs,
+}: {
+  group: Group;
+  slugs: string[];
+}) {
+  const removeMembers = useRemoveGroupMembers();
+  const clearSelection = useCatalogView((s) => s.clearSelection);
+  const pushNotice = useUiStore((s) => s.pushNotice);
+
+  const remove = () => {
+    removeMembers.mutate(
+      { groupId: group.id, slugs },
+      {
+        onSuccess: (result) => {
+          if (result.removed === 0) {
+            pushNotice(`Nothing in ${group.name} to remove`);
+            return;
+          }
+          pushNotice(
+            `Removed ${result.removed} repo${result.removed === 1 ? "" : "s"} from ${group.name}`,
+          );
+          clearSelection();
+        },
+        onError: (error) =>
+          pushNotice(`Could not remove from ${group.name} — ${error.message}`),
+      },
+    );
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={remove}
+      disabled={removeMembers.isPending}
+      aria-label={`Remove the selected repos from ${group.name}`}
+      title={`Remove the selected repos from ${group.name}`}
+      className="atr-segment disabled:cursor-wait disabled:opacity-60"
+    >
+      <Minus className="h-3.5 w-3.5" aria-hidden />
+      <span className="whitespace-nowrap">Remove</span>
+    </button>
   );
 }

@@ -24,6 +24,7 @@ import type {
   RescanRepoResult,
   SetGroupMembersResult,
   SetRepoTagsResult,
+  SmartFilter,
 } from "@shared/types";
 
 import {
@@ -193,6 +194,39 @@ class CatalogService {
     const updated = await updateGroupRow(id, { name });
     if (!updated) {
       throw new Error(`groups:rename: group not found (id=${id})`);
+    }
+    return updated;
+  }
+
+  /**
+   * Replace the rule behind a saved filter.
+   *
+   * Membership of a smart group is derived from this JSON on every read, so the
+   * write re-fills the group — the repos it used to match leave and the ones it
+   * now matches appear, without touching a single membership row (a smart group
+   * never has any).
+   *
+   * Refused for a manual group rather than written and ignored: `isSmart` is
+   * what decides whether the filter is consulted at all, so storing one on a
+   * hand-picked list would leave a rule in the database that looks live and is
+   * never evaluated.
+   */
+  async updateGroupFilter(
+    id: number,
+    smartFilter: SmartFilter,
+  ): Promise<Group> {
+    const existing = (await listGroupsRow()).find((group) => group.id === id);
+    if (!existing) {
+      throw new Error(`groups:updateFilter: group not found (id=${id})`);
+    }
+    if (!existing.isSmart) {
+      throw new Error(
+        `groups:updateFilter: group ${id} is not a saved filter`,
+      );
+    }
+    const updated = await updateGroupRow(id, { smartFilter });
+    if (!updated) {
+      throw new Error(`groups:updateFilter: group not found (id=${id})`);
     }
     return updated;
   }

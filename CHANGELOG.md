@@ -11,6 +11,180 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- save a filter as a group, instead of only making groups by hand. `groups:create` has taken
+  `isSmart` and a nested `smartFilter` since Phase 1, and the catalog has evaluated them for as long
+  as it has drawn groups, but no screen ever sent one — so the rail could list a saved filter and
+  nobody could make one. The rail now has `New saved filter` beside `New group`: a name, a language,
+  tags, a "touched in the last N days" window and an uncommitted-changes box, with a live count of
+  what the rule matches before it is saved. A saved filter opens on creation (a manual group does
+  not — it is empty and there is nothing to see), its rail badge counts through the same predicate
+  the grid filters with rather than the stored membership count, and its row now carries the rename
+  and delete menu it never had. The predicate lives in `lib/smart-filter.ts` so the grid and the
+  rail cannot disagree, and the draft-to-filter arithmetic is `lib/saved-filter.ts`. A filter's rule
+  is editable from the row's `Edit filter…`, which opens on what was stored and writes back through
+  a new `groups:updateFilter` channel; conditions the dialog does not draw (`tagsExclude`,
+  `hasRemote`) are carried through rather than dropped, so fixing a typo cannot quietly widen the
+  rule. While a filter is the active scope, the banner above the grid spells its conditions out and
+  carries its own `Edit filter…`, because the rail gives it a name and a count and never says why
+  these repos and not others — which reads as a bug the first time an expected repo is missing.
+  Gated by
+  `tests/unit/renderer/saved-filter.spec.ts`, `tests/unit/renderer/smart-filter.spec.ts` and the
+  saved-filter walk in `tests/e2e/groups-flow.spec.ts`.
+
+- save the view you are looking at as a saved filter. The rail's `New saved filter` asks you to
+  translate a grid into conditions; the toolbar's `Save filter` starts from the conditions already in
+  force. It opens the same dialog with the boxes the view is using pre-ticked, and names the parts a
+  saved filter cannot hold — folder scope, owner, the search box, an active group — because the group
+  will not reproduce the grid, and a filter that quietly matches the whole catalog where one repo was
+  on screen reads as broken. Two conditions moved into `SmartFilter` for this: `favoritesOnly`, which
+  the predicate evaluates, and `includeArchived`, which is a widening rather than a rejection — the
+  catalog hides archived folders before any group is consulted, so a filter that wants them lifts
+  that exclusion, and `filterIncludesArchived` is what the pass, the banner and the dialog all ask.
+  Saving opens the new group and clears the view filters the rule now owns, so unticking a box in the
+  dialog means something. Gated by the fourth walk in `tests/e2e/groups-flow.spec.ts`.
+
+- fill a group, and select more than one repo without a modifier key. ATR-043 had been the one gap
+  a launch post had to leave out: `groups:setMembers` existed in the bridge with no caller, so a
+  group could be created and stayed empty for good. Membership has three doors now — the detail
+  panel's `Groups` section, the toolbar's `Add to group` over the current selection, and
+  `New group…` in that menu, which creates and fills in one step — and removal has two: the × on a
+  membership badge, and the toolbar's `Remove` while a manual group is the active scope. The rail's
+  group rows gained the rename and delete they never had; those dialogs lived in
+  `group-sidebar.tsx`, which nothing imported, so that file is gone and the dialogs moved to
+  `components/groups/group-dialogs.tsx`. Bulk selection was ⌘-click only, a gesture nothing on
+  screen mentioned: every card and table row now carries a checkbox, and the toolbar offers
+  `Select all N shown`, so "these three" and "this whole filtered view" are both reachable with a
+  mouse. Add and remove are read-modify-write against a fresh read of the group's members, because
+  `groups:setMembers` replaces the whole set — a union computed against a cached member list would
+  delete everyone added since the cache was filled, which is the one mistake here that loses data.
+  Gated by `tests/e2e/groups-flow.spec.ts`: create → fill from the detail panel → remove → refill →
+  open the group → rename → delete, then build a selection from the checkboxes and add it from the
+  toolbar.
+
+### Changed
+
+- rewrite the launch draft for the rooms it is going to. [`docs/announcement.md`](./docs/announcement.md)
+  was a Show HN post written when the source was private, the licence did not exist and the only
+  download was the releases repository; all three had changed by the time it would have been sent.
+  It now carries a Facebook post and two Reddit posts, each with the facts they are allowed to
+  claim and where each fact is verified, the first comment to post with each, and a checklist of
+  what to check before pressing send. It also names the limitation a post written against that
+  build had to respect: there, groups could be created on the rail but not filled from the UI
+  (ATR-043, closed above), so the posts leave groups out.
+
+### Fixed
+
+- add a scan path from Settings through the same call the rail uses. The box appended whatever was typed
+  to `settings:update` — a wholesale array write with no rules behind it — so a relative path, a
+  folder that is not there, or one an existing root already covers all went into the scan list and
+  drew a row no scan could ever fill. It calls `settings:addScanPath` now, which resolves the path,
+  refuses what the scanner cannot use with the reason the rail shows, and starts the scan of the
+  folder it accepted. Typing a path that is already a root also says so rather than doing nothing
+  silently, and a refused entry stays in the field to be corrected instead of being cleared. Gated
+  by `tests/e2e/settings-scan-paths.spec.ts`: a relative path is typed and the refusal read, then a
+  real folder is added and followed into the rail, which is where a root listed in one screen and
+  missing from the other would show. That folder holds a repo, so the add's scan has to find it, and
+  the same walk then removes the path with the row's × and watches the rail lose the root without a
+  reload while the card survives and moves to `Outside scan folders` — four repos there where there
+  were three — which is what "kept, not scanned" looks like. A second root stays behind, because
+  that row only exists when some repo lies outside every root; with none left the rail falls back to
+  one tree over the whole catalog and the move would be invisible. Verified against a removal that
+  forgets instead of keeping: the walk then reads three cards and fails. The rail's own door is driven
+  in the same spec rather than assumed: the native picker is answered from the main process, so the
+  `Add folder to scan` click runs the real resolve/validate/write/scan path — the folder's repo has to
+  reach the grid — and picking the same folder again is refused with the notice strip while the
+  single row stays put, which is the duplicate rule the two doors are supposed to share.
+
+- resolve an entered scan path in the browser demo, and refuse one that is relative.
+  `demo-store.addScanPath` stripped trailing slashes and stored the string as typed, so `repos` became
+  a root with nothing under it — `countUnder` said 0, the rail drew an empty row, and no scan could
+  ever fill it — and `<root>/../<root>` a second entry beside the folder it names. Both scan-path
+  writes now collapse `.`, `..` and repeated separators, which is what main's `path.resolve` does for
+  the paths that reach the disk. A relative path has no working directory to resolve against in a
+  tab, and on the desktop it resolves against the app's own install folder and then fails to exist,
+  so it is refused here with a reason rather than stored. `removeScanPath` resolves the same way, or
+  a root reached by a different spelling could be added and never dropped. Gated by two cases in
+  `tests/unit/renderer/demo-store.spec.ts`.
+
+- refuse a settings write the shared schema rejects, in the browser demo. `demo-store.updateSettings`
+  merged any patch it was handed, so a review tab would accept and then render a Settings the app can
+  never hold — clearing the Ollama URL is the shortest route, which the desktop rejects at its IPC
+  boundary and again when it re-parses the merged blob, keeping the old value. The store now parses
+  the merged object and stores the parse result, so an invalid value throws before anything is
+  written and a key that is not a setting is dropped rather than kept. The desktop checks twice —
+  the patch at its IPC boundary, the merged blob in its settings service — but the second check
+  rejects everything the first would, one line later, so the store owns the only parse and the
+  bridge keeps calling it. Gated by a case in `tests/unit/renderer/demo-store.spec.ts` and
+  one in `tests/unit/renderer/browser-bridge-contract.spec.ts` that drives it through the bridge.
+
+- refuse a scan folder already covered by a root in the browser demo. `demo-store.addScanPath`
+  checked for an exact duplicate and nothing else, so the browser tab would accept `~/Repos/work/apps`
+  while `~/Repos/work` was already being scanned — the entry the desktop app refuses because the
+  scanner walks into it anyway and a second one doubles the work and splits the rail in two. It now
+  applies the same three rules as `src/main/services/scan-roots.ts`, minus the two that need a
+  filesystem: an exact duplicate, a folder covered by an existing root (refused, naming that root),
+  and a parent of existing roots (accepted, folding them into one entry). The two spellings of the
+  duplicate message became one while the rules were being copied. Gated by two cases in
+  `tests/unit/renderer/demo-store.spec.ts`.
+
+- file a repo that is a scan root in the rail's root row, not under phantom folders. `buildTreeAt`
+  derived each repo's folder from its parent path, and for a repo whose `full_path` IS the tree's
+  root there is no such folder inside the tree: it took the absolute parent and walked in from the
+  root, so a scan root that is a repository drew a chain of folders named after every segment of the
+  path (`/Users`, `/Users/j`, …) with the repo at the bottom of it, each with its own menu. The repo
+  now lands in the root's own rows. `isDirectlyIn` had the matching gap: it compared the repo's
+  parent to the folder, so the root's `directly in this folder` row counted that repo and then
+  showed an empty grid when opened. Both are asserted, in
+  `tests/unit/renderer/catalog-derivations.spec.ts` and in the rail of the fourth
+  `tests/e2e/catalog-refresh.spec.ts` walk, which expands the root, opens the row and reads the one
+  card back. These two were the only path comparisons of this shape that disagreed: `isInside` in
+  the scan-root service and in the watcher, `isUnder` in the rail, and the demo store's `isInside`
+  all already treat a path as inside itself.
+
+- count a repo that is a scan root when that root is removed. Pointing the app at
+  `~/Repos/my-project` catalogues that folder, so its `full_path` is the scan root path exactly —
+  and both the confirmation's count and the forget behind it asked `full_path LIKE root/%`, which
+  never matches the root. The dialog said "No repos have been catalogued here" about the one repo it
+  was obviously about, and choosing to forget it left the card on the grid under `Outside scan
+  folders`: a promise of removal that removed nothing, and no error to notice. `slugsUnder` in
+  `src/main/services/scan-roots.ts` now matches the root path as well as what lies beneath it, so the
+  count and the delete cannot disagree. Gated by `tests/unit/main/services/scan-roots.spec.ts`
+  (count and forget on a root-shaped row) and a fourth walk in `tests/e2e/catalog-refresh.spec.ts`
+  that scans a folder which is itself a repo, reads the count off the real confirmation and checks
+  the card is gone.
+
+- refresh a repo's card when it is pinned. `useToggleFavorite` was still cancelling, snapshotting and
+  invalidating the `["catalog"]` query root from before `queryKeys` existed, and nothing is stored
+  there — so the optimistic write matched no query and the invalidation refreshed none. Pinning left
+  the card's star, the rail's Favourites count and the Favourites view on the old value until the
+  window reloaded, which is why the app's own walkthrough had learned to refresh the catalog before
+  reading the star back. Found by the new saved-filter walk, which pins a repo and then narrows to
+  it; the key is `queryKeys.repos.all` now, for the cancel, the snapshot, the write and the
+  invalidation. `Fetch` and `Pull` had the same stale key on their success path, so a sync that
+  reported "3 updated" left the cards showing the old branch and commit line; both refresh
+  `queryKeys.repos.all` too. So did the other three places that were meant to make the grid follow a
+  write it cannot see: the scan event bus (a scan writes straight to SQLite, and the grid kept the
+  count from before it), the scan-root mutations, and the filesystem watcher behind the "2 repos
+  added" notice, which had been announcing changes it never showed. All five now refresh
+  `["repos"]`. `tests/e2e/catalog-refresh.spec.ts` pins the two of those that a write can reach on the rendered
+  catalog: a repo is created on disk, scanned through the bridge, and has to appear as a fourth card
+  with no reload — and then a scan root is removed through the rail's own menu and confirmation, and
+  its repo has to leave the grid and the count without a reload either. A third walk takes the other
+  option in that dialog, "Keep them in the catalog", and asserts the repo stays on the grid under
+  `Outside scan folders` rather than being forgotten. All were checked to fail against the old keys
+  before the fix was accepted.
+
+- render the demo poster where the `<video>` tag did not. The README embed added on 2026-10-11 was
+  a `<video src="docs/demo-video/alltherepos-demo.mp4">`, and GitHub strips `<video>` from a
+  README: the live page carried the sentence under it and no player above it, which nobody
+  noticed because the file is in the tree and the link works. The poster is now a frame from the
+  film (`docs/images/demo-poster.png`, 1600x900, taken at 0:34) inside a link to the mp4, which
+  GitHub does play in its own viewer, and the line beneath it says why the file is a link rather
+  than an embed. Read from the rendered page rather than the source: `curl` on the repository URL
+  returned no `<video>` element at all.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

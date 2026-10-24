@@ -602,6 +602,21 @@ export interface RenameGroupInput {
 /** Response for `groups:rename`. */
 export type RenameGroupResult = Group;
 
+/**
+ * Input for `groups:updateFilter` — replace a saved filter's rule.
+ *
+ * Required, not optional: "set this filter to nothing" is a group that means the
+ * whole catalog, and the way out of a filter you no longer want is to delete the
+ * group, not to hollow it out.
+ */
+export interface UpdateGroupFilterInput {
+  id: number;
+  smartFilter: SmartFilter;
+}
+
+/** Response for `groups:updateFilter`. */
+export type UpdateGroupFilterResult = Group;
+
 /** Input for `groups:delete`. */
 export interface DeleteGroupInput {
   id: number;

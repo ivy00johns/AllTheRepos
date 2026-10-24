@@ -318,6 +318,18 @@ describe("buildRepoTree", () => {
     // A trailing slash on the folder does not change the answer.
     expect(isDirectlyIn("/Users/j/Repos/a", "/Users/j/Repos/")).toBe(true);
   });
+
+  it("isDirectlyIn keeps a repo that is the folder itself", () => {
+    /*
+     * A scan root can be a repository. The rail lists such a repo in that
+     * root's own "directly in this folder" row, so the filter behind the row
+     * has to keep it — otherwise the row counts one repo and opening it shows
+     * none.
+     */
+    expect(isDirectlyIn("/Users/j/Repos/self", "/Users/j/Repos/self")).toBe(
+      true,
+    );
+  });
 });
 
 describe("generatedCover", () => {
@@ -387,6 +399,24 @@ describe("buildRepoForest", () => {
     // gained a level of nesting the moment this happened.
     expect(namesUnderRepos(after)).toEqual(namesUnderRepos(before));
     expect(after.roots[1].totalRepos).toBe(1);
+  });
+
+  it("files a repo that is the scan root itself under that root", () => {
+    /*
+     * Point the app at `~/Repos/self` and the scanner catalogues that folder,
+     * so its `full_path` is the root path exactly. Its parent lies outside the
+     * tree, and the walk derived a chain from the absolute path instead —
+     * phantom folders named `Users`, `j` and so on under the root, with the
+     * repo at the bottom of them.
+     */
+    const forest = buildRepoForest(
+      [repo({ slug: "self", fullPath: "/Users/j/Repos/self" })],
+      ["/Users/j/Repos/self"],
+    );
+    const own = forest.roots[0];
+    expect(own.totalRepos).toBe(1);
+    expect(own.repos.map((r) => r.slug)).toEqual(["self"]);
+    expect(own.children).toEqual([]);
   });
 
   it("attributes a repo to the most specific of nested scan roots", () => {

@@ -18,6 +18,7 @@ import type {
 } from "@shared/types";
 
 import { getAtr, requireAtr } from "@renderer/lib/atr";
+import { queryKeys } from "@renderer/lib/query-client";
 
 // ---------------------------------------------------------------------------
 // Favourites
@@ -29,6 +30,12 @@ import { getAtr, requireAtr } from "@renderer/lib/atr";
  * Optimistic: starring should feel instant, and the write is a single
  * boolean that essentially cannot fail. On error the previous list is
  * restored.
+ *
+ * Keyed off `queryKeys.repos.all` (`["repos"]`), not the `["catalog"]` these
+ * hooks used before the key registry existed. Nothing is stored under that
+ * root any more, so both the optimistic write and the invalidation missed —
+ * pinning a repo left the card, the rail's Favourites count and the `Favourites`
+ * view showing the old value until the window was reloaded.
  */
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
@@ -36,10 +43,12 @@ export function useToggleFavorite() {
     mutationFn: async (input: { slug: string; favorite: boolean }) =>
       requireAtr().catalog.setFavorite(input),
     onMutate: async ({ slug, favorite }) => {
-      await queryClient.cancelQueries({ queryKey: ["catalog"] });
-      const snapshot = queryClient.getQueriesData({ queryKey: ["catalog"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.repos.all });
+      const snapshot = queryClient.getQueriesData({
+        queryKey: queryKeys.repos.all,
+      });
       queryClient.setQueriesData(
-        { queryKey: ["catalog"] },
+        { queryKey: queryKeys.repos.all },
         (old: unknown): unknown => {
           if (!old || typeof old !== "object" || !("items" in old)) return old;
           const list = old as { items: Repo[] };
@@ -59,7 +68,7 @@ export function useToggleFavorite() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
     },
   });
 }
@@ -68,6 +77,17 @@ export function useToggleFavorite() {
 // Git sync
 // ---------------------------------------------------------------------------
 
+/**
+ * Both sync mutations refresh the catalog under `queryKeys.repos.all`.
+ *
+ * They were still invalidating `["catalog"]`, the root these hooks used before
+ * the key registry above existed and which holds nothing now — so the strip said
+ * "3 updated" over cards still showing the old branch, the old commit line and
+ * the old dirty marker until the window reloaded. A fetch or a pull rewrites
+ * exactly the columns a `Repo` row draws, which is what the prefix covers (it
+ * also matches the per-repo detail query, whose header carries the same data).
+ */
+
 /** Fetch remote refs. Safe on any repo — never touches a working tree. */
 export function useFetchRepos() {
   const queryClient = useQueryClient();
@@ -75,7 +95,7 @@ export function useFetchRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.fetch({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
     },
   });
 }
@@ -87,7 +107,7 @@ export function usePullRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.pull({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
     },
   });
 }

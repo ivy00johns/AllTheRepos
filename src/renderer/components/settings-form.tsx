@@ -21,6 +21,7 @@ import { Input } from "@renderer/components/ui/input";
 import { Label } from "@renderer/components/ui/label";
 import { Separator } from "@renderer/components/ui/separator";
 import { useScan } from "@renderer/hooks/use-scan";
+import { useAddScanPath } from "@renderer/hooks/use-scan-roots";
 import { useUpdateSettings } from "@renderer/hooks/use-settings";
 import { useUpdate } from "@renderer/hooks/use-update";
 
@@ -115,6 +116,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   }, [newIdentity]);
 
   const { mutateAsync: updateSettings } = useUpdateSettings();
+  const { mutateAsync: addScanPath } = useAddScanPath();
   const { state: scanState, startScan } = useScan();
   const scanning = scanState.phase === "running";
 
@@ -162,16 +164,30 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
     scanState.durationMs,
   ]);
 
+  /**
+   * Add a typed path through the same call the rail uses.
+   *
+   * Writing the array straight into `settings:update` made this a second door
+   * into the scan list with no rules behind it: a relative path, a folder
+   * already covered by a root, or a folder that is not there all went in and
+   * drew an empty row. `settings:addScanPath` resolves the path, refuses what
+   * the scanner cannot use, and starts the scan — so both doors now do the same
+   * thing and say so in the same words.
+   */
   const handleAddPath = async () => {
     const p = newPath.trim();
     if (!p) return;
-    const nextPaths = settings.scanPaths.includes(p)
-      ? settings.scanPaths
-      : [...settings.scanPaths, p];
     try {
       setError(null);
-      const next = await updateSettings({ scanPaths: nextPaths });
-      setSettings((current) => ({ ...current, scanPaths: next.scanPaths }));
+      const result = await addScanPath(p);
+      if (!result.added) {
+        setError(result.reason ?? "That folder could not be added.");
+        return;
+      }
+      setSettings((current) => ({
+        ...current,
+        scanPaths: result.settings.scanPaths,
+      }));
       setNewPath("");
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));

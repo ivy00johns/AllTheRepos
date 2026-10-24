@@ -22,6 +22,7 @@ import { useCallback, useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { getAtr } from "@renderer/lib/atr";
+import { queryKeys } from "@renderer/lib/query-client";
 import { useScanStore, type ScanState } from "@renderer/stores/scan";
 import type { StartScanInput } from "@shared/types";
 
@@ -112,6 +113,10 @@ function scheduleCatalogRefresh(queryClient: QueryClient): void {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    // `queryKeys.repos.all`, not the `["catalog"]` root this used before the key
+    // registry existed: nothing is stored under `["catalog"]`, so the refetch
+    // above matched no query and the grid stayed on the count from before the
+    // scan — the exact symptom the invalidation was written to prevent.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
   }, REFRESH_INTERVAL_MS);
 }

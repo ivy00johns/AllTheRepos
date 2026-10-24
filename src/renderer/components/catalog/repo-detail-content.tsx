@@ -7,6 +7,7 @@ import {
   Circle,
   ExternalLink,
   FolderGit2,
+  FolderPlus,
   GitBranch,
   Hash,
   Plus,
@@ -20,12 +21,23 @@ import type { RepoDetail } from "@shared/types";
 import { cn } from "@renderer/lib/cn";
 import { useLauncher, useLauncherDetect } from "@renderer/hooks/use-launcher";
 import { useDeleteRepo, useSetRepoTags } from "@renderer/hooks/use-repos";
+import { useAddGroupMembers, useGroups, useRemoveGroupMembers } from "@renderer/hooks/use-groups";
+import { CreateGroupDialog } from "@renderer/components/groups/group-dialogs";
 import { Markdown } from "@renderer/components/markdown";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@renderer/components/ui/dropdown-menu";
 import { Input } from "@renderer/components/ui/input";
 import { Separator } from "@renderer/components/ui/separator";
 import { ClaudeTab } from "@renderer/components/claude/claude-tab";
+import { useUiStore } from "@renderer/stores/ui";
 
 import { useCover } from "@renderer/hooks/use-cover";
 import type { TaskRunState } from "@renderer/hooks/use-actions";
@@ -477,23 +489,9 @@ export function RepoDetailContent({
               onOpenRepo={onOpenRepo}
             />
 
-            {repo.groups.length > 0 ? (
-              <>
-                <Separator />
-                <div>
-                  <p className="atr-label mb-2 font-semibold uppercase tracking-widest text-muted-foreground">
-                    Groups
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {repo.groups.map((g) => (
-                      <Badge key={g.id} variant="default">
-                        {g.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : null}
+            <Separator />
+
+            <GroupMembership repo={repo} />
 
             <Separator />
 
@@ -574,6 +572,168 @@ function Meta({ icon, label, value, mono }: MetaProps) {
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+/**
+ * This repo's group memberships, and the only place one repo joins or leaves a
+ * group on its own.
+ *
+ * The toolbar's "Add to group" acts on a selection, and a selection is built
+ * with ⌘-click — a gesture nothing on screen advertises. So the same operation
+ * is offered here, where a person already is when they are thinking about one
+ * repo, and where no modifier key is needed.
+ *
+ * The badges are held in local state rather than rendered straight from
+ * `repo.groups`. The panel's detail object is fetched once per repo by the
+ * shell, so a membership written here would not appear until the repo was
+ * reopened; the local list is updated when the write succeeds, and the
+ * invalidation in the mutation hooks corrects it on the next load. The
+ * mutations themselves re-read the group before writing, so "add" and "remove"
+ * are safe against a stale list no matter what this panel is showing.
+ */
+function GroupMembership({ repo }: { repo: RepoDetail }) {
+  const groupsQuery = useGroups();
+  const addMembers = useAddGroupMembers();
+  const removeMembers = useRemoveGroupMembers();
+  const pushNotice = useUiStore((s) => s.pushNotice);
+
+  const [memberships, setMemberships] = React.useState(repo.groups);
+  const [creating, setCreating] = React.useState(false);
+
+  React.useEffect(() => {
+    setMemberships(repo.groups);
+  }, [repo.slug, repo.groups]);
+
+  const memberIds = React.useMemo(
+    () => new Set(memberships.map((group) => group.id)),
+    [memberships],
+  );
+  const addable = (groupsQuery.data ?? []).filter(
+    (group) => !group.isSmart && !memberIds.has(group.id),
+  );
+
+  const pending = addMembers.isPending || removeMembers.isPending;
+
+  const add = (groupId: number, name: string) => {
+    addMembers.mutate(
+      { groupId, slugs: [repo.slug] },
+      {
+        onSuccess: (result) => {
+          if (result.added === 0) {
+            pushNotice(`${repo.name} is already in ${name}`);
+            return;
+          }
+          setMemberships((prev) =>
+            prev.some((group) => group.id === groupId)
+              ? prev
+              : [...prev, { id: groupId, name }],
+          );
+          pushNotice(`Added ${repo.name} to ${name}`);
+        },
+        onError: (error) =>
+          pushNotice(`Could not add ${repo.name} to ${name} — ${error.message}`),
+      },
+    );
+  };
+
+  const remove = (groupId: number, name: string) => {
+    removeMembers.mutate(
+      { groupId, slugs: [repo.slug] },
+      {
+        onSuccess: (result) => {
+          if (result.removed === 0) {
+            pushNotice(`${repo.name} was not in ${name}`);
+            return;
+          }
+          setMemberships((prev) =>
+            prev.filter((group) => group.id !== groupId),
+          );
+          pushNotice(`Removed ${repo.name} from ${name}`);
+        },
+        onError: (error) =>
+          pushNotice(
+            `Could not remove ${repo.name} from ${name} — ${error.message}`,
+          ),
+      },
+    );
+  };
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="atr-label font-semibold uppercase tracking-widest text-muted-foreground">
+          Groups
+        </p>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              disabled={pending}
+              className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-mono atr-label text-accent transition-colors duration-150 hover:bg-surface-raised disabled:cursor-wait disabled:opacity-60"
+            >
+              <FolderPlus className="h-3 w-3" aria-hidden />
+              Add to group
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel>Add to</DropdownMenuLabel>
+            {addable.length === 0 ? (
+              <p className="px-2 pb-1.5 text-xs text-muted-foreground">
+                Already in every group.
+              </p>
+            ) : (
+              addable.map((group) => (
+                <DropdownMenuItem
+                  key={group.id}
+                  onSelect={() => add(group.id, group.name)}
+                >
+                  <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                  <span className="font-mono atr-micro text-muted-foreground">
+                    {group.repoCount}
+                  </span>
+                </DropdownMenuItem>
+              ))
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setCreating(true)}>
+              <FolderPlus className="h-3.5 w-3.5" aria-hidden />
+              New group…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {memberships.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground">
+          Not in a group yet.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {memberships.map((group) => (
+            <Badge key={group.id} variant="default" className="gap-1 pr-1">
+              {group.name}
+              <button
+                type="button"
+                aria-label={`Remove ${repo.name} from ${group.name}`}
+                title={`Remove from ${group.name}`}
+                disabled={pending}
+                onClick={() => remove(group.id, group.name)}
+                className="cursor-pointer rounded-sm p-0.5 text-accent/70 transition-colors duration-150 hover:bg-accent/20 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      <CreateGroupDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(group) => add(group.id, group.name)}
+      />
     </div>
   );
 }

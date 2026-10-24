@@ -22,6 +22,7 @@ import { RefreshCw, X } from "lucide-react";
 
 import type { Group, Repo, RepoDetail } from "@shared/types";
 
+import { SavedFilterDialog } from "@renderer/components/groups/group-dialogs";
 import { KeyboardShortcuts } from "@renderer/components/layout/keyboard-shortcuts";
 import { useGroupMemberSlugs } from "@renderer/hooks/use-groups";
 import {
@@ -52,6 +53,16 @@ import {
   type OwnershipInfo,
 } from "@renderer/lib/ownership";
 import { nearMisses } from "@renderer/lib/near-miss";
+import {
+  EMPTY_SAVED_FILTER_DRAFT,
+  type SavedFilterDraft,
+} from "@renderer/lib/saved-filter";
+import {
+  describeSmartFilter,
+  filterIncludesArchived,
+  languagesInCatalog,
+  matchesSmartFilter,
+} from "@renderer/lib/smart-filter";
 import {
   isArchivedPath,
   isDirectlyIn,
@@ -134,6 +145,7 @@ export function CatalogShell({
   const order = useCatalogView((s) => s.order);
   const selection = useCatalogView((s) => s.selection);
   const toggleSelected = useCatalogView((s) => s.toggleSelected);
+  const setSelection = useCatalogView((s) => s.setSelection);
   // The setters the count's "clear this filter" chips need. Each belongs to a
   // control that already exists elsewhere in the UI.
   const clearOwnership = useCatalogView((s) => s.clearOwnership);
@@ -287,6 +299,29 @@ export function CatalogShell({
     ? (manualMembersQuery.data ?? null)
     : null;
 
+  /**
+   * The active saved filter's rule, in words, above the grid it narrows.
+   *
+   * The rail shows a name and a count; neither says *why* those repos and not
+   * others, and a filter is the one scope in this screen with no visible
+   * control to read back. Built from the stored filter (not the dialog's draft),
+   * so conditions the dialog cannot draw are part of the explanation too.
+   */
+  const activeFilterRule = React.useMemo(
+    () =>
+      activeGroup?.isSmart ? describeSmartFilter(activeGroup.smartFilter) : [],
+    [activeGroup],
+  );
+
+  /** The catalog's languages, for the editor this banner can open. */
+  const filterLanguages = React.useMemo(
+    () => languagesInCatalog(initialRepos),
+    [initialRepos],
+  );
+
+  const [editingFilter, setEditingFilter] = React.useState(false);
+  const [savingViewFilter, setSavingViewFilter] = React.useState(false);
+
   /** Repos hidden purely because archived folders are excluded. */
   const archivedCount = React.useMemo(
     () => initialRepos.filter((r) => isArchivedPath(r.fullPath)).length,
@@ -299,6 +334,17 @@ export function CatalogShell({
    * `_archive` a row you can click into and find empty.
    */
   const scopeIsArchived = selectedDir ? isArchivedPath(selectedDir) : false;
+
+  /**
+   * Whether archived folders are on the grid at all.
+   *
+   * The toolbar's `Archived` toggle is the usual answer. The other is the active
+   * saved filter: `includeArchived` on a rule describes a group that wants its
+   * old folders, and a group whose own membership is hidden by a view default
+   * would show a count in the rail and fewer rows here.
+   */
+  const archivedShown =
+    includeArchived || filterIncludesArchived(activeGroup?.smartFilter);
 
   /**
    * Apply every filter, tallying which one is keeping each excluded repo out.
@@ -323,11 +369,7 @@ export function CatalogShell({
     const repos = base.filter((repo) => {
       if (dirtyOnly && !repo.isDirty) return reject("dirty");
       if (favoritesOnly && !repo.isFavorite) return reject("favorites");
-      if (
-        !includeArchived &&
-        !scopeIsArchived &&
-        isArchivedPath(repo.fullPath)
-      ) {
+      if (!archivedShown && !scopeIsArchived && isArchivedPath(repo.fullPath)) {
         return reject("archived");
       }
       if (selectedDir) {
@@ -344,35 +386,10 @@ export function CatalogShell({
       }
       if (activeGroup) {
         if (activeGroup.isSmart) {
-          const f = activeGroup.smartFilter;
-          if (f) {
-            if (f.language && repo.primaryLanguage !== f.language) {
-              return reject("group");
-            }
-            if (
-              f.tagsInclude?.some(
-                (tag) => !repo.tags.some((t) => t.value === tag),
-              )
-            ) {
-              return reject("group");
-            }
-            if (
-              f.tagsExclude?.some((tag) =>
-                repo.tags.some((t) => t.value === tag),
-              )
-            ) {
-              return reject("group");
-            }
-            if (
-              f.sinceDays !== undefined &&
-              (activityOf(lastTouched(repo)).days ?? Infinity) > f.sinceDays
-            ) {
-              return reject("group");
-            }
-            if (f.dirtyOnly && !repo.isDirty) return reject("group");
-            if (f.hasRemote !== undefined && !!repo.remoteUrl !== f.hasRemote) {
-              return reject("group");
-            }
+          // The same predicate the rail counts with, so the number on the row
+          // and the grid it opens can never disagree.
+          if (!matchesSmartFilter(repo, activeGroup.smartFilter)) {
+            return reject("group");
           }
         } else if (!manualMemberSlugs?.has(repo.slug)) {
           return reject("group");
@@ -390,7 +407,7 @@ export function CatalogShell({
     isSearching,
     searchQuery.data,
     initialRepos,
-    includeArchived,
+    archivedShown,
     favoritesOnly,
     dirtyOnly,
     selectedDir,
@@ -764,6 +781,42 @@ export function CatalogShell({
       : tildify(selectedDir)
     : null;
 
+  /**
+   * What a saved filter can take from this view.
+   *
+   * Only the conditions the format holds — language, tags, recency, the three
+   * boxes. Folder scope, owner, the search box and an active group have no key
+   * on a `SmartFilter`, so they stay in the view and are named in the dialog
+   * instead of being silently lost.
+   */
+  const viewFilterDraft = React.useMemo<SavedFilterDraft>(
+    () => ({
+      ...EMPTY_SAVED_FILTER_DRAFT,
+      dirtyOnly,
+      favoritesOnly,
+      includeArchived: archivedShown,
+    }),
+    [dirtyOnly, favoritesOnly, archivedShown],
+  );
+
+  const viewFilterNotCarried = React.useMemo(() => {
+    const parts: string[] = [];
+    if (selectedDir) parts.push(`folder ${scopeLabel ?? "scope"}`);
+    if (ownershipFilter.length > 0) {
+      parts.push(`owner ${ownershipFilter.join(", ")}`);
+    }
+    if (isSearching) parts.push(`search “${trimmedQuery}”`);
+    if (activeGroup) parts.push(`group ${activeGroup.name}`);
+    return parts;
+  }, [
+    selectedDir,
+    scopeLabel,
+    ownershipFilter,
+    isSearching,
+    trimmedQuery,
+    activeGroup,
+  ]);
+
   /*
    * `h-full`, not `h-[100dvh]`: this shell sits inside `main`, which the root
    * layout has already sized to the window minus the top bar. Asking for a
@@ -812,9 +865,56 @@ export function CatalogShell({
           {scopeLabel ? `Catalog — ${scopeLabel}` : "Catalog"}
         </h1>
 
-        {activeGroup ? <div role="status" className="flex items-center gap-2 border-b border-border bg-accent/10 px-4 py-2 text-xs">
+        {/*
+          Named, because the page has more than one status region (the action
+          notice above it is one too) and "status" with no name gives a screen
+          reader no way to tell which one just spoke.
+        */}
+        {activeGroup ? <div role="status" aria-label="Active group" className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-accent/10 px-4 py-2 text-xs">
           <span>Group: <strong>{activeGroup.name}</strong> · {displayedRepos.length} repos</span>
-          <button type="button" className="ml-auto text-accent hover:underline" onClick={() => updateParams({ groupId: null })}>Clear group</button>
+          {/*
+            A saved filter's rule, spelled out. The rail gives it a name and a
+            count and nothing else, so without this the screen can only show a
+            narrowed grid without saying what narrowed it — which reads as a bug
+            the first time a repo you expected is missing.
+
+            `Edit filter…` sits here too, because the reason you are looking at
+            this line is usually that it says something you did not mean, and the
+            row that opens the editor is on the other side of the window.
+          */}
+          {activeGroup.isSmart ? (
+            <span
+              data-saved-filter-rule
+              className="min-w-0 truncate text-muted-foreground"
+            >
+              {activeFilterRule.length > 0
+                ? activeFilterRule.join(" · ")
+                : "Every repo"}
+            </span>
+          ) : null}
+          {/*
+            An empty group has nothing in the grid to select, and adding a repo
+            to a group needs a selection — so the way out is to leave the group
+            and pick repos from the whole catalog. Saying that here is the
+            difference between a dead end and a two-click fix.
+          */}
+          {!activeGroup.isSmart && activeGroup.repoCount === 0 ? (
+            <span className="text-muted-foreground">
+              No repos in it yet — clear the group to pick some to add.
+            </span>
+          ) : null}
+          <span className="ml-auto flex items-center gap-2">
+            {activeGroup.isSmart ? (
+              <button
+                type="button"
+                className="text-accent hover:underline"
+                onClick={() => setEditingFilter(true)}
+              >
+                Edit filter…
+              </button>
+            ) : null}
+            <button type="button" className="text-accent hover:underline" onClick={() => updateParams({ groupId: null })}>Clear group</button>
+          </span>
         </div> : null}
 
         <CatalogToolbar
@@ -828,6 +928,17 @@ export function CatalogShell({
           syncing={fetchRepos.isPending || pullRepos.isPending}
           explainingHidden={explainHidden}
           onToggleHidden={() => setExplainHidden((prev) => !prev)}
+          groups={groups}
+          activeGroup={activeGroup}
+          visibleCount={displayedRepos.length}
+          allVisibleSelected={
+            displayedRepos.length > 0 &&
+            displayedRepos.every((repo) => checkedSlugs.has(repo.slug))
+          }
+          onSelectAllVisible={() =>
+            setSelection(displayedRepos.map((repo) => repo.slug))
+          }
+          onSaveAsFilter={() => setSavingViewFilter(true)}
         />
 
         {hidden.length > 0 && explainHidden ? (
@@ -1031,6 +1142,62 @@ export function CatalogShell({
           if (!open) setRemovingRoot(null);
         }}
       />
+
+      {/*
+        Mounted only while open, and only for a saved filter: the banner's rule
+        line is the one place the conditions are already in front of you, so the
+        editor should not outlive the click that asked for it.
+      */}
+      {editingFilter && activeGroup?.isSmart ? (
+        <SavedFilterDialog
+          open
+          group={activeGroup}
+          onOpenChange={(open) => {
+            if (!open) setEditingFilter(false);
+          }}
+          languages={filterLanguages}
+          repos={initialRepos}
+        />
+      ) : null}
+
+      {/*
+        A saved filter made out of the view in force — the other creation door,
+        beside the rail's empty form. Mounted only while open so each opening
+        re-reads the toolbar's state rather than showing what it held last time.
+      */}
+      {savingViewFilter ? (
+        <SavedFilterDialog
+          open
+          initialDraft={viewFilterDraft}
+          notCarried={viewFilterNotCarried}
+          onOpenChange={(open) => {
+            if (!open) setSavingViewFilter(false);
+          }}
+          languages={filterLanguages}
+          repos={initialRepos}
+          /*
+           * Opened on save, like the rail's create flow: the rule has already
+           * proved what it matches against the live catalog in this dialog.
+           *
+           * The view filters the rule now owns are cleared first, because
+           * unticking a condition in the dialog has to mean something: leaving
+           * the toolbar's copy of it on would show a grid narrower than the
+           * group just saved.
+           */
+          onSaved={(group) => {
+            setSelectedDir(null);
+            useCatalogView.getState().clearOwnership();
+            useCatalogView.getState().setFavoritesOnly(false);
+            useCatalogView.getState().setIncludeArchived(false);
+            updateParams({
+              groupId: String(group.id),
+              dirty: null,
+              q: null,
+              repo: null,
+            });
+          }}
+        />
+      ) : null}
 
       <KeyboardShortcuts
         slugs={slugs}

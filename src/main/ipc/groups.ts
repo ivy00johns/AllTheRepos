@@ -20,6 +20,8 @@ import {
   RenameGroupResultSchema,
   SetGroupMembersInputSchema,
   SetGroupMembersResultSchema,
+  UpdateGroupFilterInputSchema,
+  UpdateGroupFilterResultSchema,
 } from "@shared/schemas";
 import type {
   CreateGroupResult,
@@ -27,6 +29,7 @@ import type {
   ListGroupsResult,
   RenameGroupResult,
   SetGroupMembersResult,
+  UpdateGroupFilterResult,
 } from "@shared/types";
 
 import { catalogService } from "@main/services/catalog";
@@ -63,6 +66,17 @@ export async function handleGroupsSetMembers(raw: unknown): Promise<SetGroupMemb
   return SetGroupMembersResultSchema.parse(result);
 }
 
+export async function handleGroupsUpdateFilter(
+  raw: unknown,
+): Promise<UpdateGroupFilterResult> {
+  const input = UpdateGroupFilterInputSchema.parse(raw);
+  const result = await catalogService.updateGroupFilter(
+    input.id,
+    input.smartFilter,
+  );
+  return UpdateGroupFilterResultSchema.parse(result);
+}
+
 /** Register every `groups:*` handler. Idempotent. */
 export function registerGroupsHandlers(): void {
   const channels = [
@@ -71,6 +85,7 @@ export function registerGroupsHandlers(): void {
     IPC.GROUPS.RENAME,
     IPC.GROUPS.DELETE,
     IPC.GROUPS.SET_MEMBERS,
+    IPC.GROUPS.UPDATE_FILTER,
   ] as const;
   for (const channel of channels) {
     ipcMain.removeHandler(channel);
@@ -113,6 +128,17 @@ export function registerGroupsHandlers(): void {
     async (event: IpcMainInvokeEvent, raw): Promise<SetGroupMembersResult> => {
       assertRendererFrame(event);
       return handleGroupsSetMembers(raw);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.GROUPS.UPDATE_FILTER,
+    async (
+      event: IpcMainInvokeEvent,
+      raw,
+    ): Promise<UpdateGroupFilterResult> => {
+      assertRendererFrame(event);
+      return handleGroupsUpdateFilter(raw);
     },
   );
 }

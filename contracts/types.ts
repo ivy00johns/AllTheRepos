@@ -83,6 +83,14 @@ export interface SmartFilter {
   tagsInclude?: string[];
   tagsExclude?: string[];
   dirtyOnly?: boolean;
+  /** Only pinned repos. Absent or false is no restriction. */
+  favoritesOnly?: boolean;
+  /**
+   * Show this group's archived folders (`_archive`, `old`, …). A widening
+   * rather than a rejection: the catalog hides them by default, and this lifts
+   * that default for the group.
+   */
+  includeArchived?: boolean;
   sinceDays?: number;
   hasRemote?: boolean;
 }

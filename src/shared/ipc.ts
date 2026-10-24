@@ -194,6 +194,11 @@ export const IPC = {
     CREATE: "groups:create",
     /** Rename a group (name-only patch). */
     RENAME: "groups:rename",
+    /**
+     * Replace a saved filter's rule (`smartFilter`). Membership of a smart
+     * group is derived from this, so rewriting it re-fills the group.
+     */
+    UPDATE_FILTER: "groups:updateFilter",
     /** Delete a group. Repo memberships cascade via FK. */
     DELETE: "groups:delete",
     /** Replace the entire member set for a group. */

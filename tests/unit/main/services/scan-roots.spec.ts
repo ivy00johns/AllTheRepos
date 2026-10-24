@@ -223,4 +223,23 @@ describe("scanRootService", () => {
     expect(scanRootService.countUnder(repos)).toBe(2);
     expect(scanRootService.countUnder(projects)).toBe(0);
   });
+
+  it("counts and forgets a repo that is the root itself", async () => {
+    const { scanRootService } = await import("@main/services/scan-roots");
+    await scanRootService.add(projects);
+    /*
+     * A scan root can be a repository: pointing the app at `~/Repos/my-project`
+     * catalogues that folder, so its `full_path` IS the root path. A prefix match
+     * alone missed it — the dialog offered to forget nothing about the one repo
+     * it was obviously about, and keeping it meant the removal left the card
+     * behind under Outside scan folders.
+     */
+    await makeRepo(projects);
+    expect(scanRootService.countUnder(projects)).toBe(1);
+
+    const result = await scanRootService.remove(projects, true);
+
+    expect(result.forgotten).toBe(1);
+    expect(await repoCount()).toBe(0);
+  });
 });

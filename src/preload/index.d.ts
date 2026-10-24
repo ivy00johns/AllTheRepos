@@ -20,7 +20,7 @@
  *   - `window.atr.scan.{start,status,cancel,onProgress}`
  *   - `window.atr.git.{status,branches,openInEditor}`
  *   - `window.atr.settings.{get,update}`
- *   - `window.atr.groups.{list,create,rename,delete,setMembers}`
+ *   - `window.atr.groups.{list,create,rename,delete,setMembers,updateFilter}`
  *   - `window.atr.app.{setDockBadge,notify,showSpotlight,hideSpotlight,registerActions}`
  *   - `window.atr.app.{onMenuCommand,onDeepLink,onTrayOpenRepo}` (push streams)
  *

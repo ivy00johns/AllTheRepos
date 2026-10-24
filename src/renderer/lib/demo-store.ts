@@ -865,29 +865,102 @@ export function removeLink(input: {
 // Settings
 // ---------------------------------------------------------------------------
 
+/**
+ * Apply a partial patch to the settings.
+ *
+ * The merged blob is parsed before it is stored, exactly as main's settings
+ * service does, and the parse result replaces the stored object rather than
+ * being merged into it — so an unknown key is dropped here as it is there, and
+ * a value its own schema rejects never becomes the state. Without that, the
+ * browser tab would accept and then render a Settings the desktop refuses to
+ * write: clearing the Ollama URL is the shortest way to see it.
+ */
 export function updateSettings(patch: Partial<Settings>): Settings {
   // Merged in place, and only for keys the caller actually sent: spreading a
   // `Partial` would let an absent `defaultTerminal` blank the field.
   const defined = Object.fromEntries(
     Object.entries(patch).filter(([, value]) => value !== undefined),
   );
-  Object.assign(state.settings, defined);
+  state.settings = SettingsSchema.parse({ ...state.settings, ...defined });
   edits.settings = snapshotSettings();
   touch();
   persistEdits();
   return state.settings;
 }
 
-export function addScanPath(path: string): AddScanPathResult {
-  const trimmed = path.replace(/\/+$/, "") || "/";
-  if (state.settings.scanPaths.includes(trimmed)) {
-    return {
-      settings: state.settings,
-      added: false,
-      reason: "That folder is already in your scan roots.",
-    };
+/**
+ * Resolve an entered path the way main's scan-root service does.
+ *
+ * Main calls `path.resolve`, which turns a relative path into an absolute one
+ * against the process's working directory — for this app its own install
+ * folder, which is never the folder anyone meant, so a relative entry ends as
+ * "that folder doesn't exist". A browser tab has no working directory at all,
+ * and no `stat` to fail with, so the same rule ends at the same answer by a
+ * shorter road: a relative path is refused rather than stored as a root nothing
+ * can live under. What remains of `path.resolve` is collapsing `.`, `..` and
+ * repeated separators, which is what makes `<root>/../<root>` the folder that
+ * is already being scanned instead of a second entry beside it.
+ *
+ * `null` means "not an absolute path" — the caller decides how to say so.
+ */
+function resolveScanPath(candidate: string): string | null {
+  if (!candidate.startsWith("/")) return null;
+  const segments: string[] = [];
+  for (const segment of candidate.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    // `..` at the root climbs past it, as it does on disk.
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
   }
-  state.settings.scanPaths = [...state.settings.scanPaths, trimmed];
+  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+}
+
+/**
+ * Add a scan root.
+ *
+ * The rules main's scan-root service applies, minus the two that need a
+ * filesystem (`stat`, so the demo cannot say a path is not a directory): the
+ * path is resolved first, then an exact duplicate, a folder already covered by
+ * a root further up — the scanner walks into it either way, so a second entry
+ * only doubles the work and splits the rail in two — and, for the other
+ * direction, a parent of existing roots, which folds them in rather than
+ * leaving duplicate coverage behind.
+ */
+export function addScanPath(path: string): AddScanPathResult {
+  const target = resolveScanPath(path);
+  const fail = (reason: string): AddScanPathResult => ({
+    settings: state.settings,
+    added: false,
+    reason,
+  });
+
+  if (!target) {
+    return fail(
+      "Enter a full path: this tab has no folder to resolve a relative one against.",
+    );
+  }
+
+  // Exact duplicate first: `isInside` matches a path to itself, so the covering
+  // check would otherwise answer "Already covered by <root>" about the folder
+  // that IS the root.
+  if (state.settings.scanPaths.includes(target)) {
+    return fail("That folder is already being scanned.");
+  }
+  const covering = state.settings.scanPaths.find((root) =>
+    isInside(target, root),
+  );
+  if (covering) return fail(`Already covered by ${covering}.`);
+
+  const superseded = state.settings.scanPaths.filter((root) =>
+    isInside(root, target),
+  );
+  state.settings.scanPaths = [
+    ...state.settings.scanPaths.filter((root) => !superseded.includes(root)),
+    target,
+  ];
   edits.settings = snapshotSettings();
   touch();
   persistEdits();
@@ -910,8 +983,11 @@ export function removeScanPath(
   forgotten: number;
   reason: string | null;
 } {
-  const trimmed = path.replace(/\/+$/, "") || "/";
-  if (!state.settings.scanPaths.includes(trimmed)) {
+  // Resolved to match how `addScanPath` stored it; a relative path cannot be a
+  // root, so it lands on the same "isn't in your scan list" answer a path from
+  // another folder gets.
+  const target = resolveScanPath(path);
+  if (!target || !state.settings.scanPaths.includes(target)) {
     return {
       settings: state.settings,
       removed: false,
@@ -919,20 +995,20 @@ export function removeScanPath(
       reason: "That folder isn't in your scan list.",
     };
   }
-  const forgotten = forgetRepos ? countUnder(trimmed) : 0;
+  const forgotten = forgetRepos ? countUnder(target) : 0;
   if (forgetRepos) {
     // Each row is marked before it goes, so a reload drops them again.
     for (const repo of state.repos) {
-      if (isInside(repo.fullPath, trimmed)) editRepo(repo.slug).deleted = true;
+      if (isInside(repo.fullPath, target)) editRepo(repo.slug).deleted = true;
     }
-    state.repos = state.repos.filter((repo) => !isInside(repo.fullPath, trimmed));
+    state.repos = state.repos.filter((repo) => !isInside(repo.fullPath, target));
     // A forgotten repo takes its links with it.
     const kept = new Set(state.repos.map((repo) => repo.slug));
     state.links = state.links.filter(
       (link) => kept.has(link.fromSlug) && kept.has(link.toSlug),
     );
   }
-  state.settings.scanPaths = state.settings.scanPaths.filter((root) => root !== trimmed);
+  state.settings.scanPaths = state.settings.scanPaths.filter((root) => root !== target);
   edits.settings = snapshotSettings();
   touch();
   persistEdits();

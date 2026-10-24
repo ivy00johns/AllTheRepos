@@ -35,7 +35,7 @@ a complete daily-driver MVP:
 
 **Wave 5 (2026-08-24–25)** then closed most of the catalog-UX intake and added a great deal
 more. What remains is the tail: scanner discovery (ATR-033), the silent 200-repo cap (ATR-042),
-group-membership UI (ATR-043), cold start (ATR-055), the distribution items
+cold start (ATR-055), the distribution items
 (ATR-046/047/048/050/051/052), two environment papercuts (ATR-024/025) and the new
 ATR-056/057/058. All in [`REMAINING-WORK.md`](./REMAINING-WORK.md).
 
@@ -75,7 +75,8 @@ Remaining (full detail in [`REMAINING-WORK.md`](./REMAINING-WORK.md)):
      discovery (**ATR-033**).
    - _Catalog UX:_ ✅ **Wave 5** closed first-run flow (ATR-038), sort + last-opened surfacing (ATR-040) and the
      list/table view (ATR-045). ◐ **ATR-041** partly done (description + commit date on detail; `lastCommitMsg` and
-     a size chip on the card still missing). Still open: **ATR-042** (200 cap) and **ATR-043** (group-membership UI).
+     a size chip on the card still missing). Still open: **ATR-042** (200 cap). Closed since:
+     **ATR-043** (group-membership UI, 2026-10-22).
    - The audit's 8 P2 findings + 4 speculative directions were not intaken (P1-only approval) and remain in the audit doc.
 
 After that: Phase 4 (intelligence: deps/health/LLM tagging) and Phase 5 (signed, notarized,

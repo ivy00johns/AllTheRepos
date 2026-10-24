@@ -9,14 +9,14 @@ exist. Recover them from git history or the `build/repo-hub-mvp` branch if ever 
 > [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) (what's next). ~3 pages, replaces
 > crawling the source tree.
 
-## Status at a glance (2026-10-06, after Wave 5 — the catalog-v2 + MCP wave)
+## Status at a glance (2026-10-21, after the 0.2.0 release)
 
 | Phase                                                    | State                                                                                                                                                       |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0 Scaffold · 1 Feature parity · 2 Native shell           | ✅ functional — search, tag/group persistence, manual-group filter, fonts, spotlight/tray repo-open, real tray icon, dock badge                             |
 | 3 Deep integrations (process, launcher, **Claude**, git) | ✅ functional — 138 real Claude projects, real per-project usage trends, transcript viewer; embeddings wired (Ollama-gated). Deferred: MCP "running" status |
 | **3b Catalog v2 + MCP** (Wave 5)                         | ✅ functional — curated relationship graph + MCP server, live file watching, folders, repo moves, per-repo tasks, covers, favorites, catalog toolbar + table view |
-| **5 Distribution**                                       | 🔨 **partly landed (Wave 5)** — ad-hoc signed, GitHub-Releases publish feed, `electron-updater` wired with an "Update to X" affordance, real app icons, `docs/RELEASING.md`. Still open: the Apple Developer membership that notarization needs (ATR-046 — the wiring landed 2026-10-06, the certificate is the only blocker), a first notarized release (ATR-048), branded DMG (ATR-051), onboarding window (ATR-050) |
+| **5 Distribution**                                       | ✅ **released** — the [newest release](https://github.com/ivy00johns/alltherepos-releases/releases/latest) (cut 2026-10-14) carries an ad-hoc-signed DMG + ZIP + `latest-mac.yml`, built and verified by `.github/workflows/release.yml`; the updater checks anonymously and hands over the release page. The source is public under MIT. Still open: the Apple Developer membership notarisation needs (ATR-046 — the wiring landed 2026-10-06, the certificate is the only blocker), a first notarised release (ATR-048), branded DMG (ATR-051), onboarding window (ATR-050) |
 | 4 Intelligence · 6 Cross-platform                        | ⛔ not started (still post-MVP → [`docs/FUTURE.md`](./docs/FUTURE.md))                                                                                      |
 
 **Goal (widened 2026-08-21): production ready** — a signed, notarized, CI-built,
@@ -24,37 +24,36 @@ auto-updating app. The daily-driver MVP is the first half and is nearly done. Se
 [`docs/plans/2026-08-21-production-readiness-plan.md`](./docs/plans/2026-08-21-production-readiness-plan.md).
 
 **Where the tree came from — two waves.** **Wave 0 (2026-08-21)** moved `main` off the work
-branch (19 commits behind, no git remote at all) onto a private GitHub remote, retired the
+branch (19 commits behind, no git remote at all) onto a GitHub remote — private then, public
+under MIT since 2026-10-11 — retired the
 legacy Next.js stack (**ATR-013**) and automated the native-ABI flip (**ATR-016**). **Wave 5
 (built 2026-08-24–25, committed 2026-10-06)** is the catalog-v2 + MCP wave: 7 commits on
 `feat/alltherepos-mcp` (`bfbe3ab..9c295ce`), uncommitted for six weeks until then, closing
-**ATR-037/038/040/045/049** and leaving **ATR-041/048/052** partly done. It is **not merged to
-`main`**. Both are written up row by row in [`docs/PLAN.md`](./docs/PLAN.md)'s closure log, with
+**ATR-037/038/040/045/049** and leaving **ATR-041/048/052** partly done. It **merged to `main`** as
+PR #1 on 2026-10-06, and every release since — `v0.1.0` on 2026-10-06 through `v0.2.0` on
+2026-10-14 — was cut from it. Both are written up row by row in [`docs/PLAN.md`](./docs/PLAN.md)'s closure log, with
 the item detail in [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md) — this page carries
 state, not history.
 
-**Next:** the tail — scanner discovery (**ATR-033**), the silent 200-repo cap (**ATR-042**),
-group-membership UI (**ATR-043**), cold start (**ATR-055**), and the distribution items
-(**ATR-046/048/050/051/052**; **ATR-047** closed 2026-10-07). The build is no longer gated on
+**Next:** the tail — scanner discovery (**ATR-033**), the distribution items
+(**ATR-046/048/050/051**; **ATR-047** closed 2026-10-07), and the notes tab waiting on PR #21.
+**ATR-043** (group-membership UI) closed 2026-10-22: groups are created, filled, renamed and
+deleted from the catalog, and cards carry selection checkboxes for the bulk path. The build is no longer gated on
 a person: **ATR-057**'s bad Command Line Tools SDK is resolved rather than exported, by
 `pnpm install` and by every script that flips the ABI. New since Wave 5: ATR-056/057/058,
 and the 2026-10-07 UI/UX intake — **fully applied 2026-10-08**: **ATR-059…069** (four P1s, seven
 P2s) closed first, **ATR-075** found and closed with them, then the last five P3s
 (**ATR-070…074**) proved on the running app by `tests/e2e/workstream-c.spec.ts`.
 
-**Build health (verified 2026-10-08, on the UI/UX pass):** `pnpm typecheck` ✅ **0 errors
+**Build health (verified 2026-10-21, on the 0.2.0 tree):** `pnpm typecheck` ✅ **0 errors
 across all three tsconfigs** — it covers `src/main`, `src/preload` and `src/renderer`.
-`pnpm lint` ✅ 0 · `vitest` **1708 passed / 0 failed** (87 files) · **Electron E2E 27 passed /
-5 skipped / 0 failed** (14 specs; the skips are the packaged-update ones, which need a
-packaged bundle). The suite also launches the app once with `ATR_FORCE_PACKAGED=1`
-(`src/main/build-info.ts`), so the branch a release takes — no dev-only affordance anywhere,
-no dev-only action in the palette — is tested rather than assumed. Fonts (IBM Plex Sans) load
-at runtime. Added later the same day:
-`tests/unit/renderer/jsx-text.spec.ts` (2 tests), `tests/unit/renderer/type-scale.spec.ts`
-(3, the guard that fails the build on a raw sub-12px size), `tests/unit/shared/build-info.spec.ts`
-(7, the packaged flag main states and the preload reads), and on the running app
-`workstream-b.spec.ts` (8 tests) and `workstream-c.spec.ts` (6), the last two reading the
-built renderer rather than the source.
+`pnpm lint` ✅ 0 · `pnpm lint:prose` **0 errors** (em dashes are warnings by config) · `vitest`
+**2186 passed / 0 failed** (114 files) · `release:check`, `versions:check`, `links:check`,
+`platforms:check`, `shipped-copy:check`, `read-only:check`, `first-launch:check`,
+`ci-cost:check` and `unit-platform:check` all exit 0. The Electron suite's last recorded run is the
+one on the `v0.2.0` tag, where the `electron e2e` and `packaged update check, refused` jobs both
+concluded `success`; re-run it locally with `pnpm test:electron-e2e` before a release, since it
+flips the native ABI.
 
 **Also verified 2026-10-08, by looking at the app rather than at the tests:** the catalog,
 `/graph`, `/claude`, `/processes`, `/settings` and `/debug` were each screenshotted and
@@ -65,8 +64,10 @@ palette probe. The A/B behind that claim (the bare block comment restored on pur
 removed again) is written up in **ATR-075**'s row in
 [`docs/REMAINING-WORK.md`](./docs/REMAINING-WORK.md).
 
-> ⚠️ **Cold start is ~22s** (ATR-055): the main window is created only after every service
-> finishes booting. Filed as ATR-055; expect a slow first paint until it lands.
+> **Cold start is fixed** (ATR-055): the window used to be created only after every service
+> finished booting. It is created first now and the services boot behind it — 5381ms → 1345ms to a
+> window, 6619ms → 3156ms to the shell, measured with `scripts/measure-cold-start.mjs` — and the
+> renderer's three heavy screens (map, README renderer, palette) load as their own chunks.
 
 ## Run it
 

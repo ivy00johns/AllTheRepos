@@ -31,6 +31,7 @@ import { useCatalogView, type SortKey } from "@renderer/stores/catalog-view";
 import { colorForLanguage } from "./language-colors";
 import { FavoriteStar } from "./favorite-star";
 import { RepoCover } from "./repo-cover";
+import { SelectionCheckbox } from "./selection-checkbox";
 import {
   ActivityDot,
   DirtyMark,
@@ -214,6 +215,16 @@ export function RepoTable({
             >
               <td className="px-3 py-1.5">
                 <div className="flex min-w-0 items-center gap-2">
+                  {/*
+                    Before the star and the name button, matching the card: one
+                    selection control in one place across all three views.
+                    `true` is the store's additive toggle — see `repo-card.tsx`.
+                  */}
+                  <SelectionCheckbox
+                    name={repo.name}
+                    checked={isChecked}
+                    onCheckedChange={() => onToggleChecked(repo.slug, true)}
+                  />
                   <FavoriteStar
                     slug={repo.slug}
                     name={repo.name}
