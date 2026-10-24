@@ -11,6 +11,49 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
+### Changed
+
+- keep the Electron suite off the screen. Each spec launch now creates its window and never calls
+  `show` (`window/main-window.ts`), where it used to call `showInactive()`: the dock icon was
+  already hidden, but the window still painted over the desktop in sequence, one per spec, and the
+  type-scale sweep's spotlight and tray popover called `show()` and `focus()` on top of whatever
+  was already there. The window keeps rendering — `backgroundThrottling` is off for the run, so a
+  hidden surface does not slow the renderer — and Playwright drives it over the debugger protocol,
+  which reads the page rather than the screen. The committed catalog baselines and the type-scale
+  sweep pass unchanged, so this is the same window to a test and an absent one to the person using
+  the machine. Not showing a window is not the whole of it, either: macOS activates a freshly
+  launched app, so hiding the window left the keyboard being pulled away every few seconds — one
+  launch per spec. The E2E app is now background-only before `ready`
+  (`app.setActivationPolicy("prohibited")`), which means it cannot become the frontmost app at all;
+  Playwright does not need it to be. `ATR_E2E=1` is the only thing that turns either half on; a
+  normal launch is untouched.
+
+- point the launch posts at the released build. The copy in
+  [`docs/announcement.md`](./docs/announcement.md) was written against 0.2.0, where groups could be
+  created but not filled from the UI; it now carries this build's version, date and DMG byte count,
+  and groups and saved filters are in the posts. The one limitation it still discloses for groups is
+  accurate: a catalog of a few hundred repos draws every card rather than virtualizing the grid.
+
+### Fixed
+
+- index the projects under a scan root that is itself a repository. `find-git-repositories` records
+  the first `.git` it meets and never queues that directory's children
+  (`cpp/src/FindGitRepos.cpp`, the `if (!isGitRepo) foundPaths.splice(...)` at the end of the walk),
+  which is right for a folder of projects and wrong for the folder itself. Pointing the app at
+  `~/Repos` after an accidental `git init` there catalogued exactly one repository, drew a green
+  "done · 1 repos", and hid every project underneath; the same pruning kept a monorepo's
+  checkout-shaped sub-projects out of the catalog. Discovery now pre-expands a root that carries a
+  `.git` directory — each child is searched on its own, where the root's `.git` no longer stands in
+  the walker's way — and a root that is not a repository is still one walk, so nothing got slower.
+  A repository found *inside* another repository is still a leaf: pre-expanding every one would walk
+  every `node_modules` in the catalog to catch a shape that is rare outside vendored checkouts, and
+  that half of SC-1 is recorded as open in the ledger rather than quietly claimed here. Gated by
+  `tests/unit/main/services/scan-discovery.spec.ts`, which runs against the real addon and carries a
+  control asserting the pruning it works around, and by a fifth walk in
+  `tests/e2e/catalog-refresh.spec.ts` that scans such a root and reads six cards where one arrived.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added
@@ -65,21 +108,6 @@ source of truth for the current version.
 
 ### Changed
 
-- keep the Electron suite off the screen. Each spec launch now creates its window and never calls
-  `show` (`window/main-window.ts`), where it used to call `showInactive()`: the dock icon was
-  already hidden, but the window still painted over the desktop in sequence, one per spec, and the
-  type-scale sweep's spotlight and tray popover called `show()` and `focus()` on top of whatever
-  was already there. The window keeps rendering — `backgroundThrottling` is off for the run, so a
-  hidden surface does not slow the renderer — and Playwright drives it over the debugger protocol,
-  which reads the page rather than the screen. The committed catalog baselines and the type-scale
-  sweep pass unchanged, so this is the same window to a test and an absent one to the person using
-  the machine. Not showing a window is not the whole of it, either: macOS activates a freshly
-  launched app, so hiding the window left the keyboard being pulled away every few seconds — one
-  launch per spec. The E2E app is now background-only before `ready`
-  (`app.setActivationPolicy("prohibited")`), which means it cannot become the frontmost app at all;
-  Playwright does not need it to be. `ATR_E2E=1` is the only thing that turns either half on; a
-  normal launch is untouched.
-
 - rewrite the launch draft for the rooms it is going to. [`docs/announcement.md`](./docs/announcement.md)
   was a Show HN post written when the source was private, the licence did not exist and the only
   download was the releases repository; all three had changed by the time it would have been sent.
@@ -90,22 +118,6 @@ source of truth for the current version.
   out; the posts now include groups and saved filters, because this release ships them.
 
 ### Fixed
-
-- index the projects under a scan root that is itself a repository. `find-git-repositories` records
-  the first `.git` it meets and never queues that directory's children
-  (`cpp/src/FindGitRepos.cpp`, the `if (!isGitRepo) foundPaths.splice(...)` at the end of the walk),
-  which is right for a folder of projects and wrong for the folder itself. Pointing the app at
-  `~/Repos` after an accidental `git init` there catalogued exactly one repository, drew a green
-  "done · 1 repos", and hid every project underneath; the same pruning kept a monorepo's
-  checkout-shaped sub-projects out of the catalog. Discovery now pre-expands a root that carries a
-  `.git` directory — each child is searched on its own, where the root's `.git` no longer stands in
-  the walker's way — and a root that is not a repository is still one walk, so nothing got slower.
-  A repository found *inside* another repository is still a leaf: pre-expanding every one would walk
-  every `node_modules` in the catalog to catch a shape that is rare outside vendored checkouts, and
-  that half of SC-1 is recorded as open in the ledger rather than quietly claimed here. Gated by
-  `tests/unit/main/services/scan-discovery.spec.ts`, which runs against the real addon and carries a
-  control asserting the pruning it works around, and by a fifth walk in
-  `tests/e2e/catalog-refresh.spec.ts` that scans such a root and reads six cards where one arrived.
 
 - add a scan path from Settings through the same call the rail uses. The box appended whatever was typed
   to `settings:update` — a wholesale array write with no rules behind it — so a relative path, a
@@ -1224,7 +1236,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0
 [0.1.8]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.1.8
