@@ -1,16 +1,16 @@
 # Launch posts — Facebook and Reddit
 
-Draft posts for the 0.2.0 launch, written to be pasted as they are. Not linked from `README.md` or
+Draft posts for the 0.3.0 launch, written to be pasted as they are. Not linked from `README.md` or
 `START-HERE.md`: this is the copy, not part of the project's documentation.
 
-Last checked against the shipped build on **2026-10-21**. If a number or a limitation here stops
+Last checked against the shipped build on **2026-10-24**. If a number or a limitation here stops
 being true, the post is wrong — fix the post, do not soften it in the comments.
 
 ## What the posts may claim
 
 | Claim                                                         | Where it is true today                                                                                                                              |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Version 0.2.0, published 2026-10-14                           | [`alltherepos-releases` v0.2.0](https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0) — DMG 129,400,132 bytes, plus the update feed |
+| Version 0.3.0, published 2026-10-24                           | [`alltherepos-releases` v0.3.0](https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.0) — DMG 129,407,205 bytes, plus the update feed |
 | Free, MIT licensed, source public                             | [`LICENSE`](../LICENSE); `github.com/ivy00johns/AllTheRepos`                                                                                        |
 | macOS, Apple silicon only                                     | the DMG is `arm64`; there is no Intel, Windows or Linux build                                                                                       |
 | Ad-hoc signed, **not** notarised                              | the release notes and `READ-ME-FIRST.txt` inside the DMG both say so                                                                                |
@@ -18,12 +18,16 @@ being true, the post is wrong — fix the post, do not soften it in the comments
 | The updater is the only automatic network call                | same document; the check is anonymous and hands you the release page                                                                                |
 | Full-text search by default, vector ranking when Ollama runs  | `src/main/services/search.ts`; without Ollama the results say they are keyword-only                                                                 |
 | MCP server for coding agents, added by hand                   | [`mcp/README.md`](../mcp/README.md) — the app never starts it                                                                                       |
+| Groups can be filled, and a filter can be saved as one        | three doors (detail panel, toolbar over a selection, create-and-fill) and two ways to remove; gated by `tests/e2e/groups-flow.spec.ts`              |
 | ~3 seconds to the shell (measured, 6.6s before)               | `scripts/measure-cold-start.mjs`, recorded in the 0.2.0 changelog                                                                                   |
 
 Do **not** claim: notarised install, a one-click first launch, "open source" without naming MIT,
-Windows or Linux, or that groups can be filled from the UI. The last one is a real gap — a group
-can be created on the rail and it stays empty, because nothing in the interface calls
-`groups.setMembers` yet (ATR-043). Keep groups out of the post until that lands.
+or Windows or Linux.
+
+Groups **are** fillable in this build — ATR-043 closed on 2026-10-22. A group is filled from the
+repo's own panel, from a selection in the toolbar, or in one step when it is created; a saved
+filter is a group defined by a rule instead of a list. The 0.2.0 DMG still in the releases
+repository can do none of that, so every link in these posts has to point at **v0.3.0**.
 
 ## Facebook
 
@@ -39,9 +43,10 @@ first comment — a post whose only content is an outbound link reaches almost n
 > all of them is slower, and my editor only knows the folders I happened to open.
 >
 > AllTheRepos points at the folders where you keep code and indexes every repository it finds into
-> one SQLite file on your disk. One window to search, filter, tag and open them: recency, language,
-> dirty trees, which ones are clones of somebody else's work, which ones have a dev server running.
-> No account, no telemetry, no cloud index.
+> one SQLite file on your disk. One window to search, filter, tag, group and open them: recency,
+> language, dirty trees, which ones are clones of somebody else's work, which ones have a dev server
+> running. Groups are lists you fill by hand; a saved filter is a group that fills itself from a
+> rule. No account, no telemetry, no cloud index.
 >
 > It is macOS on Apple silicon, it is alpha, and it is free — MIT, source on GitHub.
 >
@@ -55,11 +60,11 @@ first comment — a post whose only content is an outbound link reaches almost n
 
 First comment:
 
-> For the curious: it is Electron, so the DMG is 128 MB. Search is SQLite FTS5; if you happen to
+> For the curious: it is Electron, so the DMG is 129 MB. Search is SQLite FTS5; if you happen to
 > run Ollama it also embeds the repos and fuses vector ranking into the results, and if you do not,
-> search still works and says the results are keyword-only. There is a small MCP server beside it
-> so a coding agent can read the catalog and the links between repos, but you install that
-> yourself — the app never starts it.
+> search still works and says the results are keyword-only. Groups and saved filters are new in
+> this build. There is a small MCP server beside it so a coding agent can read the catalog and the
+> links between repos, but you install that yourself — the app never starts it.
 
 ## Reddit
 
@@ -78,9 +83,10 @@ what the spam filters are looking for.
 > gives you one window to search, filter, tag and open them. The grid carries the things you would
 > otherwise ask git one repo at a time: when you last touched it, what it is written in, whether
 > the tree is dirty, whether the folder has moved, and whether it is yours, a clone, or local-only.
-> On top of that: tags, favourites, curated links between repos you know belong together, a
-> relationship map, `⌘K` for everything, a spotlight window that does not raise the main window,
-> and a menu-bar presence with a dock badge for the dev servers it detects.
+> On top of that: tags, favourites, groups you fill by hand, saved filters that are groups defined
+> by a rule, curated links between repos you know belong together, a relationship map, `⌘K` for
+> everything, a spotlight window that does not raise the main window, and a menu-bar presence with
+> a dock badge for the dev servers it detects.
 >
 > **What it does not do.** No account, no telemetry, no cloud index — the catalog is one SQLite
 > file in `~/Library/Application Support/AllTheRepos/`. Every git command, filesystem write and
@@ -97,11 +103,11 @@ what the spam filters are looking for.
 >
 > It is **alpha**: Apple silicon only, no Windows or Linux, and the repo keeps a tactical list of
 > what is known to be broken rather than pretending the list is empty. Several surfaces are still
-> rough — groups can be created but not yet filled from the UI, and the Claude Code tab only shows
-> what it can read from `~/.claude`.
+> rough — a catalog of a few hundred repos draws every card instead of virtualizing the grid, and
+> the Claude Code tab only shows what it can read from `~/.claude`.
 >
 > Free, MIT, source and issues here: <repo link>
-> Download (DMG, 128 MB): <releases link>
+> Download (DMG, 129 MB): <releases link>
 >
 > Happy to answer anything about how it scans, what it writes, or why the DMG is that big.
 
@@ -112,7 +118,7 @@ what the spam filters are looking for.
 > Same app, shorter post: years of side projects scattered over four folders, and no way to
 > answer "which one had that queue worker in it?". AllTheRepos indexes every git repo under the
 > folders you point it at, then gives you one searchable window — recency, language, dirty trees,
-> ownership, dev servers, tags and a link map between repos.
+> ownership, dev servers, tags, groups, saved filters and a link map between repos.
 >
 > It is alpha, Apple silicon, and not notarised (macOS needs one Open Anyway from System Settings
 > on first launch). Free and MIT.
@@ -125,6 +131,8 @@ what the spam filters are looking for.
 - [ ] Install the published DMG the way a stranger would: download it in a browser, mount, drag to
       Applications, launch, take the refusal, do the Open Anyway step, then scan a folder and
       search. Nothing in this repository can prove that path works on somebody else's Mac.
+- [ ] Check that every link lands on **v0.3.0**: the DMG name carries the version, and a saved
+      `…/releases/latest` URL is fine only while 0.3.0 is the newest release.
 - [ ] Upload the demo video natively on both platforms. Facebook throttles link posts; Reddit's
       video player is what people press.
 - [ ] Post from your own account on a weekday morning US time, then stay in the thread for the
@@ -135,7 +143,7 @@ what the spam filters are looking for.
       account's standing. r/SideProject exists for this.
 - [ ] Point the repo's GitHub *Website* field and its topics at the release page before posting, so
       the sidebar of the source repo offers a download instead of nothing.
-- [ ] Have the two answers ready before anyone asks: **why is it 128 MB** (Electron, with the fonts
+- [ ] Have the two answers ready before anyone asks: **why is it 129 MB** (Electron, with the fonts
       and the map renderer bundled) and **why does macOS say it is damaged** (it is not — it is
       un-notarised, and the Open Anyway step is the fix).
 

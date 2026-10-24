@@ -70,9 +70,9 @@ source of truth for the current version.
   download was the releases repository; all three had changed by the time it would have been sent.
   It now carries a Facebook post and two Reddit posts, each with the facts they are allowed to
   claim and where each fact is verified, the first comment to post with each, and a checklist of
-  what to check before pressing send. It also names the limitation a post written against that
-  build had to respect: there, groups could be created on the rail but not filled from the UI
-  (ATR-043, closed above), so the posts leave groups out.
+  what to check before pressing send. It was written against 0.2.0, where groups could be created
+  on the rail but not filled from the UI (ATR-043, closed above), so that draft had to leave them
+  out; the posts now include groups and saved filters, because this release ships them.
 
 ### Fixed
 
