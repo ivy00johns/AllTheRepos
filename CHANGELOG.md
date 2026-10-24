@@ -73,7 +73,12 @@ source of truth for the current version.
   hidden surface does not slow the renderer — and Playwright drives it over the debugger protocol,
   which reads the page rather than the screen. The committed catalog baselines and the type-scale
   sweep pass unchanged, so this is the same window to a test and an absent one to the person using
-  the machine. `ATR_E2E=1` is the only thing that turns it on; a normal launch is untouched.
+  the machine. Not showing a window is not the whole of it, either: macOS activates a freshly
+  launched app, so hiding the window left the keyboard being pulled away every few seconds — one
+  launch per spec. The E2E app is now background-only before `ready`
+  (`app.setActivationPolicy("prohibited")`), which means it cannot become the frontmost app at all;
+  Playwright does not need it to be. `ATR_E2E=1` is the only thing that turns either half on; a
+  normal launch is untouched.
 
 - rewrite the launch draft for the rooms it is going to. [`docs/announcement.md`](./docs/announcement.md)
   was a Show HN post written when the source was private, the licence did not exist and the only
