@@ -23,11 +23,26 @@
  * Usage:
  *   node scripts/source-release.mjs --tag v0.3.1              # create or update
  *   node scripts/source-release.mjs --tag v0.3.1 --dry-run    # print the body only
+ *   node scripts/source-release.mjs --tag 0.0.0-signpost.7 --rehearse
  *
  * Reads `RELEASES_REPO` (owner/repo of the binaries) and `GITHUB_REPOSITORY`
  * (owner/repo of this one) from the environment, which is what the release
  * workflow's `source-release` job hands it. `--releases-repo` and `--repo`
  * override them for a hand run.
+ *
+ * `--rehearse` writes the same page as a **draft**, at a scratch tag, for the
+ * weekly rehearsal. The job only ever ran on a tag push, which made the one run
+ * of it that matters the first run of it: a token without write access here, or
+ * a body this script stopped building, would have been found by a release rather
+ * than by a Monday. A draft is the shape that can be written and read back
+ * without appearing anywhere — it is invisible on the Releases tab, sends no
+ * notification, and owns no tag ref, so it cannot trip the `v*` filter above and
+ * start a release. The job deletes it again.
+ *
+ * Its notes come from `package.json`'s version rather than from the tag, because
+ * a scratch tag names no version. The guard still runs — it is asked about the
+ * version instead of about the tag — so a missing changelog section fails a
+ * rehearsal exactly as it fails a release.
  *
  * Exit codes: 0 — the page now points at the download (or a dry run printed it)
  * · 1 — bad usage, or the notes guard failed · 2 — GitHub could not be reached
@@ -86,7 +101,7 @@ export function releaseBody({ tag, releasesRepo, notes }) {
  * that lost an argument must not turn into a run that points a release at a page
  * named after nothing.
  *
- * @returns {{ tag: string, repo: string, releasesRepo: string, notesFile: string, dryRun: boolean, error?: string }}
+ * @returns {{ tag: string, repo: string, releasesRepo: string, notesFile: string, dryRun: boolean, rehearse: boolean, error?: string }}
  */
 export function parseArgs(argv, env = process.env) {
   const parsed = {
@@ -95,6 +110,7 @@ export function parseArgs(argv, env = process.env) {
     releasesRepo: env.RELEASES_REPO ?? "",
     notesFile: "",
     dryRun: false,
+    rehearse: false,
   };
 
   const value = (flag) => {
@@ -121,6 +137,19 @@ export function parseArgs(argv, env = process.env) {
   }
 
   parsed.dryRun = argv.includes("--dry-run");
+  parsed.rehearse = argv.includes("--rehearse");
+
+  // A rehearsal writes at a name that is not a version, and this is the one
+  // mistake that would outlive the run: a draft filed at `v0.5.0` is a release
+  // the next real `v0.5.0` cannot create, because `gh` answers "already exists"
+  // — and the draft is invisible, so nothing says why. Refusing is cheaper than
+  // that, and a `v` tag is the whole signal needed.
+  if (parsed.rehearse && parsed.tag.startsWith("v")) {
+    return {
+      ...parsed,
+      error: `--rehearse writes a scratch page, so --tag must not name a release (got ${parsed.tag})`,
+    };
+  }
 
   if (parsed.tag === "") {
     // No default from `package.json` on purpose: the workflow always passes the
@@ -180,10 +209,15 @@ function main() {
   if (options.notesFile !== "") {
     notes = fs.readFileSync(options.notesFile, "utf8");
   } else {
+    // A rehearsal's tag is a scratch name, so asking the guard about it would
+    // fail on "not a version" every Monday. Ask it about the version instead:
+    // same guard, same changelog section, and a rehearsal still fails when the
+    // section a release would need is missing.
+    const notesArgs = options.rehearse ? [] : [options.tag];
     try {
       notes = execFileSync(
         process.execPath,
-        [path.join(ROOT, "scripts", "release-notes.mjs"), options.tag],
+        [path.join(ROOT, "scripts", "release-notes.mjs"), ...notesArgs],
         { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
       );
     } catch {
@@ -224,11 +258,17 @@ function main() {
         options.tag,
         "--notes-file",
         bodyFile,
+        // A rehearsal's page is a draft: nothing to see, nothing announced, and
+        // no tag ref of its own — which is what keeps the scratch name from
+        // matching the workflow's `v*` tag filter and starting a release.
+        ...(options.rehearse ? ["--draft"] : []),
       ],
       { stdio: "inherit" },
     );
     console.log(
-      `[source-release] ${exists ? "updated" : "created"} ${options.repo} ${options.tag} — points at https://github.com/${options.releasesRepo}/releases/tag/${options.tag}`,
+      options.rehearse
+        ? `[source-release] wrote a scratch draft ${options.tag} in ${options.repo} — the rehearsal's page, which the job removes again`
+        : `[source-release] ${exists ? "updated" : "created"} ${options.repo} ${options.tag} — points at https://github.com/${options.releasesRepo}/releases/tag/${options.tag}`,
     );
     return 0;
   } catch (error) {

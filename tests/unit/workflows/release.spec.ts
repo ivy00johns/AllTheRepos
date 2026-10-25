@@ -387,23 +387,76 @@ describe("where the update feed check lives", () => {
  *
  * So a tag push also writes a signpost here: a release at the same tag, carrying
  * no assets, whose body leads with the download. The tests below pin the three
- * things that would make it worse than nothing — running on a rehearsal's scratch
- * tag (a page pointing at a version nobody published), acquiring assets (a second
- * copy of the release to keep in step with `latest-mac.yml`), and being wired to
- * the releases-repo token (which cannot write here anyway).
+ * things that would make it worse than nothing — a page pointing at a version
+ * nobody published, acquiring assets (a second copy of the release to keep in
+ * step with `latest-mac.yml`), and being wired to the releases-repo token (which
+ * cannot write here anyway).
+ *
+ * The job rehearses now too, and that is where the fourth hazard lives: the page
+ * was only ever written by a tag push, so the one run of this job that mattered
+ * was the first run of it, and a token that could not write here would have been
+ * found by a release. The rehearsal writes a **draft** at a scratch tag and
+ * deletes it, which is the one shape that proves the job without publishing a
+ * page that points at nothing.
+ *
+ * It runs on the weekly clock and on a `rehearse` dispatch, because a Monday is
+ * the next chance to exercise it and a Monday is seven days away from whoever
+ * just changed it. The drill is the dispatch *without* that input, and it must
+ * keep writing nothing.
  */
 describe("the signpost on this repository's Releases tab", () => {
   const SOURCE_JOB = "source-release";
   const source = jobBlock(SOURCE_JOB);
 
-  test("exists, and runs only for a tag push", () => {
+  test("writes the page on a tag push, and rehearses it on the clock and on demand", () => {
     expect(source).toContain(`${SOURCE_JOB}:`);
-    // Not a dispatch, not the weekly rehearsal: those build a scratch version
-    // whose release is deleted again, so a signpost written from one would point
-    // at a page that does not exist.
-    expect(source).toMatch(/if: github\.event_name == 'push'/);
-    expect(source).not.toContain("REHEARSE");
-    expect(source).not.toContain("schedule");
+    // Three ways in, and the third is the one that keeps a change to this job
+    // from waiting for a Monday to be exercised. `github.event.inputs`, not the
+    // `inputs` context: on a push or a schedule there are no inputs at all, and
+    // an absent value is exactly what the rehearsal branch needs to see.
+    expect(source).toMatch(
+      /if: github\.event_name == 'push' \|\| github\.event_name == 'schedule' \|\| github\.event\.inputs\.rehearse == 'true'/,
+    );
+    // The input, not the event: `drill` is what a bare dispatch of this workflow
+    // is for, and a drill that wrote release pages would be a drill with a side
+    // effect. Its `rehearse` is false, so the skipped `needs` job skips this one.
+    expect(source).not.toMatch(/if:.*== 'workflow_dispatch'/);
+  });
+
+  test("writes at the tag it published, or at one no release will ever want", () => {
+    // `$GITHUB_REF_NAME` on a schedule is `main`, so a rehearsal that reused it
+    // would file a release called `main` — and read it back as though that were
+    // the page it had just written.
+    expect(source).toMatch(/SIGNPOST_TAG:.*github\.ref_name/);
+    expect(source).toMatch(/SIGNPOST_TAG:.*0\.0\.0-signpost\.\{0\}/);
+    expect(source).toMatch(/SIGNPOST_TAG:.*github\.run_id/);
+    // A `v` prefix would match this workflow's own tag filter, so a Monday's
+    // rehearsal would start a release run from inside a release run.
+    expect(source).not.toMatch(/SIGNPOST_TAG:.*'v0\.0\.0/);
+  });
+
+  test("leaves both differences to the script, rather than branching here", () => {
+    // The draft flag and which version the notes are taken for are decisions, and
+    // decisions that only a Monday run exercises belong where they are tested.
+    // A second branch here would be a copy of this job the real one can drift
+    // from — the thing the rehearsal exists to prevent.
+    expect(source).toMatch(/REHEARSE: \$\{\{ github\.event_name != 'push' \}\}/);
+    expect(source).toContain("--rehearse");
+    expect(commands(source)).not.toContain("--draft");
+  });
+
+  test("takes its scratch page away whether the rehearsal passed or failed", () => {
+    const scratchCleanup = stepBlock(
+      "Delete the scratch signpost a rehearsal wrote",
+    );
+    expect(scratchCleanup).toMatch(/if:.*always\(\)/);
+    expect(scratchCleanup).toMatch(/REHEARSE/);
+    expect(scratchCleanup).toContain("gh release delete");
+    expect(scratchCleanup).toContain("GH_TOKEN: ${{ github.token }}");
+    // The opposite lesson from the release job's cleanup: that one deletes a
+    // draft, and a draft has no tag ref of its own, so `--cleanup-tag` answers
+    // 422. A rehearsal's page is a draft for the same reason.
+    expect(commands(scratchCleanup)).not.toContain("--cleanup-tag");
   });
 
   test("waits for the release it points at", () => {
@@ -423,20 +476,24 @@ describe("the signpost on this repository's Releases tab", () => {
 
   test("keeps the body in the tested script rather than inline", () => {
     expect(source).toContain("node scripts/source-release.mjs");
-    expect(source).toContain('--tag "$GITHUB_REF_NAME"');
+    expect(source).toContain('--tag "$SIGNPOST_TAG"');
     expect(source).toContain('--repo "$GITHUB_REPOSITORY"');
     expect(source).not.toContain("gh release create");
     expect(source).not.toContain("gh release edit");
   });
 
-  test("asserts the page carries no assets", () => {
+  test("asserts the page carries no assets, on the tag it actually wrote", () => {
     // The failure this guards is not cosmetic: a DMG here would be a second copy
-    // of the release to keep in step with the manifest the updater reads.
+    // of the release to keep in step with the manifest the updater reads. And the
+    // read has to name `$SIGNPOST_TAG`: on a schedule `$GITHUB_REF_NAME` is the
+    // branch, so a rehearsal would read back a release called `main`.
     const readBack = commands(
       stepBlock("Read it back, and check it carries no assets"),
     );
     expect(readBack).toContain("--json assets");
     expect(readBack).toContain('!= "0"');
+    expect(readBack).toContain('"$SIGNPOST_TAG"');
+    expect(readBack).not.toContain("GITHUB_REF_NAME");
     expect(source).not.toMatch(/gh release upload/);
   });
 });

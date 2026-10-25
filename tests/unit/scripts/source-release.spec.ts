@@ -62,6 +62,72 @@ function run(args: string[], env: NodeJS.ProcessEnv = {}) {
   };
 }
 
+/**
+ * A `gh` on PATH that answers like GitHub and records what it was asked.
+ *
+ * The write path is the half no fixture tree can reach: the script builds argv
+ * and hands it to a real binary. A stub at that boundary is what says the
+ * rehearsal writes a draft rather than a published page, and that the body it
+ * was given is the signpost's — neither of which is visible in the file.
+ */
+function stubGh(): { dir: string; log: string; notes: string } {
+  const dir = makeTmpDir("atr-gh-stub");
+  created.push(dir);
+  const log = path.join(dir, "gh.log");
+  const notes = path.join(dir, "notes.md");
+  fs.writeFileSync(log, "");
+  fs.writeFileSync(
+    path.join(dir, "gh"),
+    [
+      "#!/usr/bin/env bash",
+      `printf '%s\\n' "$*" >> "${log}"`,
+      // `readExistingRelease` asks the API whether anything is filed at the tag.
+      // A scratch tag has nothing, and a 404 is what that looks like.
+      'if [ "$1" = "api" ]; then',
+      '  echo "gh: Not Found (HTTP 404)" >&2',
+      "  exit 1",
+      "fi",
+      // Keep the body, so what *would* have been published is readable after the
+      // script has cleaned up the directory it wrote it in.
+      'while [ $# -gt 0 ]; do',
+      '  if [ "$1" = "--notes-file" ]; then cp "$2" "$GH_NOTES"; fi',
+      "  shift",
+      "done",
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return { dir, log, notes };
+}
+
+/** The tag a rehearsal writes at, as the workflow builds it. */
+const SCRATCH_TAG = "0.0.0-signpost.7";
+
+function runAgainstStubGh(extra: string[] = []) {
+  const gh = stubGh();
+  const result = run(
+    [
+      "--tag",
+      SCRATCH_TAG,
+      "--repo",
+      "ivy00johns/AllTheRepos",
+      "--releases-repo",
+      "ivy00johns/alltherepos-releases",
+      ...extra,
+    ],
+    {
+      PATH: `${gh.dir}:${process.env.PATH}`,
+      GH_NOTES: gh.notes,
+    },
+  );
+  return {
+    ...result,
+    calls: fs.readFileSync(gh.log, "utf8"),
+    body: fs.existsSync(gh.notes) ? fs.readFileSync(gh.notes, "utf8") : "",
+  };
+}
+
 afterEach(() => {
   while (created.length > 0) cleanupTmp(created.pop());
 });
@@ -178,6 +244,78 @@ describe("its arguments", () => {
     );
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("https://github.com/env/releases/releases/tag/v1.2.3");
+  });
+});
+
+/**
+ * The page was only ever written by a tag push, which made the one run of it that
+ * matters the first run of it. So the weekly rehearsal runs the same job at a
+ * scratch tag and deletes the page again, and that is what these tests are about:
+ * a rehearsal has to be able to write and read back a page without publishing
+ * one, and a rehearsal that could not would be a red run every Monday.
+ */
+describe("rehearsing the signpost", () => {
+  test("writes a draft, so nothing appears on the Releases tab", () => {
+    const result = runAgainstStubGh(["--rehearse"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls).toMatch(/^release create 0\.0\.0-signpost\.7 /m);
+    // A draft is the one shape that can be written, read back by tag and removed
+    // again without ever being a page: no listing, no notification, and no tag
+    // ref of its own for the workflow's `v*` filter to match.
+    expect(result.calls).toMatch(/--draft/);
+    expect(result.calls).not.toContain("release edit");
+  });
+
+  test("takes its notes from the version, not from a tag that names none", () => {
+    // The scratch tag is not semver, so asking the guard about *it* would fail
+    // every Monday on the rehearsal's own name. The guard is asked about the
+    // version instead — it still runs, and a missing changelog section still
+    // fails the rehearsal the way it fails a release.
+    const result = runAgainstStubGh(["--rehearse"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.body.startsWith("## 📦 Download")).toBe(true);
+    expect(result.body).toMatch(/\n### /);
+
+    // ... and the difference is the flag, not a second code path: the same tag
+    // without it is refused by the guard, which is what a rehearsal would hit
+    // every Monday if it asked about its own name.
+    const without = runAgainstStubGh();
+    expect(without.status).toBe(1);
+    expect(without.stderr).toContain(SCRATCH_TAG);
+  });
+
+  test("keeps the body it was given, so a rehearsal proves the real page", () => {
+    // A rehearsal's page is deleted seconds later, so nothing a person reads
+    // would catch a body that stopped opening with the download.
+    expect(runAgainstStubGh(["--rehearse"]).body).toContain(
+      "https://github.com/ivy00johns/alltherepos-releases/releases/tag/0.0.0-signpost.7",
+    );
+  });
+
+  test("refuses a tag that names a release", () => {
+    // A draft filed at `v0.5.0` is a release the next real `v0.5.0` cannot
+    // create — `gh` answers "already exists" — and the draft is invisible, so
+    // nothing would say why. A `v` prefix is the whole signal needed.
+    const gh = stubGh();
+    const result = run(
+      [
+        "--tag",
+        "v1.2.3",
+        "--repo",
+        "ivy00johns/AllTheRepos",
+        "--releases-repo",
+        "ivy00johns/alltherepos-releases",
+        "--rehearse",
+      ],
+      { PATH: `${gh.dir}:${process.env.PATH}` },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("must not name a release");
+    // Nothing was asked of GitHub: the refusal comes before the call.
+    expect(fs.readFileSync(gh.log, "utf8").trim()).toBe("");
   });
 });
 

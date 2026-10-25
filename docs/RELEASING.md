@@ -102,12 +102,19 @@ installing*.
    with the link to the releases repo. It exists because artifacts living elsewhere left this
    repo's Releases tab empty, which reads as "nothing has been released yet" and sends a person
    looking for a build command; `v0.3.1` was published, verified and announced for a day in
-   exactly that state. The job runs only for a tag push (a rehearsal's `0.0.0` has no download
-   behind it), writes with the workflow's own `GITHUB_TOKEN` rather than `RELEASES_TOKEN`, and
-   fails if anything is ever attached to that release — a second copy of the DMG would have to
-   be kept in step with `latest-mac.yml` by hand. The body comes from
+   exactly that state. It writes with the workflow's own `GITHUB_TOKEN` rather than
+   `RELEASES_TOKEN`, and fails if anything is ever attached to that release — a second copy of the
+   DMG would have to be kept in step with `latest-mac.yml` by hand. The body comes from
    `scripts/source-release.mjs`, and the step that reads it back asserts the asset list is
    empty.
+
+   The job also runs in the weekly rehearsal, for the reason the section below gives about the
+   rest of the pipeline: it only ever ran on a tag push, which made the one run of it that
+   mattered the first run of it. A rehearsal writes the same page as a **draft** at a scratch tag
+   (`0.0.0-signpost.<run id>`), reads it back, and deletes it. A draft is what can be written and
+   read back without being published — no Releases tab entry, no notification, no tag ref of its
+   own — and the last of those is also what keeps the scratch name from matching this workflow's
+   `v*` filter and starting a second release.
 8. **Deletes the draft again if the run failed.** A final step that runs only on a failure or
    a cancel reads the release back and removes it *while it is still a draft*, so a run that
    died partway — the assets uploaded, the notes not attached — cannot leave an invisible
@@ -165,7 +172,8 @@ under a placeholder like `untagged-2da6…` — so the step deletes the draft by
 and only cleans a tag up for the pre-release, which does own one.
 
 A dispatch without the `rehearse` input cannot reach the `release` job at all, so the drill is
-everything a plain dispatch of that workflow can do.
+everything a plain dispatch of that workflow can do. The signpost job has the same shape from the
+other side: it waits for the build, so a plain dispatch skips it along with the job it needs.
 
 ### Rehearsing a release
 
@@ -197,6 +205,20 @@ this workflow later rehearses by accident rather than publishing by accident.
 
 It is the *same* job rather than a copy of it on purpose. A rehearsal that ran its own steps
 could drift from the ones that ship, which is the thing it exists to prevent.
+
+The signpost job is rehearsed on the same reasoning. It was only ever called by a tag push, so a
+token that could not write to this repository, or a body the script stopped building, would have
+been found by a release rather than by a Monday. So once the build is green a rehearsal calls it
+at `0.0.0-signpost.<run id>` with `--rehearse` — the weekly run, and a dispatch with `rehearse`,
+which exists so a change to this job is exercised now rather than on the next Monday — reads the
+result back through the same
+asset assertion the real page goes through, and deletes it in an `always()` step whether it
+passed or failed. Two things differ and both live in the script, where they are unit-tested: the
+page is a **draft**, and the notes are taken from `package.json`'s version rather than from the
+scratch tag, which names no version — the tag/version guard still runs, so a missing changelog
+section fails a rehearsal the way it fails a release. A draft is deliberate on top of that: it
+sends no notification, never appears on the Releases tab, and owns no tag ref, so the scratch
+name cannot match the `v*` filter that starts this workflow.
 
 #### The app the rehearsal launches
 
@@ -476,6 +498,19 @@ It creates the release when the tag has none and edits it when it does, so re-ru
 after a failed job is safe. The changelog section it carries is extracted by
 `scripts/release-notes.mjs`, which means the signpost is also guarded by the same
 tag/version check the real release passes first.
+
+`--rehearse` is the flag a rehearsal passes — the weekly run, or a dispatch with `rehearse` — and it
+writes the page as a draft at a scratch tag, for that rehearsal to read back and delete. It is
+also how the job is proved by hand, on a branch, without publishing a page that points at nothing:
+
+```bash
+RELEASES_REPO=ivy00johns/alltherepos-releases \
+  node scripts/source-release.mjs --tag 0.0.0-signpost.7 --rehearse \
+  --repo ivy00johns/AllTheRepos
+```
+
+It refuses a `v` tag. A draft filed at `v0.5.0` would be a release the next real `v0.5.0` could
+not create — `gh` answers "already exists" — and being a draft, nothing would say why.
 
 ### Verifying the check from a real build
 

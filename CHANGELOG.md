@@ -11,6 +11,24 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Changed
+
+- rehearse the signpost every Monday instead of meeting it for the first time at a tag. The
+  `source-release` job only ever ran on a tag push, so its one important run was also its first
+  run: a token with no write access here, a body `scripts/source-release.mjs` stopped building, or
+  a read-back that swallowed an asset would all have been found by a release. The weekly rehearsal
+  now runs the job as well — and so does `gh workflow run release.yml -f rehearse=true`, which is
+  how a change to this job is exercised now rather than seven days from now; a plain dispatch still
+  writes nothing, because the signpost waits for the build a drill skips — at a scratch tag
+  (`0.0.0-signpost.<run id>`) and with `--rehearse`,
+  which writes the same page as a **draft** — invisible on the Releases tab, no notification, and
+  no tag ref of its own, so the scratch name cannot match the workflow's `v*` filter and start a
+  second release — reads it back through the same asset assertion the real page goes through, and
+  deletes it in an `always()` step whether it passed or failed. The two differences are the
+  script's: the draft flag, and taking the notes from `package.json`'s version rather than from a
+  tag that names none, so the tag/version guard still runs. `--rehearse` refuses a `v` tag, because
+  a draft filed at `v0.5.0` would be a release the next real `v0.5.0` could not create.
+
 ### Fixed
 
 - cover the vector-store probe's fallback by staging the throw, not the module cache. The test added
