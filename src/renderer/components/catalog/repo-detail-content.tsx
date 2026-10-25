@@ -11,6 +11,7 @@ import {
   GitBranch,
   Hash,
   Plus,
+  StickyNote,
   Tag,
   Trash2,
   X,
@@ -41,6 +42,7 @@ import { useUiStore } from "@renderer/stores/ui";
 
 import { useCover } from "@renderer/hooks/use-cover";
 import type { TaskRunState } from "@renderer/hooks/use-actions";
+import { NotesTab } from "./notes-tab";
 import { RelatedRepos } from "./related-repos";
 import { FavoriteStar } from "./favorite-star";
 import { TaskRunner } from "./task-runner";
@@ -51,7 +53,7 @@ import { RepoCover } from "./repo-cover";
 import { colorForLanguage } from "./language-colors";
 import { relativeTime } from "./relative-time";
 
-type DetailTab = "details" | "claude";
+type DetailTab = "details" | "notes" | "claude";
 
 interface RepoDetailContentProps {
   repo: RepoDetail;
@@ -340,6 +342,21 @@ export function RepoDetailContent({
         <button
           type="button"
           role="tab"
+          aria-selected={activeTab === "notes"}
+          onClick={() => setActiveTab("notes")}
+          className={cn(
+            "atr-label inline-flex items-center gap-1.5 rounded-sm px-3 py-1 font-mono uppercase tracking-widest transition-colors",
+            activeTab === "notes"
+              ? "bg-accent/15 text-accent"
+              : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+          )}
+        >
+          <StickyNote className="h-3 w-3" aria-hidden />
+          Notes
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeTab === "claude"}
           onClick={() => setActiveTab("claude")}
           className={cn(
@@ -358,6 +375,10 @@ export function RepoDetailContent({
         {activeTab === "claude" ? (
           <div className="p-4">
             <ClaudeTab slug={repo.slug} repoName={repo.name} />
+          </div>
+        ) : activeTab === "notes" ? (
+          <div className="flex min-h-0 flex-1 flex-col p-4">
+            <NotesTab slug={repo.slug} repoName={repo.name} />
           </div>
         ) : (
           <section className="space-y-4 p-4">

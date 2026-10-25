@@ -18,7 +18,7 @@ import type {
 } from "@shared/types";
 
 import { getAtr, requireAtr } from "@renderer/lib/atr";
-import { queryKeys } from "@renderer/lib/query-client";
+import { invalidateRepoList, queryKeys } from "@renderer/lib/query-client";
 
 // ---------------------------------------------------------------------------
 // Favourites
@@ -31,11 +31,11 @@ import { queryKeys } from "@renderer/lib/query-client";
  * boolean that essentially cannot fail. On error the previous list is
  * restored.
  *
- * Keyed off `queryKeys.repos.all` (`["repos"]`), not the `["catalog"]` these
- * hooks used before the key registry existed. Nothing is stored under that
- * root any more, so both the optimistic write and the invalidation missed —
- * pinning a repo left the card, the rail's Favourites count and the `Favourites`
- * view showing the old value until the window was reloaded.
+ * Keyed off `queryKeys.repos.all` (`["repos"]`), not the bare pre-registry root
+ * these hooks used before the key registry existed. Nothing is stored there any
+ * more, so both the optimistic write and the invalidation missed — pinning a
+ * repo left the card, the rail's Favourites count and the `Favourites` view
+ * showing the old value until the window was reloaded.
  */
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
@@ -76,7 +76,7 @@ export function useToggleFavorite() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+      void invalidateRepoList(queryClient);
     },
   });
 }
@@ -86,14 +86,14 @@ export function useToggleFavorite() {
 // ---------------------------------------------------------------------------
 
 /**
- * Both sync mutations refresh the catalog under `queryKeys.repos.all`.
+ * Both sync mutations refresh the catalog through `invalidateRepoList`.
  *
- * They were still invalidating `["catalog"]`, the root these hooks used before
- * the key registry above existed and which holds nothing now — so the strip said
- * "3 updated" over cards still showing the old branch, the old commit line and
- * the old dirty marker until the window reloaded. A fetch or a pull rewrites
- * exactly the columns a `Repo` row draws, which is what the prefix covers (it
- * also matches the per-repo detail query, whose header carries the same data).
+ * They were still invalidating the bare pre-registry root, which holds nothing
+ * now — so the strip said "3 updated" over cards still showing the old branch,
+ * the old commit line and the old dirty marker until the window reloaded. A
+ * fetch or a pull rewrites exactly the columns a `Repo` row draws, which is
+ * what the prefix covers (it also matches the per-repo detail query, whose
+ * header carries the same data).
  */
 
 /** Fetch remote refs. Safe on any repo — never touches a working tree. */
@@ -103,7 +103,7 @@ export function useFetchRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.fetch({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+      void invalidateRepoList(queryClient);
     },
   });
 }
@@ -115,7 +115,7 @@ export function usePullRepos() {
     mutationFn: async (slugs: string[]): Promise<SyncResult> =>
       requireAtr().git.pull({ slugs }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+      void invalidateRepoList(queryClient);
     },
   });
 }

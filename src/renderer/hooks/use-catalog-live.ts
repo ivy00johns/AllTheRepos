@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { CatalogChangeEvent } from "@shared/types";
 
 import { getAtr } from "@renderer/lib/atr";
-import { queryKeys } from "@renderer/lib/query-client";
+import { invalidateRepoList } from "@renderer/lib/query-client";
 
 /** How long a change notice stays on screen before fading out. */
 const NOTICE_MS = 6000;
@@ -53,12 +53,10 @@ export function useCatalogLive(): CatalogLiveState {
     if (!atr) return;
 
     const unsubscribe = atr.catalog.onChanged((event) => {
-      /*
-       * The repos live under `["repos"]`. This used the pre-registry
-       * `["catalog"]` root, which no query is stored under — so the watcher
-       * reported "2 repos added" and the grid did not move.
-       */
-      void queryClient.invalidateQueries({ queryKey: queryKeys.repos.all });
+      // The repo list, not the bare `catalog` key a scan or a move used to
+      // invalidate — nothing is registered there, so a file changing on disk
+      // refreshed nothing. See `invalidateRepoList`.
+      void invalidateRepoList(queryClient);
       const summary = describe(event);
       if (!summary) return;
       setNotice(summary);

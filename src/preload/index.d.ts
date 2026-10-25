@@ -31,6 +31,10 @@
  * Phase 3b (Claude Code integration):
  *   - `window.atr.claude.{index,projects,repoState,sessionTranscript,globalUsage,launch,openClaudeMd,onUpdate}`
  *
+ * Per-repo notes (NEW-PLAN.md §5.9):
+ *   - `window.atr.notes.{get,save}` — markdown scratchpad stored under the
+ *     app's own data directory, keyed on the catalog row id.
+ *
  * The `on*` methods (`scan.onProgress`; `app.onMenuCommand`,
  * `app.onDeepLink`, `app.onTrayOpenRepo`; `process.onUpdate`;
  * `claude.onUpdate`) are the only non-`invoke` methods — each returns

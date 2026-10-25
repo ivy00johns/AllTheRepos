@@ -11,6 +11,33 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Added
+
+- Per-repo markdown notes. Every repository has a scratchpad now — a Notes tab beside Details and
+  Claude, with a plain markdown editor and a live, sanitized preview rendering the same allowlist a
+  README does. The editor autosaves on a short debounce and the save writes into the query cache
+  rather than invalidating, so a round-trip can never refetch over your caret; the status line says
+  `Saving…`, then `Saved`, and shows the error text when a write is refused. Notes are stored one
+  file per repository at `{userData}/notes/<repo-id>.md` — **inside the app's own data directory,
+  never in a repository** — keyed on the catalog row id so a note follows a repo you move, and written
+  with the same atomic temp-plus-rename the settings file uses. Clearing the editor empties the file
+  rather than deleting it — this app has no delete — and an emptied file reads as a blank note, the
+  same answer a repo with no note gives.
+  The plan's optional `<repo>/.alltherepos/notes.md` mirror and its tray quick-capture window were
+  both dropped, the first because it is precisely the write `docs/COMMAND-DISCLOSURE.md` §4 promises
+  never happens. New `notes:get` / `notes:save` channels; the demo library seeds notes on four repos
+  so the demo video's beat 6 has a real notes surface to show.
+
+### Changed
+
+- route every repo-list refresh through one helper, and pin it. The dead-key fix itself shipped in
+  0.3.0 — five call sites invalidated a `catalog` root nothing is registered under, and the repo list
+  lives at `["repos"]`. What was missing was a single place to get that right and something that
+  fails when a new call site gets it wrong, so `invalidateRepoList(queryClient)` now owns the key,
+  the call sites go through it, and `tests/unit/renderer/catalog-invalidation-keys.spec.ts` scans the
+  renderer and fails if the bare key reappears. A behavioural spec can only pin the call sites that
+  already exist; this bug's shape was a new one appearing.
+
 ## [0.3.1] - 2026-10-24
 
 ### Changed
@@ -666,7 +693,6 @@ source of truth for the current version.
   evidence was already in each document.
 - clear the AI vocabulary the new gate caught, in the two archived planning docs and one audit
   heading, and the "is the point" construction it found four times in `RELEASING.md`.
-
 ## [0.1.8] - 2026-10-07
 
 ### Added
