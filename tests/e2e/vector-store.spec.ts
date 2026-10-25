@@ -76,6 +76,13 @@ interface StoreProbe {
   stack: string | null;
   /** What the `load` step was depending on, sampled before it ran. */
   modules: ModuleFacts;
+  /**
+   * How the shipped addon was reached. `package` is the app's own path,
+   * `require("bindings")("better_sqlite3.node")`; `nativeBinding` is the same
+   * binary handed to `better-sqlite3` by path, which it supports, after that
+   * lookup resolved to something that cannot be called.
+   */
+  loadedVia: "package" | "nativeBinding" | null;
   version: string | null;
   /** Distance of the nearest neighbour to its own vector — `0` when the store works. */
   selfDistance: number | null;
@@ -128,8 +135,11 @@ interface ModuleFacts {
  * `vector-store.ts`. The app's own table is exercised by
  * `semantic-search.spec.ts`, through the app's own scan and search.
  */
-async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
-  return app.evaluate(() => {
+async function probeVectorStore(
+  app: ElectronApplication,
+  options: { poisonBindings?: boolean } = {},
+): Promise<StoreProbe> {
+  return app.evaluate((_electron, { poisonBindings }) => {
     const { createRequire } = process.getBuiltinModule("node:module");
     const fs = process.getBuiltinModule("node:fs");
     const nodePath = process.getBuiltinModule("node:path");
@@ -211,9 +221,29 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
       failure: null as string | null,
       stack: null as string | null,
       modules: describeModules(),
+      loadedVia: null as "package" | "nativeBinding" | null,
       version: null as string | null,
       selfDistance: null as number | null,
     };
+
+    /**
+     * Reproduce the runner's failure on purpose: a `bindings` entry in the
+     * module cache whose export is an object, which is the `typeof object` that
+     * `describeModuleFacts` reports on a bad run. The package's own lookup then
+     * throws `require(...) is not a function` exactly as it does there, and the
+     * rest of the probe has to get past it. Staged after `describeModules` so
+     * the facts still describe the package rather than the staging.
+     */
+    if (poisonBindings && result.modules.bindings.resolved !== null) {
+      (load.cache as Record<string, unknown>)[result.modules.bindings.resolved] = {
+        exports: {},
+        loaded: true,
+        id: result.modules.bindings.resolved,
+        filename: result.modules.bindings.resolved,
+        paths: [],
+        children: [],
+      };
+    }
 
     /**
      * Run one step, and stop at the first failure with its phase recorded.
@@ -244,7 +274,10 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
     if (resolved === null) return result;
     result.path = resolved;
 
-    const Database = load("better-sqlite3") as new (filename: string) => {
+    type Database = new (
+      filename: string,
+      options?: { nativeBinding?: string },
+    ) => {
       loadExtension(path: string): void;
       exec(sql: string): void;
       prepare(sql: string): {
@@ -254,12 +287,45 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
       };
       close(): void;
     };
-    const db = step("load", () => {
-      const opened = new Database(":memory:");
+    const Database = load("better-sqlite3") as Database;
+
+    /**
+     * Open a throwaway database, through the package's own lookup first.
+     *
+     * That lookup is `require("bindings")("better_sqlite3.node")` inside
+     * `better-sqlite3/lib/database.js`, and on a runner it has resolved to an
+     * object that cannot be called: intermittently, with the same readings every
+     * time (ATR-077). The binary it is looking for is the artifact this probe
+     * exists to check, and `better-sqlite3` accepts that binary by path as
+     * `nativeBinding` — so a lookup that cannot be called does not have to mean
+     * a machine where the shipped extension is broken. `loadedVia` says which
+     * of the two worked, and the app's own path is always tried first.
+     */
+    const open = (nativeBinding?: string) => {
+      const opened = new Database(
+        ":memory:",
+        nativeBinding === undefined ? undefined : { nativeBinding },
+      );
       opened.loadExtension(result.path);
       return opened;
+    };
+
+    const opened = step("load", () => {
+      try {
+        return { db: open(), via: "package" as const };
+      } catch (error) {
+        // Only the state the fallback is here for. A missing addon or a wrong
+        // ABI is a real failure of the thing this probe checks, and is reported
+        // as one.
+        if (!/is not a function/.test(message(error))) throw error;
+        const { path, exists } = result.modules.addon;
+        if (path === null || !exists) throw error;
+        return { db: open(path), via: "nativeBinding" as const };
+      }
     });
-    if (!db) return result;
+    if (opened === null) return result;
+    const { db } = opened;
+    result.loadedVia = opened.via;
 
     const version = step("load", () =>
       (db.prepare("SELECT vec_version() AS v").get() as { v: string }).v,
@@ -286,7 +352,7 @@ async function probeVectorStore(app: ElectronApplication): Promise<StoreProbe> {
     result.selfDistance = selfDistance;
     db.close();
     return result;
-  });
+  }, { poisonBindings: options.poisonBindings ?? false });
 }
 
 /**
@@ -344,6 +410,17 @@ test.describe("the vector store the app ships", () => {
           `${probe.stack ?? "(no stack)"}`,
       ).toBeNull();
 
+      // Loud when it happens rather than a silent pass: the fallback means the
+      // package's own lookup was not callable, which the ledger still has open.
+      if (probe.loadedVia === "nativeBinding") {
+        test.info().annotations.push({
+          type: "vector-store",
+          description:
+            "the package's own bindings lookup resolved to something that cannot be " +
+            "called, so the shipped addon was loaded by path and answered (ATR-077)",
+        });
+      }
+
       expect(
         probe.path,
         "the extension resolved to a path outside the app's own node_modules, " +
@@ -364,6 +441,39 @@ test.describe("the vector store the app ships", () => {
         "a stored vector was not its own nearest neighbour, so the extension " +
           "is not really indexing what was written to it.",
       ).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  test("survives the bindings lookup resolving to an object, which is how it fails on a runner", async () => {
+    const { app, close } = await launchApp();
+
+    try {
+      // The state the runner reports, staged rather than waited for: a module
+      // cache entry for `bindings` whose export is `{}`, which is callable by
+      // nothing and is exactly what `require(...) is not a function` complains
+      // about.
+      const probe = await probeVectorStore(app, { poisonBindings: true });
+
+      expect(
+        probe.failure,
+        `the probe did not get past a poisoned bindings lookup: ${probe.failure}\n\n` +
+          `What the load step was depending on:\n${describeModuleFacts(probe)}\n\n` +
+          `${probe.stack ?? "(no stack)"}`,
+      ).toBeNull();
+
+      expect(
+        probe.loadedVia,
+        "the probe loaded the extension, but not by the fallback this test is about — " +
+          "so the poisoned entry was not the path the package took, and the test proves nothing.",
+      ).toBe("nativeBinding");
+
+      // A fallback that reached a different binary would be worse than none: the
+      // version and the nearest-neighbour answer are the probe's own proof that
+      // it loaded the one the app ships.
+      expect(probe.version).toMatch(/^v\d+\.\d+\.\d+/);
+      expect(probe.selfDistance).toBe(0);
     } finally {
       await close();
     }

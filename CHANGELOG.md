@@ -38,6 +38,19 @@ source of truth for the current version.
   renderer and fails if the bare key reappears. A behavioural spec can only pin the call sites that
   already exist; this bug's shape was a new one appearing.
 
+### Fixed
+
+- survive the vector-store probe's own module lookup. `tests/e2e/vector-store.spec.ts` loaded the
+  shipped extension through `require("bindings")` inside `better-sqlite3`, and on a runner that
+  lookup intermittently resolved to an object rather than the function the file exports (ATR-077) —
+  a failure in the probe that reported as a failure in the extension, three times, once on a commit
+  that changed only a markdown file. The probe now opens the database through the package's own path
+  first and, when that lookup is not callable, hands `better-sqlite3` the addon by path
+  (`options.nativeBinding`, which the package supports), so the shipped binary is still the thing
+  under test; `loadedVia` records which door answered, and the spec annotates the fallback instead
+  of passing quietly. Covered by a staged cache entry that reproduces the runner's state, and a
+  `.node` that genuinely will not load still fails with the module report attached.
+
 ## [0.3.1] - 2026-10-24
 
 ### Changed
