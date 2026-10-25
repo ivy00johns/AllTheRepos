@@ -11,6 +11,8 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-25
+
 ### Added
 
 - Per-repo markdown notes. Every repository has a scratchpad now — a Notes tab beside Details and
@@ -49,9 +51,81 @@ source of truth for the current version.
   the call sites go through it, and `tests/unit/renderer/catalog-invalidation-keys.spec.ts` scans the
   renderer and fails if the bare key reappears. A behavioural spec can only pin the call sites that
   already exist; this bug's shape was a new one appearing.
+- say what the vector-store probe resolved, not only that it failed. The one runner failure this
+  spec has had read `require(...) is not a function` and nothing else — `better-sqlite3`'s own
+  `require("bindings")(...)`, thrown below any frame this repository names. The probe samples what
+  the load step depends on before asking it to load: which copy of `better-sqlite3` resolved, where
+  that package's own bindings lookup lands and what `typeof` it is (an object is the state that
+  produces that message, and it reads as success any other way), the addon that lookup would open
+  with its size and build time, and the node/electron `NODE_MODULE_VERSION` pair — printed with the
+  stack when a step fails. Three sightings now print the same five lines, which is what makes the
+  failure a state rather than noise; ATR-077 still says the report names the state and not the
+  reason.
+- tell a drill the runner blocked apart from one the check broke. The drill failures that have
+  actually happened came from a spent anonymous allowance: the mock is neutered, the app's own
+  GitHub read is refused for real, and the drill's two outcomes are byte-identical — so a run that
+  proved nothing read as a gate that had broken. The drill asks GitHub for its allowance before it
+  builds anything and reports `BLOCKED` in its own sentence, `FAILED` only when the check really
+  did miss, and it keeps the ambiguity when the allowance cannot be read rather than guessing a
+  side. `--allowance-only` asks that one question and stops before two bundles are packed, and
+  `--rehearse spent|moved|unreadable|available` stages each verdict, because the branches needing
+  an exhausted runner cannot be asked for and a unit test cannot see the annotation or the exit
+  code. A blocked run stays red: a non-conclusion is not a pass.
+- stop one allowance reading from deciding a verdict. A hosted runner rotates its outbound
+  addresses and the anonymous allowance is per address, so a dispatch that read `59 of 60` before
+  the drill and `60 of 60` after it had seen two windows in one run; the reading taken afterwards
+  was never evidence about the address the app's read left from, and the drill used it to conclude
+  the allowance was available. `allowanceEvidence` turns the pair into spent / available / moved /
+  unreadable, and only two readings inside one window can conclude that a real refusal was not the
+  explanation.
+- stop a dispatch from cancelling the push run it arrives with. `github.ref` is the branch for both
+  events, so a concurrency group keyed on the ref alone let a drill dispatch cancel the push run
+  beside it — and a cancelled attempt stays on the commit as `CANCELLED` check runs, which counts
+  against the required checks and leaves the pull request `BLOCKED` while everything green is on a
+  newer run. Re-running does not clear it. The group carries `github.event_name` now, and only a
+  push cancels what it supersedes.
+- check the tests badge instead of pushing it to a protected `main`. Committing the drawn SVG and
+  pushing it is a bot push, which is a new commit that has passed none of the required checks, so
+  every run that moved the count ended in `GH006` and left `main` red over the one thing the step
+  existed to keep true. CI now fails when the committed copy disagrees with the count it just
+  produced, which puts the gate on the pull request that would introduce a stale number, and the
+  job no longer asks for a write token.
+- point the launch posts at the released build. The copy in [`docs/announcement.md`](./docs/announcement.md)
+  was written against 0.2.0, so it now carries 0.3.1's version, date and DMG byte count.
 
 ### Fixed
 
+- mount the notes editor only against a note that has been read. The tab rendered an editable, empty
+  textarea while `notes:get` was in flight — a claim that the repo has no note, which the app was
+  not in a position to make, and anything typed into it was overwritten when the note arrived.
+  Making the seed defer to that typing would have swapped the bug: the editor's text becomes the
+  note, so a keystroke inside that window would replace content that was already stored. The editor
+  is now mounted once the stored note is in hand and takes its starting text from it, which removes
+  the `seededFor` ref and the seed effect entirely — and with them the double autosave pass on
+  open. Reading renders the shared `SkeletonRegion`, and a failed read renders the shared
+  `ErrorState` with its retry, where an error used to look exactly like a repo with no note.
+- tag a runnable app or a research project as what it is. The `library` tag came from an entry point
+  (`main`, `exports`, `bin`, a `[project]` table), which is also what a Node app has, and a root
+  `docs/` directory was enough to call a code repo a documentation site — so a project with a
+  `start` script, or one whose Python dependencies name torch or tensorflow, was filed as a package
+  to import. `runnable` and `research` evidence now outrank both, and `docs` needs an actual docs
+  site (mkdocs, mdBook, Docusaurus) rather than a folder. The favourite star's optimistic write also
+  covers a single repo detail, so it flips before the refetch instead of after it.
+- tear a launched app down within a bound. `ElectronApplication.close()` waits for the process with
+  no timeout, so a window that declined to quit held the await open until the test timed out and
+  then until the worker teardown timed out — two stacked 60s waits that named no window. Closing now
+  bounds the graceful wait at 5s, SIGKILLs the process tree if it expires, and waits for the pid to
+  disappear before returning; a registry of live pids reaps anything a spec never closed.
+  `harness-teardown.spec.ts` models the window that refuses: on the old harness it fails with
+  exactly those two timeouts, and with this change it passes in about 6s with the process gone.
+- survive a failed Electron download instead of failing the pack. `pnpm electron:pack` died inside
+  electron-builder's `createMacApp` with ENOENT renaming `Electron.app/Contents/MacOS/Electron`,
+  right after the download retried a part: the unpack had not produced a complete app, the
+  refused-update job died before it started, and the same commit passed on a re-run. The pack now
+  runs through `scripts/electron-pack.mjs`, which retries a failed pass once with the Electron
+  download cache pointed at an empty directory — the part a plain re-run cannot do, because a zip
+  the first attempt left half-written would be reused and fail the same way. Arguments are
+  forwarded unchanged, the retry is printed, and two failures still exit non-zero.
 - survive the vector-store probe's own module lookup. `tests/e2e/vector-store.spec.ts` loaded the
   shipped extension through `require("bindings")` inside `better-sqlite3`, and on a runner that
   lookup intermittently resolved to an object rather than the function the file exports (ATR-077) —
@@ -1287,7 +1361,8 @@ well before this file existed; this entry is the backfill.
 - Native modules are rebuilt per runtime ABI; `pnpm test` (host Node) and
   `pnpm test:electron-e2e` (Electron) each put the tree in the state they need.
 
-[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ivy00johns/AllTheRepos/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ivy00johns/alltherepos-releases/releases/tag/v0.2.0
