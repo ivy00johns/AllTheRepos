@@ -45,9 +45,9 @@ on:
     # runner on it. GitHub disables a scheduled workflow after 60 days without
     # repository activity, and that is the one way this goes quietly idle.
     - cron: "0 14 * * 1"
-  # On demand, for the two things that otherwise never run: `drill`, which proves
-  # the draft cleanup against a real draft, and the release pipeline itself,
-  # through the `rehearse` input below.
+  # On demand, for the things that otherwise never run: `drill`, which proves the
+  # draft cleanup against a real draft, and the whole pipeline — the build and the
+  # signpost page it writes — through the `rehearse` input below.
   #
   # The updater feed check used to be a job here. It has its own workflow now
   # (`.github/workflows/updater-feed.yml`), because it needs a clock more than it
@@ -532,17 +532,41 @@ jobs:
   # access anywhere — and because a failure here must not turn a published release
   # red, so it stands on its own and can be re-run by itself.
   #
-  # Only a tag push: a rehearsal's scratch version (`0.0.0`) has no download behind
-  # it, and a signpost pointing at nothing is worse than an empty tab.
+  # A tag push is no longer the only way in. The page used to be written only by
+  # tag pushes, which made the one run of this job that matters the first run of it —
+  # a token that cannot write here, or a body the script stopped building, would
+  # have been found by a release rather than by a Monday. So the weekly rehearsal
+  # runs this job too, at a scratch tag, and takes its page away again.
+  #
+  # A dispatch with `rehearse` runs it as well, and for the reason that made the
+  # weekly run exist at all: without it the first exercise of a change here is a
+  # Monday, seven days from the person who made it. `drill` stays untouched — it
+  # is what a dispatch *without* the input is for, and a drill that wrote release
+  # pages would be a drill with a side effect.
   source-release:
-    name: point this repo's Releases tab at the download
+    name: ${{ github.event_name == 'push' && 'point the Releases tab at the download' || 'rehearse the signpost into a scratch draft' }}
     needs: release
-    if: github.event_name == 'push'
+    # The input, not the event. A drill dispatch has `rehearse` false, so the build
+    # job above is skipped by its own condition and this job is skipped with it —
+    # which is the drill's shape, reached without a second condition here.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.rehearse == 'true'
     runs-on: ubuntu-latest
     permissions:
       # The workflow's own token, scoped to this repository. Releases live in
       # another one, which this token cannot touch and has no reason to.
       contents: write
+    env:
+      REHEARSE: ${{ github.event_name != 'push' }}
+      # A tag push writes the page at the tag it just published. A rehearsal has
+      # no tag — a schedule or a dispatch runs on a branch — so it writes at a name
+      # that is obviously scratch and that no release will ever want.
+      #
+      # It begins with `0.0.0`, not `v0.0.0`, and that is not cosmetic: this
+      # workflow triggers on `v*`, so a scratch tag spelled the usual way would
+      # start a release run from inside a release run. It also sorts below every
+      # version this project has published, which is the same reasoning the
+      # release job's `SCRATCH_VERSION` carries.
+      SIGNPOST_TAG: ${{ github.event_name == 'push' && github.ref_name || format('0.0.0-signpost.{0}', github.run_id) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -553,28 +577,65 @@ jobs:
       # tree and the changelog with `node:fs`, and nothing else. A release job that
       # needed a dependency install to write a six-line page would be a second
       # thing that can fail after the release is already public.
+      #
+      # `--rehearse` is the whole difference between the two runs: it decides the
+      # draft flag and which version the notes are taken for, in the script, where
+      # both are unit-tested. Branching on it here would be a second copy of the
+      # job that the real one can drift from.
       - name: Create or update the signpost
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/source-release.mjs --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+        run: |
+          SCRATCH=""
+          if [ "$REHEARSE" = "true" ]; then
+            SCRATCH=--rehearse
+          fi
+          # Unquoted on purpose: an empty value expands to no argument at all,
+          # which is what the two runs need, and an array would be one more thing
+          # for a shell to have an opinion about.
+          node scripts/source-release.mjs --tag "$SIGNPOST_TAG" --repo "$GITHUB_REPOSITORY" $SCRATCH
 
       # ... and read it back, including the half that has to stay false. A DMG
       # attached here would be a second copy of the release to keep in step with
       # `latest-mac.yml`, and a page that *looks* like the download is how two
       # feeds start disagreeing. It carries no assets, on purpose, and this is
       # what says so.
+      #
+      # The same read for both runs, so a rehearsal proves this step rather than a
+      # similar one. `gh` finds a draft by its tag as readily as a published page.
       - name: Read it back, and check it carries no assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          gh release view "$SIGNPOST_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,isDraft,url,assets \
             --jq '{tag: .tagName, draft: .isDraft, url: .url, assets: [.assets[].name]}'
 
-          ATTACHED="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          ATTACHED="$(gh release view "$SIGNPOST_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
           if [ "$ATTACHED" != "0" ]; then
             echo "::error::the signpost release carries $ATTACHED asset(s). Binaries belong to $RELEASES_REPO, where the updater's manifest can be kept in step with them — see docs/RELEASING.md."
             exit 1
+          fi
+
+      # A rehearsal's page is a draft, so it is invisible — and "invisible" is
+      # exactly how the v0.1.1 draft sat there for weeks. It goes away whether the
+      # rehearsal passed or failed, or the next Monday would find a growing stack
+      # of pages nobody can see.
+      - name: Delete the scratch signpost a rehearsal wrote
+        if: ${{ always() && env.REHEARSE == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$SIGNPOST_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # No `--cleanup-tag`: a draft has no tag ref of its own — GitHub files
+            # it under a placeholder like `untagged-2da6…` — and `--cleanup-tag`
+            # on one answers 422. The same lesson the release job's rehearsal
+            # cleanup carries. Nothing was ever pushed here for `v*` to match, so
+            # there is no tag to take away either.
+            gh release delete "$SIGNPOST_TAG" --repo "$GITHUB_REPOSITORY" --yes
+            echo "removed the scratch signpost $SIGNPOST_TAG"
+          else
+            echo "no scratch signpost $SIGNPOST_TAG to remove"
           fi
 
   # The cleanup above is the failure path: it only ever runs after a release has
