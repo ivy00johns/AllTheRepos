@@ -1,0 +1,327 @@
+{
+  "generatedAt": "2026-10-25T20:29:43.293Z",
+  "app": "AllTheRepos",
+  "data": "synthetic demo library (scripts/make-design-shots.mjs)",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "width": 1024,
+      "height": 768
+    }
+  ],
+  "shots": [
+    {
+      "file": "screens/01-catalog-grid.png",
+      "kind": "screen",
+      "note": "Catalog, grid view, no repo selected — rail, toolbar, card grid, empty detail column.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/top-bar.png",
+      "kind": "element",
+      "note": "Top bar: menu, wordmark, search, nav, Debug.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/nav.png",
+      "kind": "element",
+      "note": "Primary navigation, including the running-processes badge.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/search-bar.png",
+      "kind": "element",
+      "note": "Repo search field with its keyboard hint.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/catalog-toolbar.png",
+      "kind": "element",
+      "note": "Catalog toolbar: view-mode switch, group, sort, filter actions.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/view-mode-switch.png",
+      "kind": "element",
+      "note": "The three-way view-mode control on its own.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/folder-rail.png",
+      "kind": "element",
+      "note": "Folder rail: scan roots, folder tree, count and selection marks.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/repo-card.png",
+      "kind": "element",
+      "note": "One repo card in the grid.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/repo-card-dirty.png",
+      "kind": "element",
+      "note": "The card the demo library marks dirty and local-only.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/02-catalog-detail-open.png",
+      "kind": "screen",
+      "note": "Catalog with a repo selected — the detail panel at its full width.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/detail-panel.png",
+      "kind": "element",
+      "note": "The repo detail panel, top to bottom.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/detail-tabs.png",
+      "kind": "element",
+      "note": "Detail panel tabs: details, notes, Claude.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/03-catalog-gallery.png",
+      "kind": "screen",
+      "note": "Catalog, gallery view — large covers, one row of readable cards.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/04-catalog-table.png",
+      "kind": "screen",
+      "note": "Catalog, table view — one line per repo, used for auditing.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/repo-table.png",
+      "kind": "element",
+      "note": "The table's header and rows.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/05-command-palette.png",
+      "kind": "screen",
+      "note": "Command palette at rest — grouped commands, keyboard hints.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/command-palette.png",
+      "kind": "element",
+      "note": "The palette dialog on its own.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/06-command-palette-filtered.png",
+      "kind": "screen",
+      "note": "Command palette narrowed by a query.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/07-catalog-search.png",
+      "kind": "screen",
+      "note": "Search results across the library, with the active filter named.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/08-settings.png",
+      "kind": "screen",
+      "note": "Settings — scan paths, embeddings, updates, identities, scan now.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/settings-scan-paths.png",
+      "kind": "element",
+      "note": "Settings: scan paths card.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/settings-embeddings.png",
+      "kind": "element",
+      "note": "Settings: embeddings card, with its hardware note.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/settings-updates.png",
+      "kind": "element",
+      "note": "Settings: update check and the release channel.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/settings-identities.png",
+      "kind": "element",
+      "note": "Settings: identity list — ownership marks come from here.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/settings-scan-now.png",
+      "kind": "element",
+      "note": "Settings: the manual scan card and its progress state.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/09-processes.png",
+      "kind": "screen",
+      "note": "Running — every listening dev server, bound to the repo that owns its cwd.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/process-table.png",
+      "kind": "element",
+      "note": "The process table and its port chips.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/10-graph.png",
+      "kind": "screen",
+      "note": "Map — the relationship graph beside the cluster list.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/graph-clusters.png",
+      "kind": "element",
+      "note": "The cluster list: ranked by how scattered a cluster is.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/graph-signals.png",
+      "kind": "element",
+      "note": "The signal filter — which relationships the map draws.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/11-repo-page-details.png",
+      "kind": "screen",
+      "note": "Repo page — the full-width detail view, details tab.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/12-repo-page-notes.png",
+      "kind": "screen",
+      "note": "Repo page — notes tab.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/13-debug.png",
+      "kind": "screen",
+      "note": "Debug — the bridge round-trip, reachable only from a development build.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/14-dialog-new-group.png",
+      "kind": "screen",
+      "note": "New group dialog over the catalog.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/dialog-new-group.png",
+      "kind": "element",
+      "note": "The new-group dialog.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/15-dialog-curate-link.png",
+      "kind": "screen",
+      "note": "Curate-link dialog — assert that two repos belong together.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/dialog-curate-link.png",
+      "kind": "element",
+      "note": "The curate-link dialog.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/16-dialog-tag-cleanup.png",
+      "kind": "screen",
+      "note": "Tag cleanup — review a bulk tag rewrite before it is applied.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/dialog-tag-cleanup.png",
+      "kind": "element",
+      "note": "The tag-cleanup dialog.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/17-catalog-1280x800.png",
+      "kind": "screen",
+      "note": "Catalog at 1280x800 — the layout contract's own height.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/18-catalog-table-1280x800.png",
+      "kind": "screen",
+      "note": "Table view at 1280x800.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/19-settings-1280x800.png",
+      "kind": "screen",
+      "note": "Settings at 1280x800.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/20-catalog-1024x768.png",
+      "kind": "screen",
+      "note": "Catalog at 1024x768 — nav labels collapse, toolbar starts to wrap.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/21-repo-page-1024x768.png",
+      "kind": "screen",
+      "note": "Repo page at 1024x768.",
+      "status": "ok"
+    },
+    {
+      "file": "windows/spotlight.png",
+      "kind": "screen",
+      "note": "Spotlight — the global quick-open panel, its own frameless window.",
+      "status": "ok"
+    },
+    {
+      "file": "windows/tray-popover.png",
+      "kind": "screen",
+      "note": "Menu-bar popover — the tray's own compact surface.",
+      "status": "ok"
+    },
+    {
+      "file": "screens/22-claude-usage.png",
+      "kind": "screen",
+      "note": "Claude — stat cards, the usage heatmap and the per-project table. Data invented.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/claude-heatmap.png",
+      "kind": "element",
+      "note": "The usage heatmap, captioned by week.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/claude-range.png",
+      "kind": "element",
+      "note": "The date-range control (7d / 30d / 90d / all).",
+      "status": "ok"
+    },
+    {
+      "file": "screens/23-repo-page-claude.png",
+      "kind": "screen",
+      "note": "Repo page, Claude tab — sessions, skills, agents and MCP servers for one repo.",
+      "status": "ok"
+    },
+    {
+      "file": "elements/claude-tab.png",
+      "kind": "element",
+      "note": "The Claude tab's own cards and tables.",
+      "status": "ok"
+    }
+  ]
+}
