@@ -520,6 +520,63 @@ jobs:
           # a failed cleanup here would be a red run for no reason.
           gh api -X DELETE "repos/$RELEASES_REPO/git/refs/tags/$TAG" >/dev/null 2>&1 || true
 
+  # The binaries go to the releases repo, which is correct and is not going to
+  # change — but it left this repository's Releases tab empty, and an empty tab
+  # reads as "there is no release, build it yourself". That is not a hypothetical:
+  # v0.3.1 had been published and verified for a day while this repo's Releases
+  # page said nothing at all.
+  #
+  # So every tag push also writes a release **here**, at the same tag, carrying no
+  # assets and pointing at the download. A separate job rather than a step, because
+  # it needs `contents: write` on this repository while the build job needs no write
+  # access anywhere — and because a failure here must not turn a published release
+  # red, so it stands on its own and can be re-run by itself.
+  #
+  # Only a tag push: a rehearsal's scratch version (`0.0.0`) has no download behind
+  # it, and a signpost pointing at nothing is worse than an empty tab.
+  source-release:
+    name: point this repo's Releases tab at the download
+    needs: release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      # The workflow's own token, scoped to this repository. Releases live in
+      # another one, which this token cannot touch and has no reason to.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No `pnpm install`: the script and the notes extractor it calls read the
+      # tree and the changelog with `node:fs`, and nothing else. A release job that
+      # needed a dependency install to write a six-line page would be a second
+      # thing that can fail after the release is already public.
+      - name: Create or update the signpost
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/source-release.mjs --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+
+      # ... and read it back, including the half that has to stay false. A DMG
+      # attached here would be a second copy of the release to keep in step with
+      # `latest-mac.yml`, and a page that *looks* like the download is how two
+      # feeds start disagreeing. It carries no assets, on purpose, and this is
+      # what says so.
+      - name: Read it back, and check it carries no assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,url,assets \
+            --jq '{tag: .tagName, draft: .isDraft, url: .url, assets: [.assets[].name]}'
+
+          ATTACHED="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          if [ "$ATTACHED" != "0" ]; then
+            echo "::error::the signpost release carries $ATTACHED asset(s). Binaries belong to $RELEASES_REPO, where the updater's manifest can be kept in step with them — see docs/RELEASING.md."
+            exit 1
+          fi
+
   # The cleanup above is the failure path: it only ever runs after a release has
   # already gone wrong, which means it can sit for months without being
   # exercised — and a cleanup that silently does nothing looks exactly like one

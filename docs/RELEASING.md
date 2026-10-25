@@ -8,6 +8,7 @@ How to cut a build you can install, and how updates reach you.
 
 ```bash
 pnpm release:next   # derive the next version + changelog from the commits (plan only)
+node scripts/source-release.mjs --tag v0.3.1  # point this repo's Releases tab at the download
 pnpm release:check  # guard: tag/version agree, and the changelog has notes
 pnpm release:verify # check a published release: all three assets, and coherent
 pnpm icons          # regenerate resources/icon.icns from the design tokens
@@ -96,7 +97,18 @@ installing*.
 6. **Verifies the published release** — `pnpm release:verify`, the same check in the state
    users actually see: `releases/latest` resolves, and the feed the updater reads is the
    thing being asserted on.
-7. **Deletes the draft again if the run failed.** A final step that runs only on a failure or
+7. **Points this repository's Releases tab at the download.** A second job, `source-release`,
+   writes a release at the same tag **in this repository** carrying no assets, whose body leads
+   with the link to the releases repo. It exists because artifacts living elsewhere left this
+   repo's Releases tab empty, which reads as "nothing has been released yet" and sends a person
+   looking for a build command; `v0.3.1` was published, verified and announced for a day in
+   exactly that state. The job runs only for a tag push (a rehearsal's `0.0.0` has no download
+   behind it), writes with the workflow's own `GITHUB_TOKEN` rather than `RELEASES_TOKEN`, and
+   fails if anything is ever attached to that release — a second copy of the DMG would have to
+   be kept in step with `latest-mac.yml` by hand. The body comes from
+   `scripts/source-release.mjs`, and the step that reads it back asserts the asset list is
+   empty.
+8. **Deletes the draft again if the run failed.** A final step that runs only on a failure or
    a cancel reads the release back and removes it *while it is still a draft*, so a run that
    died partway — the assets uploaded, the notes not attached — cannot leave an invisible
    release behind for someone to find later, or for the next run to silently reuse. It does
@@ -444,6 +456,26 @@ Two consequences worth knowing:
 
 The releases repo also gets the changelog section as its release notes, so write
 those expecting them to be public.
+
+**This repository's Releases tab carries a signpost, not the binaries.** The split
+above is right for the app and was wrong for a person browsing the source: an empty
+Releases tab reads as "there is no release, so I will build one". So every tag push
+also writes a release **here**, at the same tag, with no assets and a body that opens
+with the download link, says why the binaries are on the other page, and points out
+that the `Source code (zip)` / `(tar.gz)` rows GitHub appends to every release are
+the tree rather than an installer. `scripts/source-release.mjs` writes it — run it by
+hand for a version that shipped before the job existed, or to repair one:
+
+```bash
+GH_TOKEN=... RELEASES_REPO=ivy00johns/alltherepos-releases \
+  node scripts/source-release.mjs --tag v0.3.1 --repo ivy00johns/AllTheRepos
+node scripts/source-release.mjs --tag v0.3.1 --dry-run   # the body alone, printed
+```
+
+It creates the release when the tag has none and edits it when it does, so re-running
+after a failed job is safe. The changelog section it carries is extracted by
+`scripts/release-notes.mjs`, which means the signpost is also guarded by the same
+tag/version check the real release passes first.
 
 ### Verifying the check from a real build
 
