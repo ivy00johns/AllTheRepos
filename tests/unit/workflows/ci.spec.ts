@@ -204,6 +204,46 @@ describe("the drill that proves the refusal check can fail", () => {
   test("carries no credential either", () => {
     expect(drillCommands).not.toMatch(/secrets\.|TOKEN/);
   });
+
+  test("offers a rehearsal for each verdict that cannot be waited for", () => {
+    // Spent, moving and silent are machine states nobody can ask for, so the
+    // blocked verdicts were covered by unit tests and nothing else — and a unit
+    // test cannot see the annotation or the exit code the step turns red. The
+    // dispatch input is how those reach a runner.
+    expect(workflow).toMatch(/^  workflow_dispatch:\n    inputs:/m);
+    expect(workflow).toMatch(/^ {6}drill:$/m);
+
+    for (const state of ["spent", "moved", "unreadable", "available"]) {
+      expect(workflow).toContain(`          - ${state}`);
+    }
+    // ... and `real`, which is what an ordinary dispatch gets.
+    expect(workflow).toContain("          - real");
+    expect(workflow).toMatch(/^ {8}default: real$/m);
+  });
+
+  test("rehearses through the environment, and never interpolates the input into a shell", () => {
+    // The state is an input, and an input is text: quoted from the environment it
+    // can only ever reach the script as one argument, which rejects a name it
+    // does not know.
+    expect(drill).toContain("DRILL_REHEARSAL: ${{ inputs.drill }}");
+    expect(drillCommands).toContain('--rehearse "$DRILL_REHEARSAL"');
+    expect(drill).not.toContain("--rehearse ${{ inputs.drill }}");
+    expect(drill).toMatch(/if: inputs\.drill != 'real'/);
+  });
+
+  test("a rehearsal pays for no bundles, and the real drill pays for all of them", () => {
+    // A rehearsal stages the check's output instead of running it, so the two
+    // packages and the gate are exactly the cost it must not carry — and the real
+    // drill must not lose them.
+    for (const step of [
+      "run: pnpm electron:pack",
+      "run: pnpm electron:pack-older",
+      "name: The refusal check, against a mock that refuses nothing",
+      "name: Is there any anonymous allowance to conclude with?",
+    ]) {
+      expect(drill, step).toContain(`${step}\n        if: inputs.drill == 'real'`);
+    }
+  });
 });
 
 describe("the jobs that were already here", () => {

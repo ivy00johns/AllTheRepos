@@ -50,7 +50,25 @@ on:
   # the other jobs are running, and `gh workflow run ci.yml` is how a person
   # proves on a runner that the refusal check can still fail without waiting for
   # a push to do it for them.
+  #
+  # `drill` picks between proving that and rehearsing it. The drill's blocked
+  # verdicts need a machine that is spent, changing, or silent, and none of those
+  # can be waited for on a healthy runner — so `--rehearse` stages the readings
+  # and the check's output and prints the verdict the real code would print.
+  # See `scripts/drill-refused-update-check.mjs`, which says in its first line
+  # that it is staging, and proves nothing about the machine it ran on.
   workflow_dispatch:
+    inputs:
+      drill:
+        description: real proves the check on this runner; spent, moved, unreadable and available rehearse a verdict with the readings staged
+        type: choice
+        default: real
+        options:
+          - real
+          - spent
+          - moved
+          - unreadable
+          - available
 
 permissions:
   contents: read
@@ -441,10 +459,24 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The rehearsal needs none of the below: it stages the check's output rather
+      # than running it, so a dispatch that asks for one pays for the install and
+      # nothing else.
       - name: Is there any anonymous allowance to conclude with?
+        if: inputs.drill == 'real'
         run: node scripts/drill-refused-update-check.mjs --allowance-only
       # The drilled command is the real one, so it needs what the real one needs.
       - run: pnpm electron:pack
+        if: inputs.drill == 'real'
       - run: pnpm electron:pack-older
+        if: inputs.drill == 'real'
       - name: The refusal check, against a mock that refuses nothing
+        if: inputs.drill == 'real'
         run: node scripts/drill-refused-update-check.mjs
+      # The state arrives through the environment rather than interpolated into
+      # the shell, and the script rejects anything that is not a state it knows.
+      - name: A blocked verdict, with the readings and the output staged
+        if: inputs.drill != 'real'
+        env:
+          DRILL_REHEARSAL: ${{ inputs.drill }}
+        run: node scripts/drill-refused-update-check.mjs --rehearse "$DRILL_REHEARSAL"

@@ -56,10 +56,27 @@
  * of the three proves anything either way, and none of them implicates the
  * check — which is the whole point of separate exit codes.
  *
+ * ## Rehearsing the verdicts that cannot be waited for
+ *
+ * Every branch above needs a machine in a particular state, and the ones that
+ * matter most — spent, changing, silent — are the states nobody can ask for. That
+ * left them covered by unit tests and by nothing else, and a unit test cannot see
+ * what reaches the run page: the `::error::` annotation, the exit code the step
+ * turns red, or the sentence printed beside it.
+ *
+ * `--rehearse spent|moved|unreadable|available` stages one of those states: the
+ * readings are what that machine would have reported, and the check's output is
+ * the ambiguous shape it would have printed. Everything from `assessDrill` down
+ * is the code CI runs, so the annotation and the exit code are the real ones. The
+ * first line says REHEARSAL, and the readings are labelled `staged` in the log,
+ * because a run that measured nothing must not read as a run that measured this
+ * machine.
+ *
  * Usage:
  *   pnpm electron:pack && pnpm electron:pack-older   # the drilled command needs them
  *   node scripts/drill-refused-update-check.mjs
  *   node scripts/drill-refused-update-check.mjs --allowance-only   # the gate alone
+ *   node scripts/drill-refused-update-check.mjs --rehearse moved   # one verdict, staged
  *
  * `--allowance-only` asks the one question and exits: `0` when there is allowance
  * to conclude with, `3` when there is not. `ci.yml` runs it as the first step of
@@ -372,7 +389,16 @@ export async function run({
   error = console.error,
   checkAllowance = githubAllowance,
   spawn = spawnCapturing,
+  // True for {@link rehearse}: the readings and the check's output are staged, so
+  // the ordinary lines below say so rather than claiming to have measured a
+  // machine. The verdict is printed by the same code either way — the annotation
+  // and the exit code are the part a rehearsal exists to exercise.
+  staged = false,
 } = {}) {
+  const measured = staged
+    ? "[refusal-drill] staged allowance"
+    : "[refusal-drill] this machine's allowance";
+
   // Asked before anything is built. An address with nothing left cannot
   // conclude anything, and learning that after two packages and a suite spends
   // the most expensive runner this repository owns to prove a rate limit.
@@ -384,11 +410,13 @@ export async function run({
     return 3;
   }
   if (before != null) {
-    log(`[refusal-drill] this machine's allowance: ${describeAllowance(before)}`);
+    log(`${measured}: ${describeAllowance(before)}`);
   }
 
   log(
-    `[refusal-drill] running ${COMMAND} with ${refuseGithub.SWITCH}=${refuseGithub.OFF} — GitHub is expected to answer normally, and the check is expected to fail for it`,
+    staged
+      ? `[refusal-drill] not running ${COMMAND} — the check's output is staged for this rehearsal, so the verdict below is the one a run would give, and says nothing about this machine`
+      : `[refusal-drill] running ${COMMAND} with ${refuseGithub.SWITCH}=${refuseGithub.OFF} — GitHub is expected to answer normally, and the check is expected to fail for it`,
   );
 
   const { status, output } = await spawn("pnpm", [COMMAND], {
@@ -412,8 +440,8 @@ export async function run({
 
   log(
     after == null
-      ? "[refusal-drill] this machine's allowance after the run could not be read — if the result is ambiguous, the verdict says what that leaves unresolved"
-      : `[refusal-drill] this machine's allowance after the run: ${describeAllowance(after)}` +
+      ? `${measured} after the run could not be read — if the result is ambiguous, the verdict says what that leaves unresolved`
+      : `${measured} after the run: ${describeAllowance(after)}` +
           (evidence.kind === "moved"
             ? " — a different window from the one before it, so the egress address changed while the drill ran"
             : ""),
@@ -487,6 +515,124 @@ export async function probeAllowance({
   return 0;
 }
 
+/** The flag that stages a verdict instead of measuring the machine. */
+export const REHEARSE = "--rehearse";
+
+/**
+ * The states a rehearsal can put the drill in, one per verdict that cannot be
+ * waited for.
+ *
+ * They are named after what the machine would have to be doing — spent, moving,
+ * silent, or healthy — rather than after the exit code, because the reader of a
+ * red run needs to know which world it was in. `available` is here because the
+ * FAILED verdict needs exercising too: it is the one that names the check, and a
+ * sentence nobody has ever seen printed is a sentence nobody has proofread.
+ */
+export const REHEARSAL_STATES = ["spent", "moved", "unreadable", "available"];
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * The readings a state pretends to have taken, or `null` for an unknown state.
+ *
+ * `spent` is spent *before* the check would run, so it exercises the gate's early
+ * stop and needs no bundles. The other three are pairs that only decide anything
+ * afterwards, so they exercise the post-run verdict — which is the half that had
+ * no way of being reached on a healthy runner at all.
+ *
+ * The windows are derived from the clock rather than fixed, because a reset in
+ * the past reads as nonsense in a log even when the reading is staged.
+ */
+export function rehearsalReadings(state, now = Date.now()) {
+  const nextWindow = (Math.floor(now / HOUR_MS) + 1) * HOUR_MS;
+  const reading = (remaining, resetAt) => ({
+    remaining,
+    limit: 60,
+    resetAt: new Date(resetAt),
+  });
+
+  switch (state) {
+    case "spent":
+      // Nothing left at either end: the gate stops before anything is built.
+      return [reading(0, nextWindow), reading(0, nextWindow)];
+    case "moved":
+      // Two windows, both with allowance left — the shape the runner actually
+      // produced, and the one that cannot be attributed to either address.
+      return [reading(59, nextWindow), reading(60, nextWindow + HOUR_MS)];
+    case "unreadable":
+      return [null, null];
+    case "available":
+      // One window, allowance at both ends: the only state that names the check.
+      return [reading(42, nextWindow), reading(42, nextWindow)];
+    default:
+      return null;
+  }
+}
+
+/**
+ * The output the check prints when the mock refused nothing.
+ *
+ * Built from the real marker and the real reason, like the unit tests do: a
+ * fixture spelled here could drift from the strings the check emits and quietly
+ * stage a state that never happens.
+ */
+function ambiguousOutput() {
+  return [
+    refuseGithub.MARKER,
+    `  ✗ ${REASONS.nothingRefused} — the requests never reached the mock`,
+  ].join("\n");
+}
+
+/**
+ * Stage one of the blocked verdicts, end to end, on whatever machine this is.
+ *
+ * The verdicts that matter cannot be waited for: one needs an address with
+ * nothing left, one an address that changes mid-run, one an endpoint that stops
+ * answering. Waiting for them is how the blocked branches came to be covered by
+ * unit tests and by nothing else — and the things a unit test cannot check are
+ * the ones that reach the run page: the `::error::` annotation, the exit code the
+ * step turns into a red job, and the sentence next to it.
+ *
+ * So this replaces the two things the drill cannot arrange — the readings, and a
+ * check whose output is the ambiguous shape — and keeps everything from
+ * `assessDrill` down, which is the code that decides. The run says in its first
+ * line that it is a rehearsal and proves nothing about this machine; what it does
+ * prove is that the rest of the line arrives as intended.
+ *
+ * @returns {Promise<number>} the exit code this state really produces.
+ */
+export async function rehearse(
+  state,
+  { log = console.log, error = console.error } = {},
+) {
+  const readings = rehearsalReadings(state);
+  if (readings == null) {
+    error(
+      `[refusal-drill] there is no "${state}" rehearsal — the states are ${REHEARSAL_STATES.join(", ")}`,
+    );
+    return 2;
+  }
+
+  const [before, after] = readings;
+  let asked = 0;
+
+  log(
+    `::notice::[refusal-drill] REHEARSAL (${state}) — the allowance readings and the ` +
+      `check's output are staged, so this exercises the verdict, its annotation and ` +
+      `its exit code, and proves nothing about this machine.`,
+  );
+
+  return run({
+    staged: true,
+    // The first ask is the gate, the second is the reading that decides the
+    // verdict; a rehearsal has one of each to give.
+    checkAllowance: async () => (asked++ === 0 ? before : after),
+    spawn: async () => ({ status: 1, output: ambiguousOutput() }),
+    log,
+    error,
+  });
+}
+
 /**
  * True when this file is the program Node was asked to run.
  *
@@ -506,8 +652,26 @@ function isMainModule() {
   }
 }
 
+/**
+ * The rehearsal named on the command line: a state, `""` when the flag carries
+ * none, or `null` when the flag was not given at all.
+ *
+ * A missing value is not the same as an absent flag — one is a rehearsal nobody
+ * named, which is an error worth saying out loud, and the other is an ordinary
+ * run.
+ */
+export function rehearsalFrom(argv) {
+  const at = argv.indexOf(REHEARSE);
+  if (at === -1) return null;
+  const value = argv[at + 1];
+  return value == null || value.startsWith("--") ? "" : value;
+}
+
 if (isMainModule()) {
-  const main = process.argv.includes(ALLOWANCE_ONLY) ? probeAllowance : run;
+  const rehearsal = rehearsalFrom(process.argv);
+  let main = run;
+  if (rehearsal != null) main = () => rehearse(rehearsal);
+  else if (process.argv.includes(ALLOWANCE_ONLY)) main = probeAllowance;
 
   main()
     .then((code) => process.exit(code))

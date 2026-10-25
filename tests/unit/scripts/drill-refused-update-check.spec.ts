@@ -51,6 +51,17 @@ interface Drill {
   ALLOWANCE_ONLY: string;
   COMMAND: string;
   RATE_LIMIT_URL: string;
+  REHEARSE: string;
+  REHEARSAL_STATES: string[];
+  rehearsalReadings(state: string, now?: number): Array<Allowance | null> | null;
+  rehearsalFrom(argv: string[]): string | null;
+  rehearse(
+    state: string,
+    input?: {
+      log?: (line: string) => void;
+      error?: (line: string) => void;
+    },
+  ): Promise<number>;
   probeAllowance(input?: {
     checkAllowance?: () => Promise<Allowance | null>;
     log?: (line: string) => void;
@@ -542,6 +553,105 @@ describe("what a blocked drill does", () => {
     const said = lines.join("\n");
     expect(said).toContain("BLOCKED");
     expect(said).not.toContain("FAILED");
+  });
+});
+
+describe("the rehearsal that stages a verdict", () => {
+  /** Run one state, keeping both streams. */
+  async function say(state: string) {
+    const lines: string[] = [];
+    const errors: string[] = [];
+    const status = await drill.rehearse(state, {
+      log: (line) => lines.push(line),
+      error: (line) => errors.push(line),
+    });
+    return { status, lines, errors };
+  }
+
+  test("spent stops at the gate, with the sentence a spent machine produces", async () => {
+    // The half that matters is the annotation: a real spent runner stops here,
+    // before two bundles are built, and this is the text the run page gets.
+    const { status, errors } = await say("spent");
+    const said = errors.join("\n");
+
+    expect(status).toBe(3);
+    expect(said).toContain("BLOCKED");
+    expect(said).toContain("allowance is spent");
+    expect(said).toContain("was not implicated");
+    expect(said).toContain("Nothing was run");
+  });
+
+  test("moved reaches the verdict that cannot attribute the reading", async () => {
+    const { status, errors } = await say("moved");
+
+    expect(status).toBe(3);
+    expect(errors.join("\n")).toContain("egress address changed");
+    // The one sentence this whole path exists to avoid printing.
+    expect(errors.join("\n")).not.toContain("the check's own failure path");
+  });
+
+  test("unreadable reaches the blocked verdict for a silent endpoint", async () => {
+    const { status, errors } = await say("unreadable");
+
+    expect(status).toBe(3);
+    expect(errors.join("\n")).toContain("could not be read at both ends");
+    expect(errors.join("\n")).toContain("was not implicated");
+  });
+
+  test("available reaches the verdict that names the check, which exits 1", async () => {
+    // The only rehearsal that is a failure rather than a blockage — and the only
+    // one where blaming the check is the right answer.
+    const { status, errors } = await say("available");
+
+    expect(status).toBe(1);
+    expect(errors.join("\n")).toContain("allowance was available");
+    expect(errors.join("\n")).toContain("needs reading");
+    expect(errors.join("\n")).not.toContain("BLOCKED");
+  });
+
+  test("says it is a rehearsal first, and never claims to have measured anything", async () => {
+    // A red job that staged its evidence has to be distinguishable from one that
+    // found a spent address, or the rehearsal becomes a way of misreporting the
+    // machine.
+    const { lines } = await say("moved");
+    const said = lines.join("\n");
+
+    expect(lines[0]).toContain("REHEARSAL");
+    expect(lines[0]).toContain("proves nothing about this machine");
+    expect(said).toContain("staged allowance");
+    expect(said).toContain("not running");
+    expect(said).not.toContain("this machine's allowance");
+  });
+
+  test("refuses a state it does not know, and names the ones it does", async () => {
+    const { status, errors } = await say("spentish");
+
+    expect(status).toBe(2);
+    for (const state of drill.REHEARSAL_STATES) {
+      expect(errors.join("\n")).toContain(state);
+    }
+  });
+
+  test("every state has readings, and only the healthy one is not blocked", () => {
+    const kinds = drill.REHEARSAL_STATES.map((state) => {
+      const readings = drill.rehearsalReadings(state);
+      expect(readings, state).not.toBeNull();
+      return readings![0]?.remaining ?? null;
+    });
+
+    // A spent state has to be spent at the gate, or it would not exercise the
+    // stop before the packaging; the rest have allowance at the first read.
+    expect(kinds[0]).toBe(0);
+    expect(kinds.slice(1).every((remaining) => remaining !== 0)).toBe(true);
+  });
+
+  test("the flag is read from the command line, including when it has no value", () => {
+    // A missing state is an operator mistake worth naming; treating it as "no
+    // rehearsal" would silently run the real drill instead.
+    expect(drill.rehearsalFrom(["node", "drill"])).toBeNull();
+    expect(drill.rehearsalFrom(["node", "drill", "--rehearse", "moved"])).toBe("moved");
+    expect(drill.rehearsalFrom(["node", "drill", "--rehearse"])).toBe("");
+    expect(drill.rehearsalFrom(["node", "drill", "--rehearse", "--allowance-only"])).toBe("");
   });
 });
 
