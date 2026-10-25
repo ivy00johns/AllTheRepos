@@ -52,6 +52,23 @@ function jobBlock(name: string): string {
   return block.join("\n");
 }
 
+/** A top-level section, `key:` through the next column-0 key. */
+function section(name: string): string {
+  const start = lines.findIndex((line) => line.startsWith(`${name}:`));
+  expect(start, `ci.yml has no top-level "${name}:"`).toBeGreaterThan(-1);
+
+  const block = [lines[start]];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim().length === 0) {
+      block.push(line);
+      continue;
+    }
+    if (!/^\s/.test(line)) break;
+    block.push(line);
+  }
+  return block.join("\n");
+}
+
 /** Prose stripped, for assertions about what a job *does*. */
 function commands(text: string): string {
   return text
@@ -163,8 +180,69 @@ describe("the drill that proves the refusal check can fail", () => {
     expect(drillCommands).toContain("pnpm electron:pack-older");
   });
 
+  test("asks the allowance before it pays for the packaging", () => {
+    // The drill cannot conclude anything on a runner whose shared address has
+    // spent its hour of GitHub reads — with the mock neutered, a real refusal and
+    // a mock that stopped refusing are the same output. Asking first costs
+    // seconds; finding out after two bundles costs the most expensive runner this
+    // repository uses, to report a rate limit.
+    const gate = drillCommands.indexOf(
+      "node scripts/drill-refused-update-check.mjs --allowance-only",
+    );
+    const pack = drillCommands.indexOf("pnpm electron:pack");
+    // The second mention, since the gate's command is a prefix of the drill's.
+    const drilled = drillCommands.indexOf(
+      "node scripts/drill-refused-update-check.mjs",
+      gate + 1,
+    );
+
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(pack);
+    expect(pack).toBeLessThan(drilled);
+  });
+
   test("carries no credential either", () => {
     expect(drillCommands).not.toMatch(/secrets\.|TOKEN/);
+  });
+
+  test("offers a rehearsal for each verdict that cannot be waited for", () => {
+    // Spent, moving and silent are machine states nobody can ask for, so the
+    // blocked verdicts were covered by unit tests and nothing else — and a unit
+    // test cannot see the annotation or the exit code the step turns red. The
+    // dispatch input is how those reach a runner.
+    expect(workflow).toMatch(/^  workflow_dispatch:\n    inputs:/m);
+    expect(workflow).toMatch(/^ {6}drill:$/m);
+
+    for (const state of ["spent", "moved", "unreadable", "available"]) {
+      expect(workflow).toContain(`          - ${state}`);
+    }
+    // ... and `real`, which is what an ordinary dispatch gets.
+    expect(workflow).toContain("          - real");
+    expect(workflow).toMatch(/^ {8}default: real$/m);
+  });
+
+  test("rehearses through the environment, and never interpolates the input into a shell", () => {
+    // The state is an input, and an input is text: quoted from the environment it
+    // can only ever reach the script as one argument, which rejects a name it
+    // does not know.
+    expect(drill).toContain("DRILL_REHEARSAL: ${{ inputs.drill }}");
+    expect(drillCommands).toContain('--rehearse "$DRILL_REHEARSAL"');
+    expect(drill).not.toContain("--rehearse ${{ inputs.drill }}");
+    expect(drill).toMatch(/if: inputs\.drill != 'real'/);
+  });
+
+  test("a rehearsal pays for no bundles, and the real drill pays for all of them", () => {
+    // A rehearsal stages the check's output instead of running it, so the two
+    // packages and the gate are exactly the cost it must not carry — and the real
+    // drill must not lose them.
+    for (const step of [
+      "run: pnpm electron:pack",
+      "run: pnpm electron:pack-older",
+      "name: The refusal check, against a mock that refuses nothing",
+      "name: Is there any anonymous allowance to conclude with?",
+    ]) {
+      expect(drill, step).toContain(`${step}\n        if: inputs.drill == 'real'`);
+    }
   });
 });
 
@@ -324,6 +402,47 @@ describe("the one leg the Electron suite runs on", () => {
     expect(e2eCommands.indexOf("Prove this")).toBeLessThan(
       e2eCommands.indexOf("pnpm test:electron-e2e"),
     );
+  });
+});
+
+/**
+ * Which run a new one replaces, which is a question with a failure mode that
+ * looks nothing like a workflow problem.
+ *
+ * `github.ref` is `refs/heads/<branch>` for a push to that branch and for a
+ * dispatch against it, so keying the group on the ref alone puts the two in one
+ * group — and `gh workflow run ci.yml` then cancelled the push run it arrived
+ * alongside. A cancelled run does not go away: its check runs stay attached to
+ * the head commit as `CANCELLED`, and the merge box counts them against the
+ * required checks. The pull request reads `BLOCKED` while all three required
+ * checks are green on a newer run, re-running does not clear it (the cancelled
+ * attempt is still on the commit), and the way out is re-cutting the commit to a
+ * SHA with a clean slate.
+ *
+ * That is one incident, and it is why the event name is part of the key and why
+ * a dispatch is the one event that never cancels. Both halves matter: the key
+ * alone stops the dispatch taking the push's checks, and the policy alone would
+ * still leave two dispatches cancelling each other onto the same commit.
+ */
+describe("the concurrency group", () => {
+  const concurrency = section("concurrency");
+  const group = /^\s+group: (.+)$/m.exec(concurrency)?.[1]?.trim();
+  const cancel = /^\s+cancel-in-progress: (.+)$/m.exec(concurrency)?.[1]?.trim();
+
+  test("keys on the event, so a push and a dispatch on one branch are two groups", () => {
+    expect(group).toBeDefined();
+    expect(group).toContain("github.event_name");
+    // The ref still has to be in it: one branch's run must not replace another's.
+    expect(group).toContain("github.ref");
+  });
+
+  test("supersedes an older run of the same event, and never a dispatch", () => {
+    // A push brings a new commit, so the run it cancels was checking a SHA
+    // nothing merges any more — that is where the saving is and it costs the
+    // merge box nothing. A dispatch is a person asking about the commit that is
+    // here now, so a second one waits its turn rather than leaving `CANCELLED`
+    // checks on the commit the answer was wanted about.
+    expect(cancel).toBe("${{ github.event_name != 'workflow_dispatch' }}");
   });
 });
 

@@ -50,14 +50,52 @@ on:
   # the other jobs are running, and `gh workflow run ci.yml` is how a person
   # proves on a runner that the refusal check can still fail without waiting for
   # a push to do it for them.
+  #
+  # `drill` picks between proving that and rehearsing it. The drill's blocked
+  # verdicts need a machine that is spent, changing, or silent, and none of those
+  # can be waited for on a healthy runner — so `--rehearse` stages the readings
+  # and the check's output and prints the verdict the real code would print.
+  # See `scripts/drill-refused-update-check.mjs`, which says in its first line
+  # that it is staging, and proves nothing about the machine it ran on.
   workflow_dispatch:
+    inputs:
+      drill:
+        description: real proves the check on this runner; spent, moved, unreadable and available rehearse a verdict with the readings staged
+        type: choice
+        default: real
+        options:
+          - real
+          - spent
+          - moved
+          - unreadable
+          - available
 
 permissions:
   contents: read
 
+# One group per ref and event, so a new run supersedes the one it replaces — the
+# older run's answers are about a tree nobody has any more, and cancelling it is
+# where the saving is.
+#
+# The event name is part of the key, and that is not tidiness. A push and a `gh
+# workflow run` against the same branch both key on `refs/heads/<branch>`, so in
+# one group the dispatch cancelled the push run it arrived alongside — and a
+# cancelled run does not disappear: its check runs stay on the head commit as
+# `CANCELLED`, and the merge box counts them against the required ones. The pull
+# request then reads `BLOCKED` with all three required checks passing on a newer
+# run, and no re-run clears it, because the cancelled attempt is still there;
+# the only way out is re-cutting the commit to a SHA with a clean slate. Two
+# events, two groups: neither can take the other's checks away.
+#
+# Cancellation stays on for everything except the dispatch, which is why it is an
+# expression rather than `true`. A push brings a new commit, so the run it
+# supersedes was checking a SHA nothing merges any more; a dispatch is a person
+# asking for an answer about the commit that is here now, and a second one
+# waiting its turn is cheaper than a first one cancelled into `CANCELLED` checks
+# on the very commit the answer was wanted about.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # Typecheck and the unit suite are host-ABI work: one install, no native
@@ -399,6 +437,16 @@ jobs:
   # above's, because a job gets a fresh runner: the alternative is uploading two
   # hundred megabytes of .app between jobs to save a minute of a run a person
   # asked for by hand.
+  #
+  # The first step asks GitHub how much anonymous allowance this runner has, and
+  # that is not a formality: with the mock neutered the app's own read goes to the
+  # real GitHub, so on a runner whose shared address has spent its hour of reads
+  # the two outcomes are byte-identical and the run cannot conclude anything. A
+  # spent allowance exits 3 and says `BLOCKED — … the refusal check was not
+  # implicated`, which is a different sentence from `FAILED — … the refusal
+  # check's failure path` and is readable on the run page without opening the log.
+  # It is asked before the packaging because a run that cannot conclude should not
+  # spend fifteen minutes building two bundles to say so.
   drill:
     name: prove the refusal check can fail
     if: github.event_name == 'workflow_dispatch'
@@ -411,8 +459,24 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The rehearsal needs none of the below: it stages the check's output rather
+      # than running it, so a dispatch that asks for one pays for the install and
+      # nothing else.
+      - name: Is there any anonymous allowance to conclude with?
+        if: inputs.drill == 'real'
+        run: node scripts/drill-refused-update-check.mjs --allowance-only
       # The drilled command is the real one, so it needs what the real one needs.
       - run: pnpm electron:pack
+        if: inputs.drill == 'real'
       - run: pnpm electron:pack-older
+        if: inputs.drill == 'real'
       - name: The refusal check, against a mock that refuses nothing
+        if: inputs.drill == 'real'
         run: node scripts/drill-refused-update-check.mjs
+      # The state arrives through the environment rather than interpolated into
+      # the shell, and the script rejects anything that is not a state it knows.
+      - name: A blocked verdict, with the readings and the output staged
+        if: inputs.drill != 'real'
+        env:
+          DRILL_REHEARSAL: ${{ inputs.drill }}
+        run: node scripts/drill-refused-update-check.mjs --rehearse "$DRILL_REHEARSAL"

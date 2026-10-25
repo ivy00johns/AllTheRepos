@@ -140,6 +140,18 @@ function refusal() {
 const INSTALLED = Symbol.for("alltherepos.refuseGithub");
 
 /**
+ * Where the wrapped `fetch` keeps the one it wrapped.
+ *
+ * A process that loads this file answers GitHub with this file's 403, which is
+ * right for the spec and wrong for the one caller that has to ask GitHub a
+ * question of its own: `scripts/drill-refused-update-check.mjs` reads the
+ * machine's remaining allowance from `/rate_limit`, and through the wrapper it
+ * would be told that GitHub refused a question it never asked. See
+ * {@link underneath}.
+ */
+const PASSTHROUGH = Symbol.for("alltherepos.refuseGithub.passthrough");
+
+/**
  * Wrap `target.fetch` so GitHub reads are refused and everything else is not.
  *
  * `target` is a parameter so the tests can install it on a stand-in and check
@@ -166,6 +178,7 @@ function install(
   };
 
   refusing[INSTALLED] = true;
+  refusing[PASSTHROUGH] = passthrough;
   target.fetch = refusing;
   // stderr — see the header. This is the one line that has to survive into the
   // runner's capture, and it is on the stream nothing parses.
@@ -173,9 +186,20 @@ function install(
   return refusing;
 }
 
+/**
+ * The `fetch` this file wrapped, or the one in place if it wrapped nothing.
+ *
+ * The drill asks this machine's allowance through it, so an installed mock does
+ * not answer a question about GitHub with the refusal it is here to serve.
+ */
+function underneath(target = globalThis) {
+  return target.fetch?.[PASSTHROUGH] ?? target.fetch;
+}
+
 module.exports = {
   GITHUB_HOST,
   INSTALLED,
+  PASSTHROUGH,
   MARKER,
   OFF,
   REFUSAL_BODY,
@@ -186,6 +210,7 @@ module.exports = {
   isGithubRead,
   readUrl,
   refusal,
+  underneath,
 };
 
 // Installed on load: that is the whole job of the file `--require` names, and it
