@@ -126,7 +126,7 @@ export default defineConfig({
     // retry-and-loading and viewport-fit, and the graph pass added
     // window-route-restore. Every name here has a spec beside it, and each one
     // has its paragraph above.
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup|groups-flow|catalog-refresh|settings-scan-paths|harness-teardown)\.spec\.ts$/,
+    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup|groups-flow|catalog-refresh|settings-scan-paths|harness-teardown|favorite-toggle)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
