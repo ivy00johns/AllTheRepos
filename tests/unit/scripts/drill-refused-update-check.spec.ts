@@ -35,14 +35,47 @@ const MOCK = path.join(ROOT, "scripts", "refuse-github.cjs");
 const read = (relative: string) =>
   fs.readFileSync(path.join(ROOT, relative), "utf8");
 
+interface Allowance {
+  remaining: number;
+  limit: number;
+  resetAt: Date;
+}
+
 interface Assessment {
   failures: string[];
   notes: string[];
+  blocked: string | null;
 }
 
 interface Drill {
+  ALLOWANCE_ONLY: string;
   COMMAND: string;
-  assessDrill(input?: { status?: number | null; output?: string }): Assessment;
+  RATE_LIMIT_URL: string;
+  probeAllowance(input?: {
+    checkAllowance?: () => Promise<Allowance | null>;
+    log?: (line: string) => void;
+    error?: (line: string) => void;
+  }): Promise<number>;
+  assessDrill(input?: {
+    status?: number | null;
+    output?: string;
+    allowance?: Allowance | null;
+  }): Assessment;
+  githubAllowance(input?: {
+    fetchImpl?: typeof globalThis.fetch;
+  }): Promise<Allowance | null>;
+  run(input?: {
+    root?: string;
+    env?: NodeJS.ProcessEnv;
+    log?: (line: string) => void;
+    error?: (line: string) => void;
+    checkAllowance?: () => Promise<Allowance | null>;
+    spawn?: (
+      cmd: string,
+      args: string[],
+      options: { cwd?: string; env?: NodeJS.ProcessEnv },
+    ) => Promise<{ status: number | null; output: string }>;
+  }): Promise<number>;
 }
 
 interface Runner {
@@ -55,6 +88,11 @@ interface MockModule {
   MARKER: string;
   OFF: string;
   SWITCH: string;
+  install(
+    target?: { fetch?: typeof globalThis.fetch },
+    options?: { refuse?: boolean },
+  ): typeof globalThis.fetch;
+  underneath(target?: { fetch?: typeof globalThis.fetch }): typeof globalThis.fetch;
 }
 
 let drill: Drill;
@@ -169,6 +207,241 @@ describe("anything else the drill could be fooled by", () => {
     const { failures } = drill.assessDrill({ status: 0, output: "" });
 
     expect(failures.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("the runner's allowance, which decides who is at fault", () => {
+  /** The output that cannot be told apart: the mock was neutered and nothing ran. */
+  function ambiguousOutput(): string {
+    return [
+      mock.MARKER,
+      `  ✗ ${runner.REASONS.nothingRefused} — the requests never reached the mock`,
+    ].join("\n");
+  }
+
+  const spent = {
+    remaining: 0,
+    limit: 60,
+    resetAt: new Date("2026-10-24T23:12:00Z"),
+  };
+  const available = {
+    remaining: 42,
+    limit: 60,
+    resetAt: new Date("2026-10-24T23:12:00Z"),
+  };
+
+  test("a spent allowance turns the verdict into BLOCKED, not a broken check", () => {
+    // This is the run that used to report the same failure as a check that
+    // stopped guarding. It cannot prove anything, and it must say which.
+    const { failures, blocked } = drill.assessDrill({
+      status: 1,
+      output: ambiguousOutput(),
+      allowance: spent,
+    });
+
+    expect(failures).toEqual([]);
+    expect(blocked).toContain("allowance is spent");
+    expect(blocked).toContain("was not implicated");
+    expect(blocked).toContain("Dispatch again after the reset");
+  });
+
+  test("an allowance that was available sends the reader to the check instead", () => {
+    const { failures, blocked } = drill.assessDrill({
+      status: 1,
+      output: ambiguousOutput(),
+      allowance: available,
+    });
+
+    expect(blocked).toBeNull();
+    expect(failures.join("\n")).toContain("allowance was available");
+    expect(failures.join("\n")).toContain("needs reading");
+  });
+
+  test("a spent allowance does not excuse a second problem", () => {
+    // A run that also passed the thing it exists to fail is a broken drill no
+    // matter how tired the address is.
+    const { failures, blocked } = drill.assessDrill({
+      status: 0,
+      output: ambiguousOutput(),
+      allowance: spent,
+    });
+
+    expect(blocked).toBeNull();
+    expect(failures.join("\n")).toContain("PASSED");
+  });
+
+  test("an unreadable allowance keeps the ambiguity rather than guessing", () => {
+    const { failures, blocked } = drill.assessDrill({
+      status: 1,
+      output: ambiguousOutput(),
+      allowance: null,
+    });
+
+    expect(blocked).toBeNull();
+    expect(failures.join("\n")).toContain("could not be read");
+  });
+
+  test("asks GitHub at the endpoint that does not spend what it reports", async () => {
+    const asked: string[] = [];
+    const reset = Math.floor(Date.parse("2026-10-24T23:12:00Z") / 1000);
+    const allowance = await drill.githubAllowance({
+      fetchImpl: (async (url: string) => {
+        asked.push(String(url));
+        return new Response(
+          JSON.stringify({
+            resources: { core: { remaining: 7, limit: 60, reset } },
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    });
+
+    expect(asked).toEqual([drill.RATE_LIMIT_URL]);
+    expect(drill.RATE_LIMIT_URL).toBe("https://api.github.com/rate_limit");
+    expect(allowance?.remaining).toBe(7);
+    expect(allowance?.limit).toBe(60);
+    expect(allowance?.resetAt.toISOString()).toBe("2026-10-24T23:12:00.000Z");
+  });
+
+  test("asks through the mock rather than being answered by it", () => {
+    // Importing the mock installs it in this process too, so the obvious
+    // `globalThis.fetch` here is the thing that answers GitHub with a 403. The
+    // allowance question has to reach the fetch underneath it, or a healthy
+    // runner would report its allowance as unreadable — the one answer this
+    // whole distinction exists to avoid guessing at.
+    expect(mock.underneath()).not.toBe(globalThis.fetch);
+
+    const real = (async () => new Response("{}")) as unknown as typeof globalThis.fetch;
+    const stand = { fetch: real };
+    mock.install(stand, { refuse: true });
+
+    expect(stand.fetch).not.toBe(real);
+    expect(mock.underneath(stand)).toBe(real);
+  });
+
+  test("answers null rather than a number when it cannot ask", async () => {
+    // An unknown allowance must not read as either answer: a guess here would
+    // either excuse a broken check or blame a working one.
+    const answers: Array<() => Promise<Response>> = [
+      async () => new Response("nope", { status: 500 }),
+      async () => new Response(JSON.stringify({ resources: {} }), { status: 200 }),
+      async () => {
+        throw new Error("offline");
+      },
+    ];
+
+    for (const answer of answers) {
+      const allowance = await drill.githubAllowance({
+        fetchImpl: answer as unknown as typeof globalThis.fetch,
+      });
+      expect(allowance).toBeNull();
+    }
+  });
+});
+
+describe("the gate that runs before anything is built", () => {
+  test("passes when there is allowance to conclude with", async () => {
+    const lines: string[] = [];
+    const status = await drill.probeAllowance({
+      checkAllowance: async () => ({
+        remaining: 42,
+        limit: 60,
+        resetAt: new Date("2026-10-24T23:12:00Z"),
+      }),
+      log: (line) => lines.push(line),
+      error: () => {},
+    });
+
+    expect(status).toBe(0);
+    expect(lines.join("\n")).toContain("42 of 60");
+  });
+
+  test("stops with BLOCKED, not with a failure, when the allowance is spent", async () => {
+    const lines: string[] = [];
+    const status = await drill.probeAllowance({
+      checkAllowance: async () => ({
+        remaining: 0,
+        limit: 60,
+        resetAt: new Date("2026-10-24T23:12:00Z"),
+      }),
+      log: () => {},
+      error: (line) => lines.push(line),
+    });
+
+    expect(status).toBe(3);
+    const said = lines.join("\n");
+    expect(said).toContain("BLOCKED");
+    expect(said).toContain("not implicated");
+    expect(said).toContain("were not built");
+    expect(said).not.toContain("FAILED");
+  });
+
+  test("does not block on a question it could not ask", async () => {
+    // Offline is not evidence of a spent allowance. The run goes ahead because
+    // it may still be informative, and says afterwards what it could not tell.
+    const lines: string[] = [];
+    const status = await drill.probeAllowance({
+      checkAllowance: async () => null,
+      log: (line) => lines.push(line),
+      error: () => {},
+    });
+
+    expect(status).toBe(0);
+    expect(lines.join("\n")).toContain("could not be read");
+  });
+});
+
+describe("what a blocked drill does", () => {
+  test("stops before it builds anything, and says so", async () => {
+    // Two packages and a suite are minutes of the most expensive runner here.
+    // Finding out the address is spent afterwards is paying for a rate limit.
+    let spawned = false;
+    const lines: string[] = [];
+
+    const status = await drill.run({
+      checkAllowance: async () => ({
+        remaining: 0,
+        limit: 60,
+        resetAt: new Date("2026-10-24T23:12:00Z"),
+      }),
+      spawn: async () => {
+        spawned = true;
+        return { status: 1, output: "" };
+      },
+      log: () => {},
+      error: (line) => lines.push(line),
+    });
+
+    expect(status).toBe(3);
+    expect(spawned).toBe(false);
+    expect(lines.join("\n")).toContain("BLOCKED");
+    expect(lines.join("\n")).toContain("not implicated");
+  });
+
+  test("reports BLOCKED, not FAILED, when the allowance ran out during the run", async () => {
+    const allowances = [
+      { remaining: 3, limit: 60, resetAt: new Date("2026-10-24T23:12:00Z") },
+      { remaining: 0, limit: 60, resetAt: new Date("2026-10-24T23:12:00Z") },
+    ];
+    const lines: string[] = [];
+
+    const status = await drill.run({
+      checkAllowance: async () => allowances.shift() ?? null,
+      spawn: async () => ({
+        status: 1,
+        output: [
+          mock.MARKER,
+          `  ✗ ${runner.REASONS.nothingRefused} — the requests never reached the mock`,
+        ].join("\n"),
+      }),
+      log: () => {},
+      error: (line) => lines.push(line),
+    });
+
+    expect(status).toBe(3);
+    const said = lines.join("\n");
+    expect(said).toContain("BLOCKED");
+    expect(said).not.toContain("FAILED");
   });
 });
 

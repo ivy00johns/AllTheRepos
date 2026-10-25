@@ -163,6 +163,27 @@ describe("the drill that proves the refusal check can fail", () => {
     expect(drillCommands).toContain("pnpm electron:pack-older");
   });
 
+  test("asks the allowance before it pays for the packaging", () => {
+    // The drill cannot conclude anything on a runner whose shared address has
+    // spent its hour of GitHub reads — with the mock neutered, a real refusal and
+    // a mock that stopped refusing are the same output. Asking first costs
+    // seconds; finding out after two bundles costs the most expensive runner this
+    // repository uses, to report a rate limit.
+    const gate = drillCommands.indexOf(
+      "node scripts/drill-refused-update-check.mjs --allowance-only",
+    );
+    const pack = drillCommands.indexOf("pnpm electron:pack");
+    // The second mention, since the gate's command is a prefix of the drill's.
+    const drilled = drillCommands.indexOf(
+      "node scripts/drill-refused-update-check.mjs",
+      gate + 1,
+    );
+
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(pack);
+    expect(pack).toBeLessThan(drilled);
+  });
+
   test("carries no credential either", () => {
     expect(drillCommands).not.toMatch(/secrets\.|TOKEN/);
   });

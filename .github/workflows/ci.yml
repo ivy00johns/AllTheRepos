@@ -399,6 +399,16 @@ jobs:
   # above's, because a job gets a fresh runner: the alternative is uploading two
   # hundred megabytes of .app between jobs to save a minute of a run a person
   # asked for by hand.
+  #
+  # The first step asks GitHub how much anonymous allowance this runner has, and
+  # that is not a formality: with the mock neutered the app's own read goes to the
+  # real GitHub, so on a runner whose shared address has spent its hour of reads
+  # the two outcomes are byte-identical and the run cannot conclude anything. A
+  # spent allowance exits 3 and says `BLOCKED — … the refusal check was not
+  # implicated`, which is a different sentence from `FAILED — … the refusal
+  # check's failure path` and is readable on the run page without opening the log.
+  # It is asked before the packaging because a run that cannot conclude should not
+  # spend fifteen minutes building two bundles to say so.
   drill:
     name: prove the refusal check can fail
     if: github.event_name == 'workflow_dispatch'
@@ -411,6 +421,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Is there any anonymous allowance to conclude with?
+        run: node scripts/drill-refused-update-check.mjs --allowance-only
       # The drilled command is the real one, so it needs what the real one needs.
       - run: pnpm electron:pack
       - run: pnpm electron:pack-older
