@@ -137,9 +137,9 @@ interface ModuleFacts {
  */
 async function probeVectorStore(
   app: ElectronApplication,
-  options: { poisonBindings?: boolean } = {},
+  options: { failPackageLookup?: boolean } = {},
 ): Promise<StoreProbe> {
-  return app.evaluate((_electron, { poisonBindings }) => {
+  return app.evaluate((_electron, { failPackageLookup }) => {
     const { createRequire } = process.getBuiltinModule("node:module");
     const fs = process.getBuiltinModule("node:fs");
     const nodePath = process.getBuiltinModule("node:path");
@@ -227,25 +227,6 @@ async function probeVectorStore(
     };
 
     /**
-     * Reproduce the runner's failure on purpose: a `bindings` entry in the
-     * module cache whose export is an object, which is the `typeof object` that
-     * `describeModuleFacts` reports on a bad run. The package's own lookup then
-     * throws `require(...) is not a function` exactly as it does there, and the
-     * rest of the probe has to get past it. Staged after `describeModules` so
-     * the facts still describe the package rather than the staging.
-     */
-    if (poisonBindings && result.modules.bindings.resolved !== null) {
-      (load.cache as Record<string, unknown>)[result.modules.bindings.resolved] = {
-        exports: {},
-        loaded: true,
-        id: result.modules.bindings.resolved,
-        filename: result.modules.bindings.resolved,
-        paths: [],
-        children: [],
-      };
-    }
-
-    /**
      * Run one step, and stop at the first failure with its phase recorded.
      *
      * The phase matters for reading a failure: a bug in this probe and a
@@ -310,8 +291,21 @@ async function probeVectorStore(
       return opened;
     };
 
+    //
+    // `failPackageLookup` stages the *throw*, not the module cache. The cache
+    // was staged first — an entry for `bindings` whose export is `{}` — and it
+    // worked on this machine and proved nothing on a runner: there the poisoned
+    // entry was not the copy the package's own `require` reaches, so the load
+    // took the healthy path and the test's own guard said so. Which copy that is
+    // depends on how the install is laid out (pnpm's hoisting puts a `bindings`
+    // where the package can see it, and it need not be the one resolving from
+    // the package entry). The branch under test is the catch below, so the
+    // exception is what gets staged, at the call the catch is guarding.
     const opened = step("load", () => {
       try {
+        if (failPackageLookup) {
+          throw new TypeError("require(...) is not a function");
+        }
         return { db: open(), via: "package" as const };
       } catch (error) {
         // Only the state the fallback is here for. A missing addon or a wrong
@@ -352,7 +346,7 @@ async function probeVectorStore(
     result.selfDistance = selfDistance;
     db.close();
     return result;
-  }, { poisonBindings: options.poisonBindings ?? false });
+  }, { failPackageLookup: options.failPackageLookup ?? false });
 }
 
 /**
@@ -446,19 +440,20 @@ test.describe("the vector store the app ships", () => {
     }
   });
 
-  test("survives the bindings lookup resolving to an object, which is how it fails on a runner", async () => {
+  test("survives the package's bindings lookup not being callable, which is how it fails on a runner", async () => {
     const { app, close } = await launchApp();
 
     try {
-      // The state the runner reports, staged rather than waited for: a module
-      // cache entry for `bindings` whose export is `{}`, which is callable by
-      // nothing and is exactly what `require(...) is not a function` complains
-      // about.
-      const probe = await probeVectorStore(app, { poisonBindings: true });
+      // The failure the runner reports, staged at the seam it happens on: the
+      // package's own `require("bindings")("better_sqlite3.node")` throwing
+      // `require(...) is not a function`. Staging the module cache entry instead
+      // is machine-dependent — see the comment on the catch below — and passed
+      // here while proving nothing on a runner.
+      const probe = await probeVectorStore(app, { failPackageLookup: true });
 
       expect(
         probe.failure,
-        `the probe did not get past a poisoned bindings lookup: ${probe.failure}\n\n` +
+        `the probe did not get past a bindings lookup that is not callable: ${probe.failure}\n\n` +
           `What the load step was depending on:\n${describeModuleFacts(probe)}\n\n` +
           `${probe.stack ?? "(no stack)"}`,
       ).toBeNull();
@@ -466,7 +461,7 @@ test.describe("the vector store the app ships", () => {
       expect(
         probe.loadedVia,
         "the probe loaded the extension, but not by the fallback this test is about — " +
-          "so the poisoned entry was not the path the package took, and the test proves nothing.",
+          "so the staged failure was not the one the probe hit, and the test proves nothing.",
       ).toBe("nativeBinding");
 
       // A fallback that reached a different binary would be worse than none: the
