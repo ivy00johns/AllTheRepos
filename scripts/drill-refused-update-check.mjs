@@ -38,6 +38,24 @@
  * different sentence from `FAILED — the refusal check's failure path`, and a
  * different exit code, so a red drill is readable without the log.
  *
+ * ## One machine, several addresses
+ *
+ * A hosted runner does not leave from one address for the length of a job. The
+ * pool is shared, the allowance is per address, and a run was seen reading
+ * `59 of 60, resets at 02:34:16` before the drill and `60 of 60, resets at
+ * 02:35:58` after it: two windows, two addresses, one run. A single reading is
+ * therefore not evidence about the address the app's read left from, and
+ * trusting it would put the drill back where it started — blaming the check for
+ * an exhausted address nobody saw.
+ *
+ * So neither reading is used on its own. The two have to describe the same
+ * window (the same reset, which is the only handle on identity GitHub offers)
+ * before the drill will say the allowance was available; a changed window is a
+ * changed address, and a run whose address changed is reported as unable to
+ * attribute, in the same breath as a spent allowance and an unreadable one. None
+ * of the three proves anything either way, and none of them implicates the
+ * check — which is the whole point of separate exit codes.
+ *
  * Usage:
  *   pnpm electron:pack && pnpm electron:pack-older   # the drilled command needs them
  *   node scripts/drill-refused-update-check.mjs
@@ -51,9 +69,10 @@
  *
  * Exit codes: 0 — the check failed, for the refusal reasons · 1 — it did not, and
  * every reason is printed · 2 — the drill could not run the command at all ·
- * 3 — the drill is BLOCKED: this machine's anonymous GitHub allowance is spent,
- * so a neutered mock cannot be told apart from a real refusal. Nothing was
- * proved either way, and the check was not shown to be broken.
+ * 3 — the drill is BLOCKED and could not conclude: the allowance is spent, the
+ * address changed under it, or the allowance could not be read, so a neutered
+ * mock cannot be told apart from a real refusal. Nothing was proved either way,
+ * and the check was not shown to be broken.
  */
 
 import fs from "node:fs";
@@ -127,6 +146,46 @@ function describeAllowance(allowance) {
 }
 
 /**
+ * Whether two readings describe the same allowance window, and so one address.
+ *
+ * The reset time is the only handle on identity GitHub offers: `/rate_limit` does
+ * not say which address answered, and each address's window began when its own
+ * first request arrived, so two addresses practically never share a reset second.
+ * A window that rolled on one address looks the same as a change of address, and
+ * that is deliberate: the answer is only ever used to *decline* to attribute. The
+ * cost of being wrong in that direction is a red run that says it could not tell;
+ * in the other direction it is a working check reported as broken.
+ */
+function sameWindow(first, second) {
+  return (
+    first != null &&
+    second != null &&
+    first.resetAt.getTime() === second.resetAt.getTime()
+  );
+}
+
+/**
+ * What the two readings, taken either side of the run, say about the address the
+ * app's read actually left from.
+ *
+ * `spent` when either end saw nothing left: an exhausted address existing at any
+ * point in the run is enough to explain an ambiguous result, so it is not made to
+ * depend on the other reading. `available` only when both ends describe the same
+ * window — the single case in which the drill is entitled to conclude that a real
+ * refusal was not the explanation. `moved` and `unreadable` both mean the address
+ * cannot be pinned, which is a verdict about the run rather than about the check.
+ */
+function allowanceEvidence({ before = null, after = null } = {}) {
+  const spent = [before, after].find(
+    (reading) => reading != null && reading.remaining === 0,
+  );
+  if (spent != null) return { kind: "spent", reading: spent };
+  if (before == null || after == null) return { kind: "unreadable" };
+  if (!sameWindow(before, after)) return { kind: "moved", before, after };
+  return { kind: "available", reading: after };
+}
+
+/**
  * The BLOCKED verdict, in one place.
  *
  * The gate, the run and the drill's own assessment report the same thing, and a
@@ -145,16 +204,75 @@ function blockedSentence(allowance) {
 }
 
 /**
+ * The BLOCKED verdict for a run whose address changed while it ran.
+ *
+ * Distinct from {@link blockedSentence} because the two are repaired differently
+ * — one waits for a reset, the other just dispatches again — and because a run
+ * that read `59 of 60` at both ends would otherwise be indistinguishable from one
+ * that was refused by an address the probe never saw.
+ */
+function movedSentence(before, after) {
+  return (
+    `this machine's egress address changed during the run — the allowance read ` +
+    `${describeAllowance(before)} before it, and ${describeAllowance(after)} ` +
+    `after it — so the reading taken afterwards is about a different address ` +
+    `than the one the app's read left from, and an exhausted address cannot be ` +
+    `ruled out. The refusal check was not implicated — nothing here proves ` +
+    `anything either way. Dispatch again: the next run may hold one address ` +
+    `throughout.`
+  );
+}
+
+/** The BLOCKED verdict for a run that never got an answer about the allowance. */
+function unreadableSentence() {
+  return (
+    `this machine's anonymous GitHub allowance could not be read at both ends ` +
+    `of the run, so a neutered mock cannot be told apart from an exhausted ` +
+    `address. The refusal check was not implicated — nothing here proves ` +
+    `anything either way. Dispatch again when the endpoint answers.`
+  );
+}
+
+/**
+ * What the environment clauses say when something else is also wrong.
+ *
+ * The run fails either way, so this does not change the verdict — it names which
+ * of the two repairs is which, because "the address is spent" and "the guard
+ * stopped guarding" want different answers and a reader should not have to work
+ * out from a stack which one they have.
+ */
+function environmentClause(evidence) {
+  switch (evidence.kind) {
+    case "spent":
+      return `the allowance was spent too (${describeAllowance(evidence.reading)}), but something else is also wrong here, so the environment does not explain this run.`;
+    case "moved":
+      return `the egress address changed during the run (${describeAllowance(evidence.before)} before it, ${describeAllowance(evidence.after)} after it), so the allowance cannot be attributed — but something else is also wrong here.`;
+    case "available":
+      return `the allowance was available in this run (${describeAllowance(evidence.reading)}), so a real refusal is not the explanation — this is the check's own failure path, and it needs reading.`;
+    default:
+      return `the allowance could not be read either, so a neutered mock cannot be told apart from an exhausted address — but something else is also wrong here.`;
+  }
+}
+
+/**
  * Did the check fail the way this drill demands, and only that way?
  *
  * Pure, so every way the drill can be fooled is unit-tested against a fixture.
  * `status` is the command's exit code; `output` is everything both of its streams
- * said; `allowance` is what {@link githubAllowance} last saw, and decides whether
- * the one ambiguous outcome is the runner's fault or the check's.
+ * said; `before` and `allowance` are the two readings {@link githubAllowance}
+ * took either side of the run, and together they decide whether the one
+ * ambiguous outcome is the runner's fault or the check's. Both are needed: one
+ * reading says what some address had left, and only agreement between the two
+ * says it was the address this run used.
  *
  * @returns {{ failures: string[], notes: string[], blocked: string | null }}
  */
-export function assessDrill({ status = null, output = "", allowance = null } = {}) {
+export function assessDrill({
+  status = null,
+  output = "",
+  allowance = null,
+  before = null,
+} = {}) {
   const failures = [];
   const notes = [];
 
@@ -192,36 +310,43 @@ export function assessDrill({ status = null, output = "", allowance = null } = {
   if (!noticed) {
     const ambiguity =
       `no feed-reading test was reported as "${REASONS.notSkipped}" or "${REASONS.wrongReason}" — `;
-    const spent = allowance != null && allowance.remaining === 0;
+    const evidence = allowanceEvidence({ before, after: allowance });
 
-    if (spent && failures.length === 0) {
-      // Spent, and nothing else is wrong: the neutered mock and an exhausted
-      // address are the same shape, and the one thing this run must not do is
-      // blame the check for it. `blocked` rather than a failure, so the verdict
-      // reads as an environment that could not answer instead of a guard that
-      // stopped guarding.
-      return {
-        failures,
-        notes,
-        blocked: `${blockedSentence(allowance)} Dispatch again after the reset.`,
-      };
-    }
+    if (failures.length === 0) {
+      // Nothing else is wrong, so the two possible worlds are a mock that
+      // refused nothing and an address that refused for real — and the allowance
+      // is the only thing that separates them. `blocked` rather than a failure,
+      // so the verdict reads as an environment that could not answer instead of
+      // a guard that stopped guarding.
+      if (evidence.kind === "spent") {
+        return {
+          failures,
+          notes,
+          blocked: `${blockedSentence(evidence.reading)} Dispatch again after the reset.`,
+        };
+      }
+      if (evidence.kind === "moved") {
+        return {
+          failures,
+          notes,
+          blocked: movedSentence(evidence.before, evidence.after),
+        };
+      }
+      if (evidence.kind === "unreadable") {
+        // Both ends of the run are needed to attribute anything, so half an
+        // answer is the same standing as none: it cannot clear the check.
+        return { failures, notes, blocked: unreadableSentence() };
+      }
 
-    if (allowance != null) {
-      // Known either way, so say which: the reader should not go looking at rate
-      // limits that were never the problem, nor read a spent allowance as a
-      // verdict on the check.
       failures.push(
         ambiguity +
-          (spent
-            ? `the allowance was spent too (${describeAllowance(allowance)}), but something else is also wrong here, so this is not only the environment.`
-            : `the allowance was available in this run (${describeAllowance(allowance)}), so a real refusal is not the explanation — this is the check's own failure path, and it needs reading.`),
+          `the allowance was available in this run (${describeAllowance(evidence.reading)}), read on the same window before and after it, so a real refusal is not the explanation — this is the check's own failure path, and it needs reading.`,
       );
     } else {
-      failures.push(
-        ambiguity +
-          `the allowance could not be read either, so a neutered mock cannot be told apart from an exhausted address. Wait for the allowance and dispatch again; this run proves nothing either way.`,
-      );
+      // Something else is already wrong, so the run fails either way; the
+      // environment is named anyway, because "spent" and "the check broke" are
+      // different repairs and a reader should not have to guess which.
+      failures.push(ambiguity + environmentClause(evidence));
     }
   }
 
@@ -279,12 +404,26 @@ export async function run({
   }
 
   // Asked again: the run itself read the feed, so the count that decides this is
-  // the one after it, not the one before.
+  // the one after it, not the one before. Which address answered is a different
+  // question, and the one this reading cannot answer on its own — see
+  // `allowanceEvidence`.
   const after = await checkAllowance();
+  const evidence = allowanceEvidence({ before, after });
+
+  log(
+    after == null
+      ? "[refusal-drill] this machine's allowance after the run could not be read — if the result is ambiguous, the verdict says what that leaves unresolved"
+      : `[refusal-drill] this machine's allowance after the run: ${describeAllowance(after)}` +
+          (evidence.kind === "moved"
+            ? " — a different window from the one before it, so the egress address changed while the drill ran"
+            : ""),
+  );
+
   const { failures, notes, blocked } = assessDrill({
     status,
     output,
     allowance: after,
+    before,
   });
 
   for (const note of notes) log(`  · ${note}`);

@@ -60,6 +60,7 @@ interface Drill {
     status?: number | null;
     output?: string;
     allowance?: Allowance | null;
+    before?: Allowance | null;
   }): Assessment;
   githubAllowance(input?: {
     fetchImpl?: typeof globalThis.fetch;
@@ -195,12 +196,13 @@ describe("anything else the drill could be fooled by", () => {
       `  ✗ ${runner.REASONS.nothingRefused} — the requests never reached the mock`,
     ].join("\n");
 
-    const { failures } = drill.assessDrill({ status: 1, output });
-    const said = failures.join("\n");
+    const { failures, blocked } = drill.assessDrill({ status: 1, output });
+    const said = blocked ?? "";
 
-    expect(said).toContain(runner.REASONS.notSkipped);
+    expect(failures).toEqual([]);
+    expect(said).toContain("was not implicated");
     expect(said).toContain("exhausted");
-    expect(said).toContain("dispatch again");
+    expect(said.toLowerCase()).toContain("dispatch again");
   });
 
   test("and every reason is reported, not just the first", () => {
@@ -245,10 +247,11 @@ describe("the runner's allowance, which decides who is at fault", () => {
     expect(blocked).toContain("Dispatch again after the reset");
   });
 
-  test("an allowance that was available sends the reader to the check instead", () => {
+  test("an allowance available at both ends of the run sends the reader to the check", () => {
     const { failures, blocked } = drill.assessDrill({
       status: 1,
       output: ambiguousOutput(),
+      before: available,
       allowance: available,
     });
 
@@ -277,8 +280,74 @@ describe("the runner's allowance, which decides who is at fault", () => {
       allowance: null,
     });
 
+    // Nothing was learned about the address, so nothing can be said about the
+    // check: BLOCKED, and the sentence says so instead of reading like a verdict.
+    expect(failures).toEqual([]);
+    expect(blocked).toContain("could not be read");
+    expect(blocked).toContain("was not implicated");
+  });
+
+  test("half an answer is not an answer", () => {
+    // A reading at one end only says what one address had left at one moment. It
+    // cannot show that the address the app's read used was the same one, so it
+    // does not clear the check either.
+    const { failures, blocked } = drill.assessDrill({
+      status: 1,
+      output: ambiguousOutput(),
+      before: null,
+      allowance: available,
+    });
+
+    expect(failures).toEqual([]);
+    expect(blocked).toContain("could not be read");
+  });
+
+  test("a run whose address changed cannot be attributed to the check", () => {
+    // The reported shape: `59 of 60, resets at 02:34:16` before the drill and
+    // `60 of 60, resets at 02:35:58` after it. Two windows, two addresses — and
+    // the reading after the run is about neither of the ones the app's read may
+    // have left from. Blaming the check on the strength of it is the failure this
+    // whole distinction exists to prevent.
+    const earlier = {
+      remaining: 59,
+      limit: 60,
+      resetAt: new Date("2026-10-24T23:34:16Z"),
+    };
+    const later = {
+      remaining: 60,
+      limit: 60,
+      resetAt: new Date("2026-10-24T23:35:58Z"),
+    };
+
+    const { failures, blocked } = drill.assessDrill({
+      status: 1,
+      output: ambiguousOutput(),
+      before: earlier,
+      allowance: later,
+    });
+
+    const said = blocked ?? "";
+    expect(failures).toEqual([]);
+    expect(said).toContain("egress address changed");
+    expect(said).toContain("was not implicated");
+    expect(said).toContain("59 of 60");
+    expect(said).toContain("60 of 60");
+    // The one thing it must not say: that this is the check's own failure path.
+    expect(said).not.toContain("needs reading");
+    expect(said).not.toContain("the check's own failure path");
+  });
+
+  test("and it still does not excuse a second problem", () => {
+    const { failures, blocked } = drill.assessDrill({
+      status: 0,
+      output: ambiguousOutput(),
+      before: { remaining: 59, limit: 60, resetAt: new Date("2026-10-24T23:34:16Z") },
+      allowance: { remaining: 60, limit: 60, resetAt: new Date("2026-10-24T23:35:58Z") },
+    });
+
     expect(blocked).toBeNull();
-    expect(failures.join("\n")).toContain("could not be read");
+    expect(failures.join("\n")).toContain("PASSED");
+    expect(failures.join("\n")).toContain("address changed");
   });
 
   test("asks GitHub at the endpoint that does not spend what it reports", async () => {
@@ -416,6 +485,37 @@ describe("what a blocked drill does", () => {
     expect(spawned).toBe(false);
     expect(lines.join("\n")).toContain("BLOCKED");
     expect(lines.join("\n")).toContain("not implicated");
+  });
+
+  test("reports BLOCKED when the address changes under it, and says which reading it distrusted", async () => {
+    // The runner's egress rotated mid-run, so the only honest verdict is that
+    // this machine was not one address for long enough to ask.
+    const allowances = [
+      { remaining: 59, limit: 60, resetAt: new Date("2026-10-24T23:34:16Z") },
+      { remaining: 60, limit: 60, resetAt: new Date("2026-10-24T23:35:58Z") },
+    ];
+    const lines: string[] = [];
+    const errors: string[] = [];
+
+    const status = await drill.run({
+      checkAllowance: async () => allowances.shift() ?? null,
+      spawn: async () => ({
+        status: 1,
+        output: [
+          mock.MARKER,
+          `  ✗ ${runner.REASONS.nothingRefused} — the requests never reached the mock`,
+        ].join("\n"),
+      }),
+      log: (line) => lines.push(line),
+      error: (line) => errors.push(line),
+    });
+
+    expect(status).toBe(3);
+    expect(errors.join("\n")).toContain("BLOCKED");
+    expect(errors.join("\n")).not.toContain("FAILED");
+    // Both readings are logged, and the log is where the rotation is visible.
+    expect(lines.join("\n")).toContain("59 of 60");
+    expect(lines.join("\n")).toContain("address changed while the drill ran");
   });
 
   test("reports BLOCKED, not FAILED, when the allowance ran out during the run", async () => {
