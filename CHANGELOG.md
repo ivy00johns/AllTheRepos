@@ -27,6 +27,18 @@ source of truth for the current version.
   both dropped, the first because it is precisely the write `docs/COMMAND-DISCLOSURE.md` §4 promises
   never happens. New `notes:get` / `notes:save` channels; the demo library seeds notes on four repos
   so the demo video's beat 6 has a real notes surface to show.
+- a release on this repository, so its Releases tab is not empty. The binaries were always published
+  to `alltherepos-releases` — the public feed the updater reads anonymously — and that split is
+  right; what it left behind was a source repo whose Releases page showed nothing, which reads as
+  "nothing has shipped, build it yourself". `v0.3.1` had been published, verified and announced for
+  a day in exactly that state. Every tag push now also writes a release here, at the same tag, by
+  `scripts/source-release.mjs`: no assets, a link to the download at the top, the reason it lives on
+  another page, and a line saying the `Source code (zip)` / `(tar.gz)` rows GitHub appends to every
+  release are the tree rather than an installer. It carries the same changelog section, extracted by
+  `scripts/release-notes.mjs`, so the signpost is guarded by the tag/version check the real release
+  passes first. The job runs only for a tag push — a rehearsal's `0.0.0` has nothing behind it —
+  writes with the workflow's own token, and fails if an asset is ever attached, which would be a
+  second copy of the release to keep in step with `latest-mac.yml` by hand.
 
 ### Changed
 

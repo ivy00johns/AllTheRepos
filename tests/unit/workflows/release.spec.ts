@@ -379,6 +379,69 @@ describe("where the update feed check lives", () => {
 });
 
 /**
+ * The download lives in another repository, which is correct and is not going to
+ * change — but it left this repository's Releases tab empty, and an empty tab
+ * reads as "nothing has been released, so I will build it". `v0.3.1` was
+ * published, verified and announced while this repo's Releases page still said
+ * nothing at all.
+ *
+ * So a tag push also writes a signpost here: a release at the same tag, carrying
+ * no assets, whose body leads with the download. The tests below pin the three
+ * things that would make it worse than nothing — running on a rehearsal's scratch
+ * tag (a page pointing at a version nobody published), acquiring assets (a second
+ * copy of the release to keep in step with `latest-mac.yml`), and being wired to
+ * the releases-repo token (which cannot write here anyway).
+ */
+describe("the signpost on this repository's Releases tab", () => {
+  const SOURCE_JOB = "source-release";
+  const source = jobBlock(SOURCE_JOB);
+
+  test("exists, and runs only for a tag push", () => {
+    expect(source).toContain(`${SOURCE_JOB}:`);
+    // Not a dispatch, not the weekly rehearsal: those build a scratch version
+    // whose release is deleted again, so a signpost written from one would point
+    // at a page that does not exist.
+    expect(source).toMatch(/if: github\.event_name == 'push'/);
+    expect(source).not.toContain("REHEARSE");
+    expect(source).not.toContain("schedule");
+  });
+
+  test("waits for the release it points at", () => {
+    expect(source).toContain("needs: release");
+    const order = [...workflow.matchAll(/^  ([a-z-]+):$/gm)].map((m) => m[1]);
+    expect(order.indexOf(SOURCE_JOB)).toBeGreaterThan(order.indexOf("release"));
+  });
+
+  test("writes with this repository's own token, not the releases one", () => {
+    // `RELEASES_TOKEN` has no write access here, and `github.token` has none
+    // there. Swapping them is a run that fails after the release is public.
+    expect(source).toContain("GH_TOKEN: ${{ github.token }}");
+    expect(source).not.toContain("secrets.RELEASES_TOKEN");
+    // A comment sits between the two, so this cannot be a two-line match.
+    expect(source).toMatch(/permissions:[\s\S]*?contents: write/);
+  });
+
+  test("keeps the body in the tested script rather than inline", () => {
+    expect(source).toContain("node scripts/source-release.mjs");
+    expect(source).toContain('--tag "$GITHUB_REF_NAME"');
+    expect(source).toContain('--repo "$GITHUB_REPOSITORY"');
+    expect(source).not.toContain("gh release create");
+    expect(source).not.toContain("gh release edit");
+  });
+
+  test("asserts the page carries no assets", () => {
+    // The failure this guards is not cosmetic: a DMG here would be a second copy
+    // of the release to keep in step with the manifest the updater reads.
+    const readBack = commands(
+      stepBlock("Read it back, and check it carries no assets"),
+    );
+    expect(readBack).toContain("--json assets");
+    expect(readBack).toContain('!= "0"');
+    expect(source).not.toMatch(/gh release upload/);
+  });
+});
+
+/**
  * Signing is a promise a release makes about itself.
  *
  * Without a certificate the build is ad-hoc signed and the DMG is the way to
