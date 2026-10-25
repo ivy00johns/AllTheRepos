@@ -141,8 +141,12 @@ what the spam filters are looking for.
 - [ ] Check the room's rules before posting: r/macapps allows developer posts that disclose they
       are the developer; r/programming and r/webdev do not, and a removed post costs you the
       account's standing. r/SideProject exists for this.
-- [ ] Point the repo's GitHub *Website* field and its topics at the release page before posting, so
-      the sidebar of the source repo offers a download instead of nothing.
+- [x] Point the repo's GitHub *Website* field and its topics at the release page before posting, so
+      the sidebar of the source repo offers a download instead of nothing. Done on 2026-10-25:
+      *Website* is `…/releases/latest`, which follows its redirect to the `v0.3.1` tag, and the topics
+      are `macos`, `apple-silicon`, `electron`, `git`, `local-first`, `sqlite`, `fts5`,
+      `developer-tools`, `repository-management` and `typescript`. Neither is a file, so this line is
+      the repository's only record of the setting.
 - [ ] Have the two answers ready before anyone asks: **why is it 129 MB** (Electron, with the fonts
       and the map renderer bundled) and **why does macOS say it is damaged** (it is not — it is
       un-notarised, and the Open Anyway step is the fix).
