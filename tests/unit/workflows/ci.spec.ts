@@ -52,6 +52,23 @@ function jobBlock(name: string): string {
   return block.join("\n");
 }
 
+/** A top-level section, `key:` through the next column-0 key. */
+function section(name: string): string {
+  const start = lines.findIndex((line) => line.startsWith(`${name}:`));
+  expect(start, `ci.yml has no top-level "${name}:"`).toBeGreaterThan(-1);
+
+  const block = [lines[start]];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim().length === 0) {
+      block.push(line);
+      continue;
+    }
+    if (!/^\s/.test(line)) break;
+    block.push(line);
+  }
+  return block.join("\n");
+}
+
 /** Prose stripped, for assertions about what a job *does*. */
 function commands(text: string): string {
   return text
@@ -345,6 +362,47 @@ describe("the one leg the Electron suite runs on", () => {
     expect(e2eCommands.indexOf("Prove this")).toBeLessThan(
       e2eCommands.indexOf("pnpm test:electron-e2e"),
     );
+  });
+});
+
+/**
+ * Which run a new one replaces, which is a question with a failure mode that
+ * looks nothing like a workflow problem.
+ *
+ * `github.ref` is `refs/heads/<branch>` for a push to that branch and for a
+ * dispatch against it, so keying the group on the ref alone puts the two in one
+ * group — and `gh workflow run ci.yml` then cancelled the push run it arrived
+ * alongside. A cancelled run does not go away: its check runs stay attached to
+ * the head commit as `CANCELLED`, and the merge box counts them against the
+ * required checks. The pull request reads `BLOCKED` while all three required
+ * checks are green on a newer run, re-running does not clear it (the cancelled
+ * attempt is still on the commit), and the way out is re-cutting the commit to a
+ * SHA with a clean slate.
+ *
+ * That is one incident, and it is why the event name is part of the key and why
+ * a dispatch is the one event that never cancels. Both halves matter: the key
+ * alone stops the dispatch taking the push's checks, and the policy alone would
+ * still leave two dispatches cancelling each other onto the same commit.
+ */
+describe("the concurrency group", () => {
+  const concurrency = section("concurrency");
+  const group = /^\s+group: (.+)$/m.exec(concurrency)?.[1]?.trim();
+  const cancel = /^\s+cancel-in-progress: (.+)$/m.exec(concurrency)?.[1]?.trim();
+
+  test("keys on the event, so a push and a dispatch on one branch are two groups", () => {
+    expect(group).toBeDefined();
+    expect(group).toContain("github.event_name");
+    // The ref still has to be in it: one branch's run must not replace another's.
+    expect(group).toContain("github.ref");
+  });
+
+  test("supersedes an older run of the same event, and never a dispatch", () => {
+    // A push brings a new commit, so the run it cancels was checking a SHA
+    // nothing merges any more — that is where the saving is and it costs the
+    // merge box nothing. A dispatch is a person asking about the commit that is
+    // here now, so a second one waits its turn rather than leaving `CANCELLED`
+    // checks on the commit the answer was wanted about.
+    expect(cancel).toBe("${{ github.event_name != 'workflow_dispatch' }}");
   });
 });
 

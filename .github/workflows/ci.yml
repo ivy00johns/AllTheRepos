@@ -55,9 +55,29 @@ on:
 permissions:
   contents: read
 
+# One group per ref and event, so a new run supersedes the one it replaces — the
+# older run's answers are about a tree nobody has any more, and cancelling it is
+# where the saving is.
+#
+# The event name is part of the key, and that is not tidiness. A push and a `gh
+# workflow run` against the same branch both key on `refs/heads/<branch>`, so in
+# one group the dispatch cancelled the push run it arrived alongside — and a
+# cancelled run does not disappear: its check runs stay on the head commit as
+# `CANCELLED`, and the merge box counts them against the required ones. The pull
+# request then reads `BLOCKED` with all three required checks passing on a newer
+# run, and no re-run clears it, because the cancelled attempt is still there;
+# the only way out is re-cutting the commit to a SHA with a clean slate. Two
+# events, two groups: neither can take the other's checks away.
+#
+# Cancellation stays on for everything except the dispatch, which is why it is an
+# expression rather than `true`. A push brings a new commit, so the run it
+# supersedes was checking a SHA nothing merges any more; a dispatch is a person
+# asking for an answer about the commit that is here now, and a second one
+# waiting its turn is cheaper than a first one cancelled into `CANCELLED` checks
+# on the very commit the answer was wanted about.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # Typecheck and the unit suite are host-ABI work: one install, no native
