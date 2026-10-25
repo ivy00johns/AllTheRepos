@@ -1,8 +1,8 @@
 # Raw URLs for the packet
 
 Every image in this folder, as a URL a tool can fetch without a checkout.
-Branch: `design/review-packet`. If the branch is renamed or the packet
-regenerated, these paths stay the same and only the ref changes.
+Branch: `design/review-packet`. The paths are stable; only the ref changes when the
+packet is captured on another branch.
 
 ## screens/ (23)
 

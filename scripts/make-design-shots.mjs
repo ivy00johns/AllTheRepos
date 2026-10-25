@@ -507,6 +507,67 @@ async function launch(profileDir, extraEnv = {}) {
 }
 
 /**
+ * The packet's image URLs, so a design tool can read the pictures without a
+ * checkout.
+ *
+ * Derived from the manifest and from the branch the capture ran on, rather than
+ * written by hand: a regenerated packet whose list of URLs still points at
+ * renamed images is worse than no list. `--urls-only` rewrites it without
+ * launching anything, which is what a re-run on another branch needs.
+ */
+function repoSlug() {
+  const remote = spawnSync("git", ["remote", "get-url", "origin"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  const url = (remote.stdout ?? "").trim();
+  const match = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url);
+  return match ? match[1] : "ivy00johns/AllTheRepos";
+}
+
+function currentBranch() {
+  const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  const name = (branch.stdout ?? "").trim();
+  return name && name !== "HEAD" ? name : "main";
+}
+
+function writeUrls(ref) {
+  const manifestPath = path.join(OUT_DIR, "manifest.json");
+  const saved = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const base = `https://raw.githubusercontent.com/${repoSlug()}/${ref}/docs/design-review`;
+  const lines = [
+    "# Raw URLs for the packet",
+    "",
+    "Every image in this folder, as a URL a tool can fetch without a checkout.",
+    `Branch: \`${ref}\`. The paths are stable; only the ref changes when the`,
+    "packet is captured on another branch.",
+    "",
+  ];
+
+  for (const dir of ["screens", "elements", "windows"]) {
+    const entries = saved.shots.filter((shot) => shot.file.startsWith(`${dir}/`));
+    if (entries.length === 0) continue;
+    lines.push(`## ${dir}/ (${entries.length})`, "");
+    for (const entry of entries) {
+      lines.push(`- \`${entry.file.slice(dir.length + 1)}\` — ${entry.note}`);
+      lines.push(`  ${base}/${entry.file}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## The documents", "");
+  for (const doc of ["README.md", "BRIEF.md", "manifest.json"]) {
+    lines.push(`- ${base}/${doc}`);
+  }
+
+  fs.writeFileSync(path.join(OUT_DIR, "URLS.md"), `${lines.join("\n")}\n`);
+  log(`wrote URLS.md for ${ref}`);
+}
+
+/**
  * Quit the app, and kill it if it will not go.
  *
  * `ElectronApplication.close()` waits for the process to exit and has no
@@ -946,6 +1007,11 @@ async function captureClaudeSurface(app, win, rows) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  if (has("--urls-only")) {
+    writeUrls(flag("--ref", currentBranch()));
+    return;
+  }
+
   if (!fs.existsSync(MAIN_ENTRY)) {
     console.error(
       `[design-shots] no bundle at ${MAIN_ENTRY} — run \`pnpm electron:build\` first.`,
@@ -1118,6 +1184,8 @@ async function main() {
         2,
       )}\n`,
     );
+
+    writeUrls(flag("--ref", currentBranch()));
 
     const ok = manifest.filter((entry) => entry.status === "ok").length;
     const skipped = manifest.filter((entry) => entry.status !== "ok");
