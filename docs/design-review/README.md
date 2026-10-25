@@ -12,6 +12,7 @@ and captured at CSS-pixel scale, so what you see is the shipped renderer.
 - **`elements/`** — one component per image, cropped out of those screens
 - **`windows/`** — the spotlight panel and the menu-bar popover, at their own sizes
 - **`manifest.json`** — the same inventory, machine-readable, with capture notes
+- **`URLS.md`** — every image as a raw URL, for a tool that cannot take a checkout
 
 This file is the evidence. The direction that came out of it — what to fix, what
 to keep, and the one look to commit to — is in [BRIEF.md](./BRIEF.md).
