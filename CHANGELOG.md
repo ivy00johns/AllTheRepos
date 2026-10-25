@@ -11,6 +11,17 @@ source of truth for the current version.
 
 ## [Unreleased]
 
+### Fixed
+
+- cover the vector-store probe's fallback by staging the throw, not the module cache. The test added
+  in 0.4.0 poisoned a `bindings` cache entry to reproduce the runner's `require(...) is not a
+  function`, and on its first runner run it failed at its own guard: the poisoned entry was not the
+  copy the package's own `require` reaches, so the load took the healthy path and the test proved
+  nothing. Which copy that is depends on how the install is laid out, so the branch is now driven by
+  staging the exception at the call the catch guards — the same seam the real failure happens on —
+  and the assertions after it are unchanged: the fallback loaded the shipped binary, the extension
+  reported a version, and a stored vector was its own nearest neighbour.
+
 ## [0.4.0] - 2026-10-25
 
 ### Added
