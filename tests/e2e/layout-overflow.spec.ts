@@ -117,10 +117,7 @@ function layoutChain(win: Page): Promise<Array<Record<string, unknown>>> {
         node,
       ),
     );
-    push(
-      "main > route",
-      main?.firstElementChild ?? null,
-    );
+    push("main > route", main?.firstElementChild ?? null);
     push(
       "main > route > content",
       main?.firstElementChild?.firstElementChild ?? null,
@@ -315,7 +312,9 @@ test.describe("window fits the route", () => {
 
     // The map's bottom-anchored furniture is what the 64px of overflow pushed
     // below the fold, so it is asserted in the viewport, not just rendered.
-    await expect(win.getByRole("group", { name: "Graph view" })).toBeInViewport();
+    await expect(
+      win.getByRole("group", { name: "Graph view" }),
+    ).toBeInViewport();
     await expect(win.getByText("outside its cluster's home")).toBeInViewport();
 
     // And the header's second row — the six signal filters — is not clipped by
@@ -329,9 +328,9 @@ test.describe("window fits the route", () => {
     // also has to be reachable, which is what proves the scroll moved inward
     // rather than the content being cut off.
     await topBar.getByRole("link", { name: /^settings$/i }).click();
-    await expect(
-      win.getByRole("heading", { name: /^Settings$/i }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(win.getByRole("heading", { name: /^Settings$/i })).toBeVisible(
+      { timeout: 15_000 },
+    );
 
     measured["/settings"] = await metrics(win);
     await expectFitsWindow(win, measured);
@@ -349,8 +348,8 @@ test.describe("window fits the route", () => {
     // have one, and inventing a marker for each of these would be asserting the
     // fixture rather than the route.
     const heights: Array<[string, RegExp, RegExp]> = [
-      ["/claude", /^claude$/i, /^Claude Usage$/i],
-      ["/processes", /^running/i, /^Processes$/i],
+      ["/claude", /^claude$/i, /^Claude$/i],
+      ["/processes", /^running/i, /^Running$/i],
     ];
     for (const [route, label, heading] of heights) {
       await topBar.getByRole("link", { name: label }).click();
@@ -379,9 +378,9 @@ test.describe("window fits the route", () => {
     ).toBeVisible({ timeout: 5_000 });
     await win.keyboard.press("Enter");
     await expect(palette).toBeHidden({ timeout: 5_000 });
-    await expect(
-      win.getByRole("heading", { name: /^\/debug — system\.ping$/i }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(win.getByRole("heading", { name: /^Debug$/i })).toBeVisible({
+      timeout: 15_000,
+    });
     measured["/debug"] = await metrics(win);
 
     // The standalone repo page, through the affordance that opens it: select a

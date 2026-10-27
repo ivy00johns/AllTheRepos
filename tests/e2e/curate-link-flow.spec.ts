@@ -161,7 +161,7 @@ test.describe("curated links in the repo detail panel", () => {
 
       const panel = win.getByRole("complementary", { name: /repo detail/i });
       await expect(panel).toBeVisible({ timeout: 10_000 });
-      await expect(panel.getByText(/no curated links yet/i)).toBeVisible({
+      await expect(panel.getByText(/no linked repositories/i)).toBeVisible({
         timeout: 10_000,
       });
 
@@ -214,7 +214,7 @@ test.describe("curated links in the repo detail panel", () => {
       await removeButton.dispatchEvent("click");
 
       await expect(asserted).toHaveCount(0, { timeout: 10_000 });
-      await expect(panel.getByText(/no curated links yet/i)).toBeVisible({
+      await expect(panel.getByText(/no linked repositories/i)).toBeVisible({
         timeout: 10_000,
       });
     } finally {

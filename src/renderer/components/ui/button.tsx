@@ -15,14 +15,22 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        /*
+         * The handoff's primary: an ink block with canvas-coloured text, not
+         * the accent. The accent is the app mark and the live dot, so a green
+         * primary read as brand decoration whatever it did.
+         */
         default:
-          "bg-accent text-accent-foreground hover:bg-accent/90 shadow-sm",
+          "bg-foreground text-background hover:bg-foreground/90 shadow-sm",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
           "border border-border bg-transparent hover:bg-muted hover:text-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        /** The handoff's secondary: a hairline box that lifts on hover. */
+        bordered:
+          "border border-border bg-transparent text-foreground hover:bg-surface-raised hover:border-border-strong",
         ghost: "hover:bg-muted hover:text-foreground",
         link: "text-accent underline-offset-4 hover:underline",
       },

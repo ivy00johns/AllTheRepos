@@ -120,6 +120,7 @@ const TOKENS = {
   accent: "--color-accent",
   warning: "--color-warning",
   background: "--color-background",
+  surfaceRaised: "--color-surface-raised",
 } as const;
 
 export type Palette = Record<keyof typeof TOKENS, string>;
@@ -180,65 +181,6 @@ function clusterColour(cluster: number): string {
 const MAX_MEANINGFUL_WEIGHT = 5;
 
 /**
- * Zoom past this and the map starts naming what is on screen.
- *
- * Raised from 1.15, which fired the moment you nudged the wheel and painted
- * every name on a 271-node drawing at once. A name belongs to a node you are
- * looking at, not to a node you happen to be near.
- */
-const LABEL_ZOOM = 1.4;
-
-/**
- * Most names drawn at once, chosen by how connected each node is.
- *
- * This number used to be a ceiling on the size of the whole *drawing* instead,
- * which is a different quantity and the wrong one: a 271-repo map drew no
- * names at any zoom — a dot could fill a third of the screen with nothing to
- * read beside it — while a 27-node group drew all of them. What has to be
- * limited is how many names share the *screen*, because that is what collides,
- * so the cap lives on the viewport and the choice within it is by degree: the
- * busiest node in a neighbourhood is the landmark worth naming.
- */
-const LABEL_VIEW_CAP = 30;
-
-/**
- * Name the most connected nodes in view, up to `LABEL_VIEW_CAP`.
- *
- * The viewport decides the answer rather than the drawing, so this is re-run on
- * every pan and zoom: panning changes which names are on screen just as
- * zooming does. Below `LABEL_ZOOM` it clears instead — at fit zoom the hubs
- * alone carry names (see `hubCount`), which is what keeps the opening picture
- * readable.
- */
-function labelNodesInView(cy: cytoscape.Core): void {
-  // Group bubbles label themselves; this rule is only about repos.
-  const repos = cy.nodes().not(".group");
-  if (cy.zoom() < LABEL_ZOOM) {
-    cy.batch(() => repos.removeClass("zoomed"));
-    return;
-  }
-  const extent = cy.extent();
-  const degreeOf = (node: cytoscape.SingularElementArgument) =>
-    Number((node as cytoscape.NodeSingular).data("degree") ?? 0);
-  const chosen = repos
-    .filter((node) => {
-      const at = (node as cytoscape.NodeSingular).position();
-      return (
-        at.x >= extent.x1 &&
-        at.x <= extent.x2 &&
-        at.y >= extent.y1 &&
-        at.y <= extent.y2
-      );
-    })
-    .sort((a, b) => degreeOf(b) - degreeOf(a))
-    .slice(0, LABEL_VIEW_CAP);
-  cy.batch(() => {
-    repos.removeClass("zoomed");
-    chosen.addClass("zoomed");
-  });
-}
-
-/**
  * Give every bubble its own patch of the drawing.
  *
  * The nodes are moved by the same delta their *footprint* needed, because a
@@ -253,15 +195,17 @@ function labelNodesInView(cy: cytoscape.Core): void {
  * a frame's worth of style recalculation and nothing measurable.
  */
 export function groupFootprints(cy: cytoscape.Core): GroupFootprint[] {
-  return cy.nodes(".group").map((node) =>
-    groupFootprint(
-      node.id(),
-      node.position(),
-      Number(node.data("size")),
-      String(node.data("label") ?? ""),
-      Number(node.data("labelWidth")),
-    ),
-  );
+  return cy
+    .nodes(".group")
+    .map((node) =>
+      groupFootprint(
+        node.id(),
+        node.position(),
+        Number(node.data("size")),
+        String(node.data("label") ?? ""),
+        Number(node.data("labelWidth")),
+      ),
+    );
 }
 
 function separateGroupBubbles(cy: cytoscape.Core): void {
@@ -348,8 +292,23 @@ export function arrangeGroupMap(
     const boxes = groupFootprints(cy);
     const cellWidth = Math.max(...boxes.map((box) => box.width)) + 32;
     const cellHeight = Math.max(...boxes.map((box) => box.height)) + 32;
-    const columns = Math.min(groups.length, Math.max(1, Math.ceil(Math.sqrt(groups.length * (width / height) * (cellHeight / cellWidth)))));
-    groups.forEach((node, index) => { node.position({ x: (index % columns) * cellWidth, y: Math.floor(index / columns) * cellHeight }); });
+    const columns = Math.min(
+      groups.length,
+      Math.max(
+        1,
+        Math.ceil(
+          Math.sqrt(
+            groups.length * (width / height) * (cellHeight / cellWidth),
+          ),
+        ),
+      ),
+    );
+    groups.forEach((node, index) => {
+      node.position({
+        x: (index % columns) * cellWidth,
+        y: Math.floor(index / columns) * cellHeight,
+      });
+    });
     separateGroupBubbles(cy);
     return;
   }
@@ -404,7 +363,10 @@ function squashGroupArrangement(
 
   const paneAspect = usableWidth / usableHeight;
   const drawingAspect = spanX / spanY;
-  if (Math.abs(drawingAspect - paneAspect) <= ARRANGE_ASPECT_SLACK * paneAspect) {
+  if (
+    Math.abs(drawingAspect - paneAspect) <=
+    ARRANGE_ASPECT_SLACK * paneAspect
+  ) {
     return;
   }
   const alongX = drawingAspect > paneAspect ? paneAspect / drawingAspect : 1;
@@ -446,10 +408,14 @@ function settle(cy: cytoscape.Core, groupData: ClusterOverview | null): void {
       arrangeGroupMap(cy, cy.width(), cy.height());
       frameGroupMapAtOpening(cy, cy.width(), cy.height(), groupFootprints(cy));
     } else {
-      // The layout fitted the drawing; only the fit itself can be unreadable.
-      openAt(cy, Math.max(cy.zoom(), REPO_MIN_FIT_ZOOM));
+      // The layout fitted the drawing; only the fit itself can be unreadable —
+      // too small to keep a name, or so large that a small library is drawn as
+      // four posters.
+      openAt(
+        cy,
+        Math.min(Math.max(cy.zoom(), REPO_MIN_FIT_ZOOM), REPO_MAX_FIT_ZOOM),
+      );
     }
-    labelNodesInView(cy);
   });
 }
 
@@ -517,7 +483,8 @@ export function frameInPane(
     level ??
     Math.min(
       (width - GROUP_FIT_PADDING * 2) / ((bounds.x2 - bounds.x1) * FRAME_SLACK),
-      (height - GROUP_FIT_PADDING * 2) / ((bounds.y2 - bounds.y1) * FRAME_SLACK),
+      (height - GROUP_FIT_PADDING * 2) /
+        ((bounds.y2 - bounds.y1) * FRAME_SLACK),
     );
   return {
     zoom,
@@ -610,20 +577,14 @@ function clampWeight(weight: number): number {
   return Math.max(0.25, Math.min(MAX_MEANINGFUL_WEIGHT, weight));
 }
 
-/** Cube-rooted so a 40-edge hub is prominent without dwarfing the rest. */
-function nodeSize(degree: number): number {
-  return 9 + Math.cbrt(degree) * 5.2;
-}
-
 /**
- * How many nodes keep a permanent label.
- *
- * 263 labels at once is the soup the old renderer produced. The busiest
- * few are the landmarks you navigate by, so those stay lit; everything
- * else earns a label by being hovered, selected, flagged, or zoomed to.
+ * One repo, one dot. The handoff fixes it at 9px (12 when focused), so degree
+ * is carried by the edges and the inspector rather than by a size that turned
+ * a busy catalog into a field of boulders. The argument stays for the callers
+ * that read a size per node.
  */
-function hubCount(total: number): number {
-  return Math.max(3, Math.min(14, Math.round(total * 0.05)));
+function nodeSize(): number {
+  return 9;
 }
 
 /**
@@ -1119,6 +1080,8 @@ export function groupLayoutOptions(): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 const MONO_STACK = "JetBrains Mono, ui-monospace, SFMono-Regular, monospace";
+/** The UI face, for the labels that name a repo rather than measure one. */
+const SANS_STACK = "IBM Plex Sans, system-ui, sans-serif";
 
 /**
  * The map's type steps — the canvas-half of the type scale.
@@ -1153,7 +1116,12 @@ export const CANVAS_TYPE = {
   /** Edge labels, one step down: they annotate a link, not a repo. */
   edge: 9,
   edgeMin: 8,
-  /** The selected node, which is read rather than scanned. */
+  /**
+   * The focused or hovered node — the only repo label the map draws, at the
+   * handoff's 12. Repo names used to appear for hubs, strays and everything
+   * in view as well, which is how a twelve-repo map opened covered in 40px
+   * names: the fit zoom magnified the drawing, and the labels went with it.
+   */
   focus: 12,
   /**
    * Group names on the cluster-level map.
@@ -1165,7 +1133,7 @@ export const CANVAS_TYPE = {
    * name is dropped below, which is a legibility floor here rather than a
    * density one.
    */
-  group: 12,
+  group: 11,
   groupMin: 8,
 } as const;
 
@@ -1191,7 +1159,8 @@ const REPO_MIN_FIT_ZOOM = (CANVAS_TYPE.nodeMin + 1) / CANVAS_TYPE.node;
  * Exported for `tests/unit/renderer/graph-map-framing.spec.ts`, whose whole
  * subject is that the map opens at the fit its pane allows rather than at this.
  */
-export const GROUP_MIN_FIT_ZOOM = (CANVAS_TYPE.groupMin + 1) / CANVAS_TYPE.group;
+export const GROUP_MIN_FIT_ZOOM =
+  (CANVAS_TYPE.groupMin + 1) / CANVAS_TYPE.group;
 
 /**
  * Above this, fitting a small drawing only magnifies it.
@@ -1205,6 +1174,18 @@ export const GROUP_MIN_FIT_ZOOM = (CANVAS_TYPE.groupMin + 1) / CANVAS_TYPE.group
  * the "no bubble magnified into a stamp" rule.
  */
 export const GROUP_MAX_FIT_ZOOM = 1.4;
+
+/**
+ * The same ceiling for the repo map.
+ *
+ * fcose fits a twelve-repo drawing into a 1440 pane at roughly 4:1, which made
+ * every dot a 36px disc. The earlier 1.25 cap fixed that by shrinking the
+ * drawing into the middle of a mostly empty canvas — with labels now shown only
+ * on focus there is no 40px name to protect, so the ceiling sits where a
+ * twelve-repo map still fills a useful share of the pane without magnifying a
+ * dot past a cluster bubble.
+ */
+const REPO_MAX_FIT_ZOOM = 2;
 
 /**
  * The zoom the cluster map opens at, from the raw fit its layout produced.
@@ -1233,9 +1214,7 @@ function openAt(cy: cytoscape.Core, level: number): void {
  * base → signal → focus → dim. `.dim` is last precisely so a dimmed
  * element can never claw back a label.
  */
-export function buildStylesheet(
-  p: Palette,
-): cytoscape.StylesheetJsonBlock[] {
+export function buildStylesheet(p: Palette): cytoscape.StylesheetJsonBlock[] {
   return [
     {
       selector: "node",
@@ -1250,14 +1229,15 @@ export function buildStylesheet(
         "outline-offset": 2,
         label: "",
         color: p.foreground,
-        "font-family": MONO_STACK,
+        "font-family": SANS_STACK,
+        "font-weight": 500,
         "font-size": CANVAS_TYPE.node,
         "text-valign": "bottom",
         "text-halign": "center",
-        "text-margin-y": 4,
-        "text-background-color": p.background,
-        "text-background-opacity": 0.75,
-        "text-background-padding": "2px",
+        "text-margin-y": 6,
+        "text-background-color": p.surfaceRaised,
+        "text-background-opacity": 1,
+        "text-background-padding": "3px",
         "text-background-shape": "roundrectangle",
         // Cytoscape's own answer to label density: below this rendered
         // size the text is dropped entirely rather than smeared.
@@ -1281,16 +1261,20 @@ export function buildStylesheet(
         // Always on: at group level the name is the content rather than
         // texture that only appears once you are close enough.
         label: "data(label)",
+        "font-family": MONO_STACK,
+        "font-weight": 400,
         "font-size": CANVAS_TYPE.group,
         "min-zoomed-font-size": CANVAS_TYPE.groupMin,
-        color: p.foreground,
+        // A cluster name is a section heading on a canvas: muted, mono, in the
+        // same sentence case as the index's group headings.
+        color: p.muted,
         "text-valign": "bottom",
         "text-halign": "center",
         "text-margin-y": 6,
         "text-wrap": "wrap",
         "text-max-width": "data(labelWidth)",
-        "text-background-color": p.background,
-        "text-background-opacity": 0.85,
+        "text-background-color": p.surfaceRaised,
+        "text-background-opacity": 1,
         "text-background-padding": "3px",
         "text-background-shape": "roundrectangle",
         // A ring in the page colour, so two touching bubbles read as two.
@@ -1318,8 +1302,11 @@ export function buildStylesheet(
       selector: "edge",
       style: {
         "curve-style": "straight",
-        "line-color": p.borderStrong,
-        width: "data(width)",
+        // One hairline, in the border colour. Weight still rides on opacity;
+        // line width is reserved for the lit edges, where it means "this is
+        // the neighbourhood you are looking at".
+        "line-color": p.border,
+        width: 1,
         // `opacity` is typed number-only, so the data mapping is written
         // out longhand rather than as a `data(…)` string.
         opacity: (edge: cytoscape.EdgeSingular) =>
@@ -1369,22 +1356,41 @@ export function buildStylesheet(
     },
 
     // --- labels ---------------------------------------------------------
-    {
-      selector: "node.hub, node.zoomed, node.stray, node.near, node.focus",
-      style: { label: "data(label)" },
-    },
+    //
+    // The handoff's rule, and the one that fixes this screen: a repo is named
+    // only while it is the focused or hovered node. Hubs, strays and
+    // everything in view all naming themselves at once is the texture that
+    // made the map unreadable.
     {
       selector: "node.focus",
       style: {
+        label: "data(label)",
+        width: 12,
+        height: 12,
         "font-size": CANVAS_TYPE.focus,
         "z-index": 40,
         color: p.foreground,
+        // The handoff's focus ring, as close as a canvas gets: a 2px ink
+        // outline with the page colour's breathing room is the same mark the
+        // CSS ring makes on every other control.
+        "outline-width": 2,
+        "outline-color": p.foreground,
+        "outline-offset": 2,
       },
     },
     {
-      // A hovered group keeps its own step: the focus step is a repo's size.
+      selector: "node.focus.favourite",
+      style: { width: 16, height: 16 },
+    },
+    {
+      // A hovered group keeps its own step: the focus step is a repo's size,
+      // and a bubble shrunk to 12px on hover is a bubble you cannot click.
       selector: "node.group.focus",
-      style: { "font-size": CANVAS_TYPE.group },
+      style: {
+        width: "data(size)",
+        height: "data(size)",
+        "font-size": CANVAS_TYPE.group,
+      },
     },
 
     // --- flags ----------------------------------------------------------
@@ -1419,7 +1425,12 @@ export function buildStylesheet(
     // --- focus / neighbourhood -------------------------------------------
     {
       selector: "edge.hot",
-      style: { "line-color": p.foreground, opacity: 0.55, "z-index": 25 },
+      style: {
+        "line-color": p.borderStrong,
+        width: 1.5,
+        opacity: 0.9,
+        "z-index": 25,
+      },
     },
     {
       selector: "edge.hot.curated",
@@ -1446,18 +1457,11 @@ function buildElements(
   nameOf: (slug: string) => string,
 ): cytoscape.ElementDefinition[] {
   const known = new Set(nodes.map((n) => n.slug));
-  const hubThreshold = [...nodes]
-    .sort((a, b) => b.degree - a.degree)
-    .slice(0, hubCount(nodes.length))
-    .at(-1)?.degree;
 
   const elements: cytoscape.ElementDefinition[] = nodes.map((node) => {
-    const size = nodeSize(node.degree);
+    const size = nodeSize();
     const classes: string[] = [];
     if (node.isFavorite) classes.push("favourite");
-    if (hubThreshold !== undefined && node.degree >= hubThreshold) {
-      classes.push("hub");
-    }
     return {
       group: "nodes" as const,
       data: {
@@ -1765,23 +1769,7 @@ export function GraphCanvas({
     });
 
     // Label density, part two: which names are on screen, and how many.
-    //
-    // Answered on every pan and zoom rather than only when a threshold is
-    // crossed — panning changes what is in view as much as zooming does — and
-    // coalesced into one class flip per frame, so a wheel gesture costs a
-    // single batch instead of one per element.
-    let labelFrame = 0;
-    const relabel = () => {
-      if (labelFrame) return;
-      labelFrame = window.requestAnimationFrame(() => {
-        labelFrame = 0;
-        labelNodesInView(cy);
-      });
-    };
-    cy.on("zoom pan", relabel);
-
     return () => {
-      window.cancelAnimationFrame(labelFrame);
       cy.destroy();
       cyRef.current = null;
     };
@@ -1812,9 +1800,15 @@ export function GraphCanvas({
         cy.resize();
         if (cy.nodes().length > 0) {
           if (groupDataRef.current) refitGroupMap(cy, cy.width(), cy.height());
-          else openAt(cy, Math.max(cy.zoom(), REPO_MIN_FIT_ZOOM));
+          else
+            openAt(
+              cy,
+              Math.min(
+                Math.max(cy.zoom(), REPO_MIN_FIT_ZOOM),
+                REPO_MAX_FIT_ZOOM,
+              ),
+            );
         }
-        labelNodesInView(cy);
       });
     });
     observer.observe(container);
@@ -1851,8 +1845,9 @@ export function GraphCanvas({
     }
 
     const layout = cy.layout(
-      (groupData ? groupLayoutOptions() : fcoseOptions([])) as unknown as
-        cytoscape.LayoutOptions,
+      (groupData
+        ? groupLayoutOptions()
+        : fcoseOptions([])) as unknown as cytoscape.LayoutOptions,
     );
     setLayingOut(true);
     cy.one("layoutstop", () => {
@@ -1910,27 +1905,31 @@ export function GraphCanvas({
     });
   }, [focus, nodes, edges]);
 
-  const runLayout = React.useCallback((keepPins: boolean) => {
-    const cy = cyRef.current;
-    if (!cy || cy.nodes().length === 0) return;
-    if (!keepPins) {
-      pinnedRef.current.clear();
-      cy.nodes(".pinned").removeClass("pinned");
-    }
-    const fixed = [...pinnedRef.current]
-      .filter(([id]) => cy.getElementById(id).nonempty())
-      .map(([nodeId, position]) => ({ nodeId, position }));
-    const layout = cy.layout(
-      (groupData ? groupLayoutOptions() : fcoseOptions(fixed)) as unknown as
-        cytoscape.LayoutOptions,
-    );
-    setLayingOut(true);
-    cy.one("layoutstop", () => {
-      setLayingOut(false);
-      settle(cy, groupData);
-    });
-    window.setTimeout(() => layout.run(), 0);
-  }, [groupData]);
+  const runLayout = React.useCallback(
+    (keepPins: boolean) => {
+      const cy = cyRef.current;
+      if (!cy || cy.nodes().length === 0) return;
+      if (!keepPins) {
+        pinnedRef.current.clear();
+        cy.nodes(".pinned").removeClass("pinned");
+      }
+      const fixed = [...pinnedRef.current]
+        .filter(([id]) => cy.getElementById(id).nonempty())
+        .map(([nodeId, position]) => ({ nodeId, position }));
+      const layout = cy.layout(
+        (groupData
+          ? groupLayoutOptions()
+          : fcoseOptions(fixed)) as unknown as cytoscape.LayoutOptions,
+      );
+      setLayingOut(true);
+      cy.one("layoutstop", () => {
+        setLayingOut(false);
+        settle(cy, groupData);
+      });
+      window.setTimeout(() => layout.run(), 0);
+    },
+    [groupData],
+  );
 
   /** Zoom around the middle of the viewport, not the top-left corner. */
   const zoomBy = React.useCallback((factor: number) => {
@@ -1952,7 +1951,8 @@ export function GraphCanvas({
     [groupData, hovered],
   );
   const groupedRepoCount = React.useMemo(
-    () => groupData?.groups.reduce((total, group) => total + group.size, 0) ?? 0,
+    () =>
+      groupData?.groups.reduce((total, group) => total + group.size, 0) ?? 0,
     [groupData],
   );
 

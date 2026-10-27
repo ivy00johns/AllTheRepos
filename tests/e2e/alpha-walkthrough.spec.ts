@@ -360,7 +360,7 @@ test.describe("alpha walkthrough", () => {
 
       await step("chrome.nav-running", "Top bar nav: Running → /processes", async () => {
         await win.getByRole("banner").getByRole("link", { name: /^running/i }).click();
-        await win.getByRole("heading", { name: /^Processes$/i }).waitFor({ timeout: 15_000 });
+        await win.getByRole("heading", { name: /^Running$/i }).waitFor({ timeout: 15_000 });
         await shot(win, "processes-empty-or-list");
         await inventory(win, "processes /processes");
       });
@@ -380,7 +380,8 @@ test.describe("alpha walkthrough", () => {
           return;
         }
         await debug.first().click();
-        await win.getByRole("heading", { name: /system\.ping/i }).waitFor({ timeout: 15_000 });
+        await win.getByRole("heading", { name: /^Debug$/i }).waitFor({ timeout: 15_000 });
+        await win.getByText("system.ping", { exact: true }).first().waitFor({ timeout: 15_000 });
         await win.waitForTimeout(800);
         await shot(win, "debug");
         await inventory(win, "debug /debug");
@@ -402,15 +403,15 @@ test.describe("alpha walkthrough", () => {
       });
 
       // -------------------------------------------------------- catalog views
-      await step("toolbar.views", "Catalog toolbar: Gallery / Grid / Table view modes", async () => {
+      await step("toolbar.views", "Catalog toolbar: Index / Posters / Table view modes", async () => {
         const group = win.getByRole("group", { name: "View mode" });
-        for (const label of ["Gallery", "Grid", "Table"]) {
+        for (const label of ["Index", "Posters", "Table"]) {
           await group.getByRole("button", { name: new RegExp(`^${label}$`, "i") }).click();
           await win.waitForTimeout(500);
           await shot(win, `view-${label.toLowerCase()}`);
         }
-        // leave on grid for the rest of the pass
-        await group.getByRole("button", { name: /^Grid$/i }).click();
+        // leave on the index for the rest of the pass
+        await group.getByRole("button", { name: /^Index$/i }).click();
         await win.waitForTimeout(400);
       });
 
@@ -673,6 +674,10 @@ test.describe("alpha walkthrough", () => {
       });
 
       await step("panel.tags", "Detail panel: add a tag, then remove it", async () => {
+        // The tag composer is behind the Tags header's "Add" now.
+        const panel = win.getByRole("complementary", { name: /repo detail/i });
+        const reveal = panel.getByRole("button", { name: "Add", exact: true });
+        if (await reveal.count()) await reveal.first().click();
         const input = win.getByRole("textbox", { name: /new tag/i });
         if (!(await input.count())) throw new Error("no New tag input");
         await input.first().fill("walkthrough-tag");
@@ -790,7 +795,7 @@ test.describe("alpha walkthrough", () => {
 
       await step("processes.refresh", "Processes: Refresh + copy URL + Kill (confirm dialog)", async () => {
         await win.getByRole("banner").getByRole("link", { name: /^running/i }).click();
-        await win.getByRole("heading", { name: /^Processes$/i }).waitFor({ timeout: 15_000 });
+        await win.getByRole("heading", { name: /^Running$/i }).waitFor({ timeout: 15_000 });
         await win.waitForTimeout(2000);
         const refresh = win.getByRole("button", { name: /^Refresh$/i });
         if (await refresh.count()) {

@@ -31,7 +31,6 @@ import {
   useTaskOutput,
 } from "@renderer/hooks/use-actions";
 import { useCatalogLive } from "@renderer/hooks/use-catalog-live";
-import { useCovers } from "@renderer/hooks/use-cover";
 import {
   useAddScanPath,
   usePickScanPath,
@@ -94,14 +93,6 @@ interface CatalogSearch {
   groupId?: string;
   dirty?: string;
 }
-
-/**
- * A tag on more than this share of the catalog tells you nothing about
- * any individual repo. `node`, `docker` and `ci` are all in this bucket
- * on a typical machine, and between them they were eating most of the
- * old card's body.
- */
-const UBIQUITOUS_TAG_SHARE = 0.25;
 
 /** A failed git sync, phrased the way the notice strip reads. */
 function syncFailed(verb: "Fetch" | "Pull", error: unknown): string {
@@ -237,22 +228,6 @@ export function CatalogShell({
       repo.fullPath.slice(0, repo.fullPath.lastIndexOf("/")),
     [],
   );
-
-  const commonTags = React.useMemo(() => {
-    if (initialRepos.length === 0) return new Set<string>();
-    const counts = new Map<string, number>();
-    for (const repo of initialRepos) {
-      for (const tag of repo.tags) {
-        counts.set(tag.value, (counts.get(tag.value) ?? 0) + 1);
-      }
-    }
-    const threshold = initialRepos.length * UBIQUITOUS_TAG_SHARE;
-    return new Set(
-      [...counts.entries()]
-        .filter(([, count]) => count >= threshold)
-        .map(([value]) => value),
-    );
-  }, [initialRepos]);
 
   // ---------------------------------------------------------------------
   // Filtering
@@ -530,8 +505,6 @@ export function CatalogShell({
     if (!hits || hits.length > 0) return [];
     return nearMisses(trimmedQuery, initialRepos, { limit: 3 });
   }, [isSearching, searchQuery.data, trimmedQuery, initialRepos]);
-
-  const coverFor = useCovers(displayedRepos);
 
   // ---------------------------------------------------------------------
   // Interactions
@@ -1060,8 +1033,6 @@ export function CatalogShell({
             ownershipFor={ownershipFor}
             folderLabelFor={folderLabelFor}
             folderKeyFor={folderKeyFor}
-            coverFor={coverFor}
-            commonTags={commonTags}
             selectedSlug={querySlug}
             checkedSlugs={checkedSlugs}
             onSelect={selectRepo}

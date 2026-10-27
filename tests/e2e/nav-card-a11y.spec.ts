@@ -237,7 +237,7 @@ test.describe("nav names and repo-card focus order", () => {
       await expect(refresh).toBeEnabled({ timeout: 10_000 });
       await refresh.click();
       await expect(
-        win.locator("tbody tr").filter({ has: win.locator(`span:text-is("${port}")`) }),
+        win.locator("tbody tr").filter({ has: win.locator(`span:text-is(":${port}")`) }),
         `the spawned listener on port ${port} never reached the process table`,
       ).toBeVisible({ timeout: 20_000 });
       await appTitle.click();
@@ -308,16 +308,28 @@ test.describe("nav names and repo-card focus order", () => {
       ).toEqual([]);
 
       // ----- The keyboard walk: one stop per control, and never the card. -----
+      //
+      // The order is the index entry's, which is the default density: the name,
+      // then the port control inside the meta line, then the entry's own two
+      // controls and the launchers in the reserved gutter. The select box leads
+      // the gutter because bulk selection has to be visible to be usable — it
+      // used to be ⌘-click, a gesture nothing on screen advertised — so the walk
+      // expects eight stops here and not the card's old seven.
       const chip = card.locator('button[aria-label^="Port "]').first();
       await expect(chip, "the card never rendered a port chip").toBeVisible({
         timeout: 20_000,
       });
+      const select = card
+        .locator('input[type="checkbox"][aria-label^="Select "]')
+        .first();
+      await expect(select, "the entry has no select box").toHaveCount(1);
       const star = card
         .locator('button[aria-label^="Pin "], button[aria-label^="Unpin "]')
         .first();
 
       const expected = [
         await chip.getAttribute("aria-label"),
+        await select.getAttribute("aria-label"),
         await star.getAttribute("aria-label"),
         ...LAUNCHER_LABELS,
       ];

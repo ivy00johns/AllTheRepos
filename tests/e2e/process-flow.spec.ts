@@ -149,7 +149,7 @@ test.describe("Phase 3a process flow", () => {
 
       // The /processes page renders an h1 "Processes".
       await expect(
-        win.getByRole("heading", { name: /^processes$/i }),
+        win.getByRole("heading", { name: /^running$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
       // This leg is route chrome only: the host may genuinely have nothing
@@ -231,7 +231,7 @@ test.describe("Phase 3a process flow", () => {
       ).toBeVisible({ timeout: 15_000 });
       await win.getByRole("link", { name: /running process/i }).click();
       await expect(
-        win.getByRole("heading", { name: /^processes$/i }),
+        win.getByRole("heading", { name: /^running$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
       // 3. Ask for a sweep rather than waiting out the poll interval.
@@ -245,7 +245,7 @@ test.describe("Phase 3a process flow", () => {
       // next to a decorative dot; the PID cell holds only the number.
       const rowSelector = win
         .locator("tbody tr")
-        .filter({ has: win.locator(`span:text-is("${port}")`) })
+        .filter({ has: win.locator(`span:text-is(":${port}")`) })
         .filter({ has: win.locator(`td:text-is("${pid}")`) });
 
       const detectedAt = Date.now();
@@ -263,12 +263,18 @@ test.describe("Phase 3a process flow", () => {
         repoSlug,
         `the app's catalog has no repo at ${repoDir}, so the attribution assertion below cannot mean anything`,
       ).not.toBe("");
+      // The handoff never shows the six-hex path fingerprint, so the row's own
+      // label is the slug without it; the href still carries the full slug, and
+      // that is what proves the row points at this repo rather than a sibling.
+      const repoLabel = repoSlug.replace(/-[0-9a-f]{6,8}$/, "");
+      const repoLink = rowSelector.getByRole("link", { name: repoLabel });
       await expect(
-        rowSelector.getByRole("link", { name: repoSlug }),
+        repoLink,
         `expected the row for PID ${pid} to link to the ${SEEDED_REPO} repo. ` +
           `The listener's cwd (which lsof reports as the kernel resolved it) ` +
           `did not match the catalog path ${repoDir}.`,
       ).toBeVisible();
+      await expect(repoLink).toHaveAttribute("href", new RegExp(repoSlug));
 
       // 5. Click the kill button on this row, then confirm.
       //
@@ -351,7 +357,7 @@ test.describe("Phase 3a process flow", () => {
       ).toBeVisible({ timeout: 15_000 });
       await win.getByRole("link", { name: /running process/i }).click();
       await expect(
-        win.getByRole("heading", { name: /^processes$/i }),
+        win.getByRole("heading", { name: /^running$/i }),
       ).toBeVisible({ timeout: 10_000 });
 
       const refreshBtn = win.getByRole("button", { name: /^refresh$/i });
@@ -361,7 +367,7 @@ test.describe("Phase 3a process flow", () => {
       const rows = win.locator("tbody tr");
       await expect(
         rows
-          .filter({ has: win.locator(`span:text-is("${declared.port}")`) })
+          .filter({ has: win.locator(`span:text-is(":${declared.port}")`) })
           .filter({ has: win.locator(`td:text-is("${declared.pid}")`) }),
         `the declared listener (PID ${declared.pid}, port ${declared.port}) never reached the table, ` +
           `so the sweep did not read the fixture.`,

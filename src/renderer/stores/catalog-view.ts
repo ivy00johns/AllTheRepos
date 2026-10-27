@@ -20,12 +20,15 @@ import type { Ownership } from "@renderer/lib/ownership";
 /**
  * Density modes, each tuned for a different job:
  *
- * - `gallery` — large covers. For browsing and remembering: "which one
- *   was the voxel thing?" Fewest repos per screen, highest recall.
- * - `grid`    — a cover thumbnail plus full metadata. The default;
- *   balances recognition against how much you can see at once.
+ * - `grid`    — the **Index**: one full-width line per repo. The default.
+ * - `gallery` — **Posters**: the name at display size, two lines of prose.
+ *   For browsing and remembering: "which one was the voxel thing?"
  * - `table`   — one line per repo, sortable columns. For working ON the
  *   catalog: auditing, comparing, bulk-selecting, reorganising.
+ *
+ * The keys are old and deliberately unchanged: they are persisted in
+ * `atr:catalog-view:v1`, so renaming one would throw away the saved view. The
+ * labels the toolbar draws are Index, Posters and Table.
  */
 export type ViewMode = "gallery" | "grid" | "table";
 
@@ -94,7 +97,7 @@ export const PERSIST_KEY = "atr:catalog-view:v1";
 export const useCatalogView = create<CatalogViewState>()(
   persist(
     (set) => ({
-      mode: "grid",
+      mode: "grid", // Index — the list, not a card grid.
       groupBy: "folder",
       sort: "touched",
       order: "desc",

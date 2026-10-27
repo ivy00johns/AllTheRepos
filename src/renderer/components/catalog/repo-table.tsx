@@ -1,20 +1,21 @@
 /**
- * Table view — one line per repo.
+ * Table — one line per repo, for working ON the catalog.
  *
- * This is the mode for working ON the catalog rather than browsing it:
- * comparing a hundred repos at a glance, spotting the dormant ones,
- * multi-selecting a folder's worth of projects and moving them.
+ * The handoff's table is one table, not one per group: a single sticky header
+ * over the surface, then group rows inside the same body. The old version
+ * repeated the column header above every group (three headers for three
+ * folders) and spent columns on Owner and Folder that the group heading and
+ * the ownership filter already answer. This one reads Name · Description ·
+ * Language · Last touched · Size, exactly as specified.
  *
- * Sorting is column-driven with `aria-sort` so the current order is
- * announced, and every row keeps the same marks as the card views so
- * the two modes stay legible against each other.
+ * The row is still furniture and the name is still the control (ATR-066). The
+ * star stays — it is the one control the accessibility suite finds the row by
+ * — but it sits at the end of the name cell and only appears on hover, focus
+ * or selection, so the resting table has one clean left edge.
  *
- * The project name is the control, and the row is a container (ATR-066).
- * The row used to carry `tabIndex={0}`, an `onClick` and an Enter-only
- * `onKeyDown` while being announced as a plain row: no role, no name, and
- * Space did nothing. Both keyboard stops now live on a real `<button>`
- * around the name, which is also the row's only accessible name. The row
- * keeps its click handler so the mouse target is unchanged.
+ * The selected row is the handoff's: raised background and a 2px ink rule on
+ * the left edge. The rule is a real element rather than a border because a
+ * `border-collapse` table cannot hang one on a single row.
  */
 
 import * as React from "react";
@@ -24,28 +25,24 @@ import type { Repo } from "@shared/types";
 
 import { cn } from "@renderer/lib/cn";
 import { activityOf, lastTouched } from "@renderer/lib/activity";
+import { formatSize } from "@renderer/lib/format-size";
 import { cleanDescription } from "@renderer/lib/describe";
-import type { OwnershipInfo } from "@renderer/lib/ownership";
+import { useProcessesForRepo } from "@renderer/hooks/use-processes";
 import { useCatalogView, type SortKey } from "@renderer/stores/catalog-view";
 
 import { colorForLanguage } from "./language-colors";
 import { FavoriteStar } from "./favorite-star";
-import { RepoCover } from "./repo-cover";
-import { SelectionCheckbox } from "./selection-checkbox";
-import {
-  ActivityDot,
-  DirtyMark,
-  MissingMark,
-  OwnershipMark,
-} from "./repo-marks";
+import { DirtyMark, MissingMark } from "./repo-marks";
+
+export interface RepoTableSection {
+  key: string;
+  label: string;
+  repos: Repo[];
+}
 
 export interface RepoTableProps {
-  repos: Repo[];
-  ownershipFor: (repo: Repo) => OwnershipInfo;
-  folderLabelFor: (repo: Repo) => string;
-  coverFor?: (repo: Repo) => string | null | undefined;
+  sections: RepoTableSection[];
   selectedSlug: string | null;
-  checkedSlugs: ReadonlySet<string>;
   onSelect: (slug: string) => void;
   onToggleChecked: (slug: string, additive: boolean) => void;
   onOpenEditor: (slug: string) => void;
@@ -54,49 +51,17 @@ export interface RepoTableProps {
 interface ColumnDef {
   key: SortKey | null;
   label: string;
-  className: string;
   /** Numeric / date columns right-align so magnitudes line up. */
-  numeric?: boolean;
+  align?: "right";
 }
 
-/**
- * Columns depend on the grouping axis: when rows are already grouped BY
- * folder, a folder column repeats the section header on every single
- * row and truncates to the same useless prefix. Dropping it hands ~20%
- * of the width back to the project name and description, which are the
- * columns you actually read.
- */
-function columnsFor(groupedByFolder: boolean): ColumnDef[] {
-  if (groupedByFolder) {
-    return [
-      { key: "name", label: "Project", className: "w-[50%]" },
-      { key: "owner", label: "Owner", className: "w-[16%]" },
-      { key: "language", label: "Language", className: "w-[14%]" },
-      { key: "size", label: "Size", className: "w-[8%]", numeric: true },
-      { key: "touched", label: "Touched", className: "w-[16%]", numeric: true },
-    ];
-  }
-  return [
-    { key: "name", label: "Project", className: "w-[32%]" },
-    { key: "owner", label: "Owner", className: "w-[14%]" },
-    { key: "folder", label: "Folder", className: "w-[20%]" },
-    { key: "language", label: "Language", className: "w-[12%]" },
-    { key: "size", label: "Size", className: "w-[8%]", numeric: true },
-    { key: "touched", label: "Touched", className: "w-[14%]", numeric: true },
-  ];
-}
-
-function formatSize(bytes: number | null): string {
-  if (bytes === null || bytes <= 0) return "—";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)}${units[unit]}`;
-}
+const COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: null, label: "Description" },
+  { key: "language", label: "Language" },
+  { key: "touched", label: "Last touched" },
+  { key: "size", label: "Size", align: "right" },
+];
 
 function HeaderCell({ column }: { column: ColumnDef }) {
   const sort = useCatalogView((s) => s.sort);
@@ -111,9 +76,8 @@ function HeaderCell({ column }: { column: ColumnDef }) {
         isActive ? (order === "asc" ? "ascending" : "descending") : "none"
       }
       className={cn(
-        "sticky top-0 z-10 border-b border-border bg-background px-3 py-2 font-mono atr-label font-medium uppercase tracking-wider text-muted-foreground",
-        column.numeric ? "text-right" : "text-left",
-        column.className,
+        "sticky top-0 z-20 h-9 border-b border-border bg-surface px-2 text-label font-medium text-muted-foreground first:pl-6 last:pr-6",
+        column.align === "right" ? "text-right" : "text-left",
       )}
     >
       {column.key ? (
@@ -141,182 +105,194 @@ function HeaderCell({ column }: { column: ColumnDef }) {
   );
 }
 
+function TableRow({
+  repo,
+  selected,
+  onSelect,
+  onToggleChecked,
+  onOpenEditor,
+}: {
+  repo: Repo;
+  selected: boolean;
+  onSelect: (slug: string) => void;
+  onToggleChecked: (slug: string, additive: boolean) => void;
+  onOpenEditor: (slug: string) => void;
+}) {
+  const { processes } = useProcessesForRepo(repo.slug);
+  const activity = activityOf(lastTouched(repo));
+  const description = cleanDescription(repo.description, repo.readmePreview);
+
+  /** One behaviour, two callers — the row (mouse) and the name (keyboard). */
+  const activate = (
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent,
+  ) => {
+    if (event.metaKey || event.ctrlKey) {
+      onToggleChecked(repo.slug, true);
+      return;
+    }
+    if (event.shiftKey) {
+      onOpenEditor(repo.slug);
+      return;
+    }
+    onSelect(repo.slug);
+  };
+
+  return (
+    <tr
+      data-repo-slug={repo.slug}
+      data-selected={selected ? "true" : "false"}
+      onClick={activate}
+      className={cn(
+        "group cursor-pointer transition-colors duration-150",
+        "hover:bg-surface",
+        selected && "bg-surface-raised",
+        repo.missing && "opacity-60",
+      )}
+    >
+      <td className="relative h-9 border-b border-surface-raised px-2 py-1.5 first:pl-6 last:pr-6">
+        {selected ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-0.5 bg-foreground"
+          />
+        ) : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            aria-pressed={selected ? "true" : "false"}
+            onClick={(event) => {
+              event.stopPropagation();
+              activate(event);
+            }}
+            className="min-w-0 cursor-pointer truncate text-left text-body font-medium text-foreground"
+          >
+            {repo.name}
+          </button>
+          {processes.length > 0 ? (
+            <span
+              title="Listening"
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-status-live"
+            >
+              <span className="sr-only">Listening. </span>
+            </span>
+          ) : null}
+          {repo.missing ? <MissingMark compact /> : null}
+          {repo.isDirty ? <DirtyMark compact /> : null}
+          <span className="ml-auto shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+            <FavoriteStar
+              slug={repo.slug}
+              name={repo.name}
+              isFavorite={repo.isFavorite}
+            />
+          </span>
+        </div>
+      </td>
+
+      <td className="h-9 overflow-hidden border-b border-surface-raised px-2 py-1.5 first:pl-6 last:pr-6">
+        <span className="block truncate text-body text-muted-foreground">
+          {description ?? "—"}
+        </span>
+      </td>
+
+      <td className="h-9 border-b border-surface-raised px-2 py-1.5 first:pl-6 last:pr-6">
+        {repo.primaryLanguage ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden
+              className="h-3 w-0.5 shrink-0"
+              style={{
+                backgroundColor: colorForLanguage(repo.primaryLanguage),
+              }}
+            />
+            <span className="atr-truncate atr-meta">
+              {repo.primaryLanguage}
+            </span>
+          </span>
+        ) : (
+          <span className="atr-meta">—</span>
+        )}
+      </td>
+
+      <td className="h-9 border-b border-surface-raised px-2 py-1.5 first:pl-6 last:pr-6">
+        <span className="atr-meta tabular-nums">{activity.relative}</span>
+      </td>
+
+      <td className="h-9 border-b border-surface-raised px-2 py-1.5 text-right first:pl-6 last:pr-6">
+        <span className="atr-meta tabular-nums">
+          {formatSize(repo.sizeBytes) || "—"}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 export function RepoTable({
-  repos,
-  ownershipFor,
-  folderLabelFor,
-  coverFor,
+  sections,
   selectedSlug,
-  checkedSlugs,
   onSelect,
   onToggleChecked,
   onOpenEditor,
 }: RepoTableProps) {
-  const groupedByFolder = useCatalogView((state) => state.groupBy) === "folder";
-  const columns = React.useMemo(
-    () => columnsFor(groupedByFolder),
-    [groupedByFolder],
-  );
-
   return (
-    <table className="w-full table-fixed border-collapse">
-      <caption className="sr-only">
-        {repos.length} repositories. Use the column headers to sort.
-      </caption>
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <HeaderCell key={column.label} column={column} />
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {repos.map((repo) => {
-          const ownership = ownershipFor(repo);
-          const activity = activityOf(lastTouched(repo));
-          const description = cleanDescription(
-            repo.description,
-            repo.readmePreview,
-          );
-          const isChecked = checkedSlugs.has(repo.slug);
-
-          /**
-           * One behaviour, two callers — the row (mouse) and the name
-           * button (mouse and keyboard) — so the modifiers cannot drift
-           * apart the way a duplicated handler would let them.
-           */
-          const activate = (
-            event: React.MouseEvent<HTMLElement> | React.KeyboardEvent,
-          ) => {
-            if (event.metaKey || event.ctrlKey) {
-              onToggleChecked(repo.slug, true);
-              return;
-            }
-            if (event.shiftKey) {
-              onOpenEditor(repo.slug);
-              return;
-            }
-            onSelect(repo.slug);
-          };
-
-          return (
-            <tr
-              key={repo.slug}
-              data-repo-slug={repo.slug}
-              data-selected={selectedSlug === repo.slug ? "true" : "false"}
-              onClick={activate}
-              className={cn(
-                "cursor-pointer border-b border-border/60 transition-colors duration-150",
-                "hover:bg-surface-raised",
-                selectedSlug === repo.slug && "bg-secondary",
-                isChecked && "bg-accent/10",
-                repo.missing && "opacity-60",
-              )}
-            >
-              <td className="px-3 py-1.5">
-                <div className="flex min-w-0 items-center gap-2">
-                  {/*
-                    Before the star and the name button, matching the card: one
-                    selection control in one place across all three views.
-                    `true` is the store's additive toggle — see `repo-card.tsx`.
-                  */}
-                  <SelectionCheckbox
-                    name={repo.name}
-                    checked={isChecked}
-                    onCheckedChange={() => onToggleChecked(repo.slug, true)}
-                  />
-                  <FavoriteStar
-                    slug={repo.slug}
-                    name={repo.name}
-                    isFavorite={repo.isFavorite}
-                  />
-                  <RepoCover
-                    slug={repo.slug}
-                    name={repo.name}
-                    imageSrc={coverFor?.(repo)}
-                    size="sm"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        // Selection is announced the way the card's title button
-                        // announces it: the row's own control reports the state,
-                        // so a screen reader hears which project is selected in
-                        // the table as well as in the grid.
-                        aria-pressed={selectedSlug === repo.slug ? "true" : "false"}
-                        onClick={(event) => {
-                          // The row would otherwise handle the same click
-                          // twice.
-                          event.stopPropagation();
-                          activate(event);
-                        }}
-                        className="atr-truncate cursor-pointer text-left font-mono text-body font-medium text-foreground"
-                      >
-                        {repo.name}
-                      </button>
-                      {repo.missing ? <MissingMark compact /> : null}
-                      {repo.isDirty ? <DirtyMark compact /> : null}
-                    </div>
-                    <span className="atr-truncate block atr-label text-muted-foreground">
-                      {description ?? "—"}
-                    </span>
-                  </div>
-                </div>
-              </td>
-
-              <td className="px-3 py-1.5">
-                <OwnershipMark ownership={ownership} />
-              </td>
-
-              {groupedByFolder ? null : (
-                <td className="px-3 py-1.5">
-                  <span
-                    className="atr-truncate atr-meta block"
-                    title={repo.fullPath}
+    /*
+      The pane's own gutter is 16px; the table bleeds through it so the
+      specified 24px cell padding is measured from the pane's edge. The table's
+      720px minimum is what makes the pane scroll horizontally below that size
+      — the same scroller the rows already live in.
+    */
+    <div className="-mx-4">
+      <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0">
+        <caption className="sr-only">
+          {sections.reduce((sum, section) => sum + section.repos.length, 0)}{" "}
+          repositories. Use the column headers to sort.
+        </caption>
+        <colgroup>
+          <col style={{ width: "25%" }} />
+          <col />
+          <col style={{ width: "126px" }} />
+          <col style={{ width: "126px" }} />
+          <col style={{ width: "88px" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            {COLUMNS.map((column) => (
+              <HeaderCell key={column.label} column={column} />
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map((section) => (
+            <React.Fragment key={section.key}>
+              {section.label ? (
+                <tr>
+                  <th
+                    scope="colgroup"
+                    colSpan={COLUMNS.length}
+                    className="border-b border-border pb-2 pl-6 pr-6 pt-5 text-left"
                   >
-                    {folderLabelFor(repo)}
-                  </span>
-                </td>
-              )}
-
-              <td className="px-3 py-1.5">
-                {repo.primaryLanguage ? (
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span
-                      aria-hidden
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: colorForLanguage(repo.primaryLanguage),
-                      }}
-                    />
-                    <span className="atr-truncate atr-meta">
-                      {repo.primaryLanguage}
+                    <span className="text-label font-semibold text-muted-foreground">
+                      {section.label}
                     </span>
-                  </span>
-                ) : (
-                  <span className="atr-meta">—</span>
-                )}
-              </td>
-
-              <td className="px-3 py-1.5 text-right">
-                <span className="atr-meta tabular-nums">
-                  {formatSize(repo.sizeBytes)}
-                </span>
-              </td>
-
-              <td className="px-3 py-1.5">
-                <span className="flex items-center justify-end gap-1.5">
-                  <ActivityDot activity={activity} />
-                  <span className="atr-meta tabular-nums">
-                    {activity.relative}
-                  </span>
-                </span>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                    <span className="ml-2 atr-meta tabular-nums">
+                      {section.repos.length}
+                    </span>
+                  </th>
+                </tr>
+              ) : null}
+              {section.repos.map((repo) => (
+                <TableRow
+                  key={repo.slug}
+                  repo={repo}
+                  selected={selectedSlug === repo.slug}
+                  onSelect={onSelect}
+                  onToggleChecked={onToggleChecked}
+                  onOpenEditor={onOpenEditor}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

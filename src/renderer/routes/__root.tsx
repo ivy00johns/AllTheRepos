@@ -28,6 +28,7 @@ import { useTrayOpenRepoBus } from "@renderer/actions/use-tray-open-repo-bus";
 import { CommandPalette } from "@renderer/components/command-palette/command-palette";
 import { ActionNotice } from "@renderer/components/layout/action-notice";
 import { AdHocBuildNotice } from "@renderer/components/layout/adhoc-build-notice";
+import { AppRail } from "@renderer/components/layout/app-rail";
 import { ScanStatusBar } from "@renderer/components/layout/scan-status-bar";
 import { TopBar } from "@renderer/components/layout/top-bar";
 
@@ -45,16 +46,17 @@ function RootLayout() {
   useTrayOpenRepoBus();
 
   const location = useLocation();
-  // Routes that own their own scrolling get the full-height shell: the catalog
-  // (rail + grid + detail panel side by side) and the map, which wants the
-  // viewport rather than the shell's prose measure. Everything else — settings,
-  // claude, processes, a standalone repo page — renders inside `SimpleShell`,
-  // the padded column that scrolls.
+  // The catalog owns its own three panes (rail + grid + detail), so it is the
+  // one route that is not wrapped. Every other route keeps the same 232px rail
+  // the handoff draws on every screen — choosing a row there returns to `/` —
+  // and then the route's own column. The map is the one exception to the
+  // scrolling column: it wants the viewport for its canvas, so its pane does
+  // not scroll and the route handles its own height.
   //
-  // `SimpleShell` scrolls rather than grows, so a route that is not listed here
-  // still has to fit the window (see the height contract below).
-  const isFullShell =
-    location.pathname === "/" || location.pathname === "/graph";
+  // Both shells fit the window exactly, so a route can never grow the document
+  // past it (see the height contract below).
+  const isCatalog = location.pathname === "/";
+  const isMap = location.pathname === "/graph";
 
   /*
    * The height contract, learned the hard way in the 2026-10-07 UI/UX review
@@ -131,8 +133,12 @@ function RootLayout() {
         className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden outline-none"
       >
         <Suspense fallback={<RouteFallback />}>
-          {isFullShell ? (
+          {isCatalog ? (
             <Outlet />
+          ) : isMap ? (
+            <MapShell>
+              <Outlet />
+            </MapShell>
           ) : (
             <SimpleShell>
               <Outlet />
@@ -147,17 +153,31 @@ function RootLayout() {
 
 function SimpleShell({ children }: { children: React.ReactNode }) {
   /*
-   * A scrolling column *inside* the window, not a page that grows: the outer
-   * div is the scroll container, so the scrollbar sits at the window edge and
-   * the inner one keeps the prose measure. `min-h-0` is what lets a child of
-   * the flex column be shorter than its content instead of stretching the
-   * document.
+   * The rail is the shell, not a catalog ornament: the handoff draws it on
+   * every route, and a page title that starts at the window edge while the
+   * wordmark above it ends at 232 never lines up. The right pane is the one
+   * that scrolls, so the rail stays put while a settings block list or a
+   * repo's README moves — and the scrollbar still sits at the window edge.
+   * Secondary routes are otherwise full-bleed: each owns its own measure
+   * (the settings label column, the repo page's 68ch prose) rather than
+   * inheriting a centred column that made every page look like a form.
    */
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto min-h-0 w-full max-w-5xl px-6 py-8">
-        {children}
+    <div className="flex h-full min-h-0">
+      <AppRail />
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-full flex-col">{children}</div>
       </div>
+    </div>
+  );
+}
+
+/** The map keeps the rail, but its canvas owns the height instead of scrolling. */
+function MapShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full min-h-0">
+      <AppRail />
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

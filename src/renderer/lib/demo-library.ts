@@ -500,6 +500,44 @@ const EXTRA_NAMES = [
   ["platform-stack", "network-modules"], ["component-notes", "developer-guide"],
   ["field-notes", "data-sketches"], ["archive-tool", "legacy-dashboard"],
 ];
+
+/**
+ * One description per invented repo.
+ *
+ * The extras used to be the seed's sentence plus "Companion tools" or
+ * "Integration workspace", which put three near-identical lines in every
+ * folder — the design group read as the same project three times. A demo
+ * library is evidence about the app, and evidence that repeats itself is what
+ * made those densities look like placeholder rows.
+ */
+const EXTRA_DESCRIPTIONS: Record<string, string> = {
+  "harbor-console":
+    "Console for the harbor fleet: berths, manifests and delay alerts.",
+  "atlas-ui": "Map-first shell for the same catalog, built as a second client.",
+  "audit-journal": "Immutable audit trail for every ledger posting.",
+  "balance-api": "Read API over balances, settlements and their windows.",
+  "event-relay": "Fan-out relay for inbound webhooks and delivery retries.",
+  "inbox-worker": "Background worker that drains the inbound mail queue.",
+  "gateway-config": "Declarative routes and rate limits for the edge gateway.",
+  "traffic-router": "Blue/green traffic shifts across the gateway pools.",
+  "terrain-viewer": "Read-only view of the currently applied terrain state.",
+  "mesh-tools": "Service-mesh policy and certificate helpers.",
+  "sprite-editor": "Sprite atlas editor with a live shader preview.",
+  "shader-lab": "Shader playground for the voxel renderer's passes.",
+  "rainfall-study": "Particle rainfall study built on the sprite pipeline.",
+  "station-importer": "Batch importer for the public station sprites.",
+  "agent-queue": "Queue for long-running agent and workflow jobs.",
+  "workflow-runner": "Executes the graph the agent queue hands it.",
+  "platform-stack": "Platform notes and a local stack definition.",
+  "network-modules": "Terraform modules for the internal network.",
+  "component-notes": "Design notes for the orchestrator's own interface.",
+  "developer-guide": "Onboarding guide with dispatch and deploy examples.",
+  "field-notes": "Collected field notes, published as a static site.",
+  "data-sketches": "Interactive sketches for the data chapters.",
+  "archive-tool": "Reader for the first experiment's archived output.",
+  "legacy-dashboard": "The dashboard that preceded the current one.",
+};
+
 const ORIGINAL_SEEDS = [...DEMO_SEEDS];
 for (const [index, seed] of ORIGINAL_SEEDS.entries()) {
   for (const [variant, name] of (EXTRA_NAMES[index] ?? []).entries()) {
@@ -510,7 +548,9 @@ for (const [index, seed] of ORIGINAL_SEEDS.entries()) {
       hoursAgo: seed.hoursAgo + (variant + 1) * 48,
       favorite: false,
       dirty: index % 5 === variant,
-      description: `${seed.description} ${variant === 0 ? "Companion tools" : "Integration workspace"}.`,
+      description:
+        EXTRA_DESCRIPTIONS[name] ??
+        `${seed.description} ${variant === 0 ? "Companion tools" : "Integration workspace"}.`,
     });
   }
 }

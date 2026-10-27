@@ -8,7 +8,7 @@
  * goes through LauncherService).
  */
 
-import { ExternalLink, Wand2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import type { ClaudeSkill } from "@shared/types";
 import { Button } from "@renderer/components/ui/button";
@@ -29,22 +29,18 @@ export function ClaudeSkillCard({ skill }: ClaudeSkillCardProps) {
   };
 
   return (
-    <article className="flex flex-col gap-2 rounded-md border border-border bg-card p-3">
+    <article className="flex flex-col gap-1 border-t border-border/60 py-2">
       <div className="flex items-start gap-2">
-        <Wand2
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent"
-          aria-hidden
-        />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-mono text-sm font-semibold text-foreground">
+          <p className="truncate text-body font-medium text-foreground">
             {skill.name}
           </p>
           {skill.description ? (
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-0.5 text-label leading-relaxed text-muted-foreground">
               {skill.description}
             </p>
           ) : (
-            <p className="mt-0.5 text-xs italic text-muted-foreground">
+            <p className="mt-0.5 text-label italic text-muted-foreground">
               No description.
             </p>
           )}

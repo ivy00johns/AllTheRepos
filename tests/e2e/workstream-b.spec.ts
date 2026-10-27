@@ -110,6 +110,38 @@ async function stashHandlers(
 }
 
 /**
+ * Drop the main→renderer process pushes for the rest of this launch.
+ *
+ * The skeleton test holds both process invokes, but a push event writes the
+ * same cache directly (`useProcesses` subscribes to it), so a listener that
+ * starts or stops anywhere on the machine while the read is held would resolve
+ * the page and take the skeleton away before the assertion sees it. That is
+ * exactly what made this test pass alone and fail late in the full suite, when
+ * other specs are spawning and killing servers. Patching `webContents.send`
+ * leaves the read held and nothing else changed.
+ */
+async function silenceProcessUpdates(
+  app: ElectronApplication,
+): Promise<void> {
+  const patched = await app.evaluate(({ BrowserWindow }) => {
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length === 0) return false;
+    for (const window of windows) {
+      const contents = window.webContents as unknown as {
+        send: (channel: string, ...args: unknown[]) => void;
+      };
+      const send = contents.send.bind(contents);
+      contents.send = (channel, ...args) => {
+        if (channel === "process:on:update") return;
+        send(channel, ...args);
+      };
+    }
+    return true;
+  });
+  expect(patched, "no window to silence process pushes on").toBe(true);
+}
+
+/**
  * Make one read fail, in front of its real handler, and count the attempts.
  *
  * The count exists because the renderer polls this channel on a 5s heartbeat,
@@ -428,6 +460,9 @@ test("processes shows a skeleton while it reads and a retry when it cannot (ATR-
     await stashHandlers(app, [CHANNEL.processes, CHANNEL.processSweep]);
     await holdHandler(app, CHANNEL.processes, "process-list");
     await holdHandler(app, CHANNEL.processSweep, "process-sweep");
+    // The pushes write the same cache the held read would; silence them so the
+    // read is the only thing that can resolve this page.
+    await silenceProcessUpdates(app);
 
     await win.reload();
     await win.waitForLoadState("domcontentloaded");
@@ -706,14 +741,14 @@ test("killing a process asks through the dialog, and cancelling leaves it runnin
     // --- Site one: the process table. ---
     await goTo(win, /^running/i);
     await expect(
-      win.getByRole("heading", { name: /^processes$/i }),
+      win.getByRole("heading", { name: /^running$/i }),
     ).toBeVisible({ timeout: 20_000 });
 
     const refresh = win.getByRole("button", { name: /^refresh$/i });
     await expect(refresh).toBeEnabled({ timeout: 20_000 });
     const row = win
       .locator("tbody tr")
-      .filter({ has: win.locator(`span:text-is("${port}")`) })
+      .filter({ has: win.locator(`span:text-is(":${port}")`) })
       .filter({ has: win.locator(`td:text-is("${child.pid}")`) });
 
     await expect(async () => {
@@ -797,101 +832,113 @@ test("killing a process asks through the dialog, and cancelling leaves it runnin
 });
 
 // ---------------------------------------------------------------------------
-// ATR-068 — the active segment reads as active
+// ATR-068 — the active state reads as active
 // ---------------------------------------------------------------------------
 
-interface SegmentMetrics {
-  activeColor: string;
-  inactiveColor: string;
-  activeBackground: string;
-  inactiveBackground: string;
-  activeHeight: number;
-  accent: string;
-}
-
-/** Measure the active/inactive pair inside one segmented control. */
-async function segmentMetrics(
-  win: Page,
-  group: string,
-): Promise<SegmentMetrics> {
-  /*
-   * `.atr-segment` transitions colour over 150ms, and Chromium reports the
-   * interpolated colour — so a read taken just after a click, or with the
-   * pointer still resting on the control, returns a frame mid-transition and
-   * two different states look alike. Park the pointer, then hold the
-   * transitions still for the duration of the read.
-   */
-  await win.mouse.move(0, 0);
-  await win.addStyleTag({
-    content: "*,*::before,*::after{transition:none !important}",
-  });
-  return win.evaluate((label) => {
-    const probe = document.createElement("span");
-    probe.style.color = "var(--color-accent)";
-    document.body.appendChild(probe);
-    const accent = getComputedStyle(probe).color;
-    probe.remove();
-
-    const scope = document.querySelector(`[aria-label="${label}"]`);
-    const active = scope?.querySelector<HTMLElement>(
-      '.atr-segment[data-active="true"]',
-    );
-    const inactive = scope?.querySelector<HTMLElement>(
-      '.atr-segment[data-active="false"]',
-    );
-    if (!active || !inactive) {
-      throw new Error(`no active/inactive .atr-segment pair inside "${label}"`);
-    }
-    const a = getComputedStyle(active);
-    const i = getComputedStyle(inactive);
-    return {
-      activeColor: a.color,
-      inactiveColor: i.color,
-      activeBackground: a.backgroundColor,
-      inactiveBackground: i.backgroundColor,
-      activeHeight: active.getBoundingClientRect().height,
-      accent,
-    };
-  }, group);
-}
-
-test("an active segment reads as active on both toolbars (ATR-068)", async () => {
+test("the active view mode and signal filter read as active without the accent (ATR-068)", async () => {
   const { app, close } = await launchApp();
   try {
     const win = await app.firstWindow();
     await win.waitForLoadState("domcontentloaded");
     await expectCatalog(win);
 
-    // The catalog's view modes.
-    const toolbar = await segmentMetrics(win, "View mode");
+    // The catalog's view modes. The redesign made these a row of text
+    // destinations rather than a segmented control: the active one is ink with
+    // an inset underline, which is the same active grammar as the top bar. So
+    // the accent assertion that names this finding no longer applies here —
+    // what still has to hold is that active and inactive are distinguishable
+    // without colour alone, and that the control stays a pressed button rather
+    // than becoming a lookalike label.
+    const modes = await win
+      .getByRole("group", { name: "View mode" })
+      .evaluate((scope) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--color-accent)";
+        document.body.appendChild(probe);
+        const accent = getComputedStyle(probe).color;
+        probe.remove();
+        const active = scope.querySelector<HTMLElement>(
+          'button[aria-pressed="true"]',
+        );
+        const inactive = scope.querySelector<HTMLElement>(
+          'button[aria-pressed="false"]',
+        );
+        if (!active || !inactive) {
+          throw new Error("no pressed/unpressed pair inside View mode");
+        }
+        const a = getComputedStyle(active);
+        return {
+          accent,
+          activeColor: a.color,
+          inactiveColor: getComputedStyle(inactive).color,
+          activeShadow: a.boxShadow,
+        };
+      });
     expect(
-      toolbar.activeColor,
-      `the active view mode is not the accent — ${toolbar.activeColor} against ${toolbar.accent}`,
-    ).toBe(toolbar.accent);
-    expect(toolbar.activeColor).not.toBe(toolbar.inactiveColor);
+      modes.activeColor,
+      "the active view mode is not ink; the accent is not a nav state",
+    ).not.toBe(modes.accent);
     expect(
-      toolbar.activeBackground,
-      "the active view mode sits on the same background as its neighbours",
-    ).not.toBe(toolbar.inactiveBackground);
+      modes.activeColor,
+      "the active view mode reads the same as its neighbours",
+    ).not.toBe(modes.inactiveColor);
     expect(
-      toolbar.activeHeight,
-      "the segmented control is back under the app's control height",
-    ).toBeGreaterThanOrEqual(32);
+      modes.activeShadow,
+      "the active view mode carries no underline, so it is distinguished by colour alone",
+    ).toContain("inset");
 
-    // The map's signal filters — the class is shared, so it has to move with it.
+    // The map's signal filters are the handoff's 28px chips now, switched by
+    // border and ink rather than by a filled accent segment. The parked pointer
+    // and frozen transitions keep the read off an in-between frame.
     await goTo(win, /^map$/i);
     const signalGroup = win.getByRole("group", {
       name: "Relationship signals",
     });
     await expect(signalGroup).toBeVisible({ timeout: 20_000 });
-    // Every signal starts switched on, so there is no inactive segment to read
+    // Every signal starts switched on, so there is no inactive chip to read
     // against until one is turned off.
     await signalGroup.getByRole("button", { name: /name family/i }).click();
+    await win.mouse.move(0, 0);
+    await win.addStyleTag({
+      content: "*,*::before,*::after{transition:none !important}",
+    });
 
-    const signals = await segmentMetrics(win, "Relationship signals");
-    expect(signals.activeColor).toBe(signals.accent);
-    expect(signals.activeBackground).not.toBe(signals.inactiveBackground);
-    expect(signals.activeHeight).toBeGreaterThanOrEqual(32);
+    const signals = await signalGroup.evaluate((scope) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-accent)";
+      document.body.appendChild(probe);
+      const accent = getComputedStyle(probe).color;
+      probe.remove();
+      const active = scope.querySelector<HTMLElement>(
+        'button[aria-pressed="true"]',
+      );
+      const inactive = scope.querySelector<HTMLElement>(
+        'button[aria-pressed="false"]',
+      );
+      if (!active || !inactive) {
+        throw new Error("no pressed/unpressed pair inside Relationship signals");
+      }
+      const a = getComputedStyle(active);
+      return {
+        accent,
+        activeColor: a.color,
+        inactiveColor: getComputedStyle(inactive).color,
+        activeBorder: a.borderTopColor,
+        inactiveBorder: getComputedStyle(inactive).borderTopColor,
+        activeHeight: active.getBoundingClientRect().height,
+      };
+    });
+    expect(
+      signals.activeColor,
+      "the active signal chip is not ink; the accent is not a filter state",
+    ).not.toBe(signals.accent);
+    expect(signals.activeColor).not.toBe(signals.inactiveColor);
+    expect(
+      signals.activeBorder,
+      "on and off chips share a border, so the filter reads as decoration",
+    ).not.toBe(signals.inactiveBorder);
+    expect(signals.activeHeight).toBeGreaterThanOrEqual(27);
+    expect(signals.activeHeight).toBeLessThanOrEqual(29);
   } finally {
     await close();
   }

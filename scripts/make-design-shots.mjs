@@ -82,8 +82,13 @@ function record(file, kind, note, status, error) {
     status,
     ...(error ? { error } : {}),
   });
-  const size = status === "ok" ? `${(fs.statSync(file).size / 1024).toFixed(0)} KB` : status;
-  log(`${status === "ok" ? "" : `${status}: `}${path.relative(REPO_ROOT, file)} (${size})`);
+  const size =
+    status === "ok"
+      ? `${(fs.statSync(file).size / 1024).toFixed(0)} KB`
+      : status;
+  log(
+    `${status === "ok" ? "" : `${status}: `}${path.relative(REPO_ROOT, file)} (${size})`,
+  );
 }
 
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -439,16 +444,13 @@ async function crop(page, relative, note, factory, { parent = false } = {}) {
 }
 
 async function resize(app, size) {
-  await app.evaluate(
-    ({ BrowserWindow }, bounds) => {
-      const windows = BrowserWindow.getAllWindows().filter(
-        (win) => !win.isDestroyed() && win.isVisible(),
-      );
-      const main = windows[0] ?? BrowserWindow.getAllWindows()[0];
-      main?.setContentSize(bounds.width, bounds.height);
-    },
-    size,
-  );
+  await app.evaluate(({ BrowserWindow }, bounds) => {
+    const windows = BrowserWindow.getAllWindows().filter(
+      (win) => !win.isDestroyed() && win.isVisible(),
+    );
+    const main = windows[0] ?? BrowserWindow.getAllWindows()[0];
+    main?.setContentSize(bounds.width, bounds.height);
+  }, size);
   await pause(400);
 }
 
@@ -548,7 +550,9 @@ function writeUrls(ref) {
   ];
 
   for (const dir of ["screens", "elements", "windows"]) {
-    const entries = saved.shots.filter((shot) => shot.file.startsWith(`${dir}/`));
+    const entries = saved.shots.filter((shot) =>
+      shot.file.startsWith(`${dir}/`),
+    );
     if (entries.length === 0) continue;
     lines.push(`## ${dir}/ (${entries.length})`, "");
     for (const entry of entries) {
@@ -587,7 +591,10 @@ async function closeApp(app) {
     .evaluate(({ BrowserWindow }) => {
       for (const window of BrowserWindow.getAllWindows()) {
         const url = window.webContents.getURL();
-        if (url.includes("window=spotlight") || url.includes("window=tray-popover")) {
+        if (
+          url.includes("window=spotlight") ||
+          url.includes("window=tray-popover")
+        ) {
           window.destroy();
         }
       }
@@ -625,8 +632,11 @@ async function captureMainSurface(app, win, rows) {
     "screens/01-catalog-grid.png",
     "Catalog, grid view, no repo selected — rail, toolbar, card grid, empty detail column.",
   );
-  await crop(win, "elements/top-bar.png", "Top bar: menu, wordmark, search, nav, Debug.", (w) =>
-    w.locator("header"),
+  await crop(
+    win,
+    "elements/top-bar.png",
+    "Top bar: menu, wordmark, search, nav, Debug.",
+    (w) => w.locator("header"),
   );
   await crop(
     win,
@@ -677,8 +687,11 @@ async function captureMainSurface(app, win, rows) {
     "screens/02-catalog-detail-open.png",
     "Catalog with a repo selected — the detail panel at its full width.",
   );
-  await crop(win, "elements/detail-panel.png", "The repo detail panel, top to bottom.", (w) =>
-    w.getByRole("complementary", { name: /repo detail/i }),
+  await crop(
+    win,
+    "elements/detail-panel.png",
+    "The repo detail panel, top to bottom.",
+    (w) => w.getByRole("complementary", { name: /repo detail/i }),
   );
   await crop(
     win,
@@ -689,12 +702,12 @@ async function captureMainSurface(app, win, rows) {
   );
 
   // ---- The other two view modes ------------------------------------------
-  await win.getByRole("button", { name: "Gallery" }).first().click();
+  await win.getByRole("button", { name: "Posters" }).first().click();
   await pause(900);
   await shot(
     win,
     "screens/03-catalog-gallery.png",
-    "Catalog, gallery view — large covers, one row of readable cards.",
+    "Catalog, Posters density — display-size names, no cover art.",
   );
 
   await win.getByRole("button", { name: "Table" }).first().click();
@@ -704,11 +717,14 @@ async function captureMainSurface(app, win, rows) {
     "screens/04-catalog-table.png",
     "Catalog, table view — one line per repo, used for auditing.",
   );
-  await crop(win, "elements/repo-table.png", "The table's header and rows.", (w) =>
-    w.locator("table").first(),
+  await crop(
+    win,
+    "elements/repo-table.png",
+    "The table's header and rows.",
+    (w) => w.locator("table").first(),
   );
 
-  await win.getByRole("button", { name: "Grid" }).first().click();
+  await win.getByRole("button", { name: "Index" }).first().click();
   await pause(700);
 
   // ---- Command palette ----------------------------------------------------
@@ -721,7 +737,12 @@ async function captureMainSurface(app, win, rows) {
     "screens/05-command-palette.png",
     "Command palette at rest — grouped commands, keyboard hints.",
   );
-  await crop(win, "elements/command-palette.png", "The palette dialog on its own.", () => palette);
+  await crop(
+    win,
+    "elements/command-palette.png",
+    "The palette dialog on its own.",
+    () => palette,
+  );
 
   await win.keyboard.type("graph");
   await pause(600);
@@ -754,13 +775,31 @@ async function captureMainSurface(app, win, rows) {
   );
   for (const [heading, file, note] of [
     ["Scan paths", "settings-scan-paths.png", "Settings: scan paths card."],
-    ["Embeddings", "settings-embeddings.png", "Settings: embeddings card, with its hardware note."],
-    ["Updates", "settings-updates.png", "Settings: update check and the release channel."],
-    ["Your identities", "settings-identities.png", "Settings: identity list — ownership marks come from here."],
-    ["Scan now", "settings-scan-now.png", "Settings: the manual scan card and its progress state."],
+    [
+      "Embeddings",
+      "settings-embeddings.png",
+      "Settings: embeddings card, with its hardware note.",
+    ],
+    [
+      "Updates",
+      "settings-updates.png",
+      "Settings: update check and the release channel.",
+    ],
+    [
+      "Identities",
+      "settings-identities.png",
+      "Settings: identity list — ownership marks come from here.",
+    ],
+    [
+      "Scan now",
+      "settings-scan-now.png",
+      "Settings: the manual scan card and its progress state.",
+    ],
   ]) {
     await crop(win, `elements/${file}`, note, (w) =>
-      w.getByRole("heading", { name: heading }).locator("xpath=ancestor::section[1]"),
+      w
+        .getByRole("heading", { name: heading })
+        .locator("xpath=ancestor::section[1]"),
     );
   }
 
@@ -771,8 +810,11 @@ async function captureMainSurface(app, win, rows) {
     "screens/09-processes.png",
     "Running — every listening dev server, bound to the repo that owns its cwd.",
   );
-  await crop(win, "elements/process-table.png", "The process table and its port chips.", (w) =>
-    w.locator("table").first(),
+  await crop(
+    win,
+    "elements/process-table.png",
+    "The process table and its port chips.",
+    (w) => w.locator("table").first(),
   );
 
   // ---- Graph -------------------------------------------------------------
@@ -800,7 +842,10 @@ async function captureMainSurface(app, win, rows) {
   await goTo(win, "Repos", 900);
   await waitForCatalog(win);
   await openRepo(win, "lighthouse-ui");
-  await win.getByRole("link", { name: /open full detail page/i }).first().click();
+  await win
+    .getByRole("link", { name: /open full detail page/i })
+    .first()
+    .click();
   await pause(1200);
   await shot(
     win,
@@ -826,9 +871,16 @@ async function captureMainSurface(app, win, rows) {
 
   await win.getByRole("button", { name: "New group" }).first().click();
   await pause(700);
-  await shot(win, "screens/14-dialog-new-group.png", "New group dialog over the catalog.");
-  await crop(win, "elements/dialog-new-group.png", "The new-group dialog.", (w) =>
-    w.getByRole("dialog"),
+  await shot(
+    win,
+    "screens/14-dialog-new-group.png",
+    "New group dialog over the catalog.",
+  );
+  await crop(
+    win,
+    "elements/dialog-new-group.png",
+    "The new-group dialog.",
+    (w) => w.getByRole("dialog"),
   );
   await win.keyboard.press("Escape");
   await pause(500);
@@ -844,8 +896,11 @@ async function captureMainSurface(app, win, rows) {
     "screens/15-dialog-curate-link.png",
     "Curate-link dialog — assert that two repos belong together.",
   );
-  await crop(win, "elements/dialog-curate-link.png", "The curate-link dialog.", (w) =>
-    w.getByRole("dialog"),
+  await crop(
+    win,
+    "elements/dialog-curate-link.png",
+    "The curate-link dialog.",
+    (w) => w.getByRole("dialog"),
   );
   await win.keyboard.press("Escape");
   await pause(500);
@@ -857,8 +912,11 @@ async function captureMainSurface(app, win, rows) {
     "screens/16-dialog-tag-cleanup.png",
     "Tag cleanup — review a bulk tag rewrite before it is applied.",
   );
-  await crop(win, "elements/dialog-tag-cleanup.png", "The tag-cleanup dialog.", (w) =>
-    w.getByRole("dialog"),
+  await crop(
+    win,
+    "elements/dialog-tag-cleanup.png",
+    "The tag-cleanup dialog.",
+    (w) => w.getByRole("dialog"),
   );
   await win.keyboard.press("Escape");
   await pause(500);
@@ -873,8 +931,12 @@ async function captureMainSurface(app, win, rows) {
   );
   await win.getByRole("button", { name: "Table" }).first().click();
   await pause(900);
-  await shot(win, "screens/18-catalog-table-1280x800.png", "Table view at 1280x800.");
-  await win.getByRole("button", { name: "Grid" }).first().click();
+  await shot(
+    win,
+    "screens/18-catalog-table-1280x800.png",
+    "Table view at 1280x800.",
+  );
+  await win.getByRole("button", { name: "Index" }).first().click();
   await pause(600);
 
   await goTo(win, "Settings", 1000);
@@ -890,12 +952,60 @@ async function captureMainSurface(app, win, rows) {
     "Catalog at 1024x768 — nav labels collapse, toolbar starts to wrap.",
   );
 
-  await goToHash(win, "/repos/" + rows.find((row) => row.name === "lighthouse-ui").slug, 1400);
+  await goToHash(
+    win,
+    "/repos/" + rows.find((row) => row.name === "lighthouse-ui").slug,
+    1400,
+  );
   await shot(
     win,
     "screens/21-repo-page-1024x768.png",
     "Repo page at 1024x768.",
   );
+
+  // Every route that the Catalogue handoff re-skinned, at the minimum width:
+  // the display title, the full-bleed blocks and the tables all reflow here.
+  await goTo(win, "Running", 1400);
+  await shot(
+    win,
+    "screens/24-running-1024x768.png",
+    "Running at 1024x768 — the process table reflowing at the minimum width.",
+  );
+
+  await goTo(win, "Map", 1800);
+  await shot(
+    win,
+    "screens/25-map-1024x768.png",
+    "Map at 1024x768 — the canvas beside the 240px cluster column.",
+  );
+
+  await goTo(win, "Settings", 1400);
+  await shot(
+    win,
+    "screens/26-settings-1024x768.png",
+    "Settings at 1024x768 — every block's label and control column.",
+  );
+
+  await goToHash(win, "/debug", 1200);
+  await shot(
+    win,
+    "screens/27-debug-1024x768.png",
+    "Debug at 1024x768 — the round-trip as a definition list.",
+  );
+
+  await goTo(win, "Repos", 900);
+  await waitForCatalog(win);
+  await win.keyboard.press("Meta+k");
+  const narrowPalette = win.getByRole("dialog", { name: /command palette/i });
+  await narrowPalette.waitFor({ state: "visible", timeout: 10_000 });
+  await pause(600);
+  await shot(
+    win,
+    "screens/28-command-palette-1024x768.png",
+    "Command palette at 1024x768 — the 600px overlay and its ink cursor.",
+  );
+  await win.keyboard.press("Escape");
+  await pause(400);
 
   // ---- Satellite windows -------------------------------------------------
   await resize(app, WIDE);
@@ -980,7 +1090,8 @@ async function captureClaudeSurface(app, win, rows) {
     win,
     "elements/claude-heatmap.png",
     "The usage heatmap, captioned by week.",
-    (w) => w.getByRole("img", { name: /heatmap of claude usage/i }).locator("xpath=.."),
+    (w) =>
+      w.getByRole("img", { name: /daily claude usage/i }).locator("xpath=.."),
   );
   await crop(
     win,
@@ -989,7 +1100,11 @@ async function captureClaudeSurface(app, win, rows) {
     (w) => w.getByRole("radiogroup", { name: /date range/i }),
   );
 
-  await goToHash(win, "/repos/" + rows.find((row) => row.name === "lighthouse-ui").slug, 1600);
+  await goToHash(
+    win,
+    "/repos/" + rows.find((row) => row.name === "lighthouse-ui").slug,
+    1600,
+  );
   await win.getByRole("tab", { name: /claude/i }).click();
   await pause(1600);
   await shot(
@@ -997,8 +1112,21 @@ async function captureClaudeSurface(app, win, rows) {
     "screens/23-repo-page-claude.png",
     "Repo page, Claude tab — sessions, skills, agents and MCP servers for one repo.",
   );
-  await crop(win, "elements/claude-tab.png", "The Claude tab's own cards and tables.", (w) =>
-    w.getByRole("tabpanel").or(w.locator("main")),
+  await crop(
+    win,
+    "elements/claude-tab.png",
+    "The Claude tab's own cards and tables.",
+    (w) => w.getByRole("tabpanel").or(w.locator("main")),
+  );
+
+  await resize(app, MINIMUM);
+  await goToHash(win, "/", 900);
+  await waitForCatalog(win);
+  await goTo(win, "Claude", 2200);
+  await shot(
+    win,
+    "screens/29-claude-1024x768.png",
+    "Claude at 1024x768 — stats, the full-width heatmap and the projects table.",
   );
 }
 
@@ -1070,7 +1198,10 @@ async function main() {
       });
     }
 
-    writeFileSync(fixturePath, `${JSON.stringify(processFixture(reposRoot), null, 2)}\n`);
+    writeFileSync(
+      fixturePath,
+      `${JSON.stringify(processFixture(reposRoot), null, 2)}\n`,
+    );
 
     // Claim the one-shot legacy migration before the first boot, so the app
     // does NOT copy the developer's real catalog into this profile.
@@ -1189,7 +1320,9 @@ async function main() {
 
     const ok = manifest.filter((entry) => entry.status === "ok").length;
     const skipped = manifest.filter((entry) => entry.status !== "ok");
-    log(`${ok} images written to ${path.relative(REPO_ROOT, OUT_DIR)}, ${skipped.length} skipped`);
+    log(
+      `${ok} images written to ${path.relative(REPO_ROOT, OUT_DIR)}, ${skipped.length} skipped`,
+    );
     for (const entry of skipped) {
       log(`  ${entry.status}: ${entry.file} — ${entry.error}`);
     }

@@ -5,7 +5,14 @@ import { X } from "lucide-react";
 import { cn } from "@renderer/lib/cn";
 
 /**
- * shadcn/ui Dialog primitive — mirrored from `components/ui/dialog.tsx`.
+ * Dialog primitive — the handoff's one overlay grammar.
+ *
+ * Every dialog in the app shares this shell: a 440px box on the raised
+ * surface, a strong hairline, a 10px radius and the overlay shadow; an 18px
+ * title with a 13px description; a body of 12px sentence-case labels; and a
+ * footer closed by a hairline with the actions right-aligned. It used to be a
+ * generic 512px card with 24px padding and a mono title, which is why the
+ * palette, the dialogs and the spotlight read as three different products.
  */
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -36,13 +43,13 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-xl transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95",
+        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-[440px] -translate-x-1/2 -translate-y-1/2 gap-0 rounded-[10px] border border-border-strong bg-surface-raised p-0 text-foreground shadow-overlay transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+      <DialogPrimitive.Close className="absolute right-5 top-5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-surface-raised disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
@@ -56,7 +63,7 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("flex flex-col space-y-1.5 text-left", className)}
+    className={cn("flex flex-col gap-1.5 px-5 pt-5 text-left", className)}
     {...props}
   />
 );
@@ -68,7 +75,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+      "flex flex-row justify-end gap-2 border-t border-border px-5 py-3",
       className,
     )}
     {...props}
@@ -83,7 +90,7 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-none tracking-tight font-mono",
+      "font-sans text-title font-semibold leading-tight tracking-normal",
       className,
     )}
     {...props}
@@ -97,7 +104,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-body text-muted-foreground", className)}
     {...props}
   />
 ));

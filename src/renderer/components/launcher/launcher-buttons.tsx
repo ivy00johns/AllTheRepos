@@ -42,6 +42,12 @@ interface LauncherButtonsProps {
    * inside the card without a wrapper. Errors remain visible in both layouts.
    */
   inline?: boolean;
+  /**
+   * `compact` shrinks the five buttons to 24px so they fit a catalog row's
+   * reserved gutter. Still the WCAG 2.2 minimum target, and the icons keep
+   * their size — only the hit padding goes.
+   */
+  density?: "default" | "compact";
 }
 
 interface ErrorState {
@@ -53,6 +59,7 @@ export function LauncherButtons({
   slug,
   className,
   inline = false,
+  density = "default",
 }: LauncherButtonsProps) {
   const launcher = useLauncher();
   const [error, setError] = React.useState<ErrorState | null>(null);
@@ -91,11 +98,18 @@ export function LauncherButtons({
   );
 
   const iconCls = "h-3.5 w-3.5";
-  const btnCls = "h-7 w-7 p-0 text-muted-foreground hover:text-foreground";
+  const btnCls = cn(
+    "p-0 text-muted-foreground hover:text-foreground",
+    density === "compact" ? "h-6 w-6" : "h-7 w-7",
+  );
 
   const row = (
     <div
-      className={cn("inline-flex items-center gap-0.5", className)}
+      className={cn(
+        "inline-flex items-center",
+        density === "compact" ? "gap-0" : "gap-0.5",
+        className,
+      )}
       // Don't let the icon row's clicks bubble into the parent card.
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}

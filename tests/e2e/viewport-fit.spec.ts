@@ -120,8 +120,12 @@ test.describe("the routes fit the window they render in", () => {
 
       const shell = await win.evaluate(() => {
         const main = document.querySelector("main");
-        const element = main?.firstElementChild as HTMLElement | null;
-        if (!element) throw new Error("no shell element inside main");
+        // The recut shell is two panes: the 232px rail and the route column
+        // beside it. The rail stays put, so the route column is the scroller
+        // (`SimpleShell` in `routes/__root.tsx`); `main` itself still clips.
+        const frame = main?.firstElementChild as HTMLElement | null;
+        const element = frame?.lastElementChild as HTMLElement | null;
+        if (!element) throw new Error("no route column inside main");
         const clipped = element.scrollHeight - element.clientHeight;
         const before = element.scrollTop;
         element.scrollTop = clipped;

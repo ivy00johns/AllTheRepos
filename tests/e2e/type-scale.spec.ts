@@ -134,7 +134,9 @@ function declaredRoutePaths(): string[] {
       const source = readFileSync(join(ROUTES_DIR, name), "utf8");
       const path = /\bpath:\s*"([^"]+)"/.exec(source)?.[1];
       if (!path) {
-        throw new Error(`[type-scale] ${name} declares no path — has it moved?`);
+        throw new Error(
+          `[type-scale] ${name} declares no path — has it moved?`,
+        );
       }
       return path;
     })
@@ -170,7 +172,9 @@ function topBar(win: Page): Locator {
 
 /** The catalog, which is the one route every other reach depends on. */
 async function toCatalog(win: Page): Promise<void> {
-  await topBar(win).getByRole("link", { name: /^AllTheRepos$/i }).click();
+  await topBar(win)
+    .getByRole("link", { name: /^AllTheRepos$/i })
+    .click();
   await expect(win.locator("[data-repo-slug]").first()).toBeVisible({
     timeout: 15_000,
   });
@@ -203,9 +207,9 @@ async function toDebug(win: Page): Promise<void> {
   ).toBeVisible({ timeout: 5_000 });
   await win.keyboard.press("Enter");
   await expect(palette).toBeHidden({ timeout: 5_000 });
-  await expect(
-    win.getByRole("heading", { name: /^\/debug — system\.ping$/i }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(win.getByRole("heading", { name: /^Debug$/i })).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 /** The standalone repo page, through the affordances that open it. */
@@ -215,9 +219,11 @@ async function toRepoPage(win: Page): Promise<void> {
   const openPage = win.getByRole("link", { name: "Open full detail page" });
   await expect(openPage).toBeVisible({ timeout: 15_000 });
   await openPage.click();
-  await expect(win.getByRole("link", { name: /back to catalog/i })).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(win.getByRole("link", { name: /back to catalog/i })).toBeVisible(
+    {
+      timeout: 15_000,
+    },
+  );
 }
 
 /**
@@ -329,14 +335,14 @@ const PLAN: Array<{ route: string; reach: (win: Page) => Promise<void> }> = [
     route: "/claude",
     reach: (win) =>
       toDestination(win, /^claude$/i, () =>
-        win.getByRole("heading", { name: /^Claude Usage$/i }),
+        win.getByRole("heading", { name: /^Claude$/i }),
       ),
   },
   {
     route: "/processes",
     reach: (win) =>
       toDestination(win, /^running/i, () =>
-        win.getByRole("heading", { name: /^Processes$/i }),
+        win.getByRole("heading", { name: /^Running$/i }),
       ),
   },
   {
@@ -489,7 +495,9 @@ test.describe("type scale, on every screen", () => {
       ).toBeGreaterThan(1);
 
       for (const mode of modes) {
-        await modeGroup.getByRole("button", { name: mode, exact: true }).click();
+        await modeGroup
+          .getByRole("button", { name: mode, exact: true })
+          .click();
         // Whichever mode is on, its hit areas are the thing that says it painted.
         await expect(win.locator("[data-repo-slug]").first()).toBeVisible({
           timeout: 15_000,

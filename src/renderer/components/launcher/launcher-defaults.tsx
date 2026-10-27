@@ -37,7 +37,7 @@ interface LauncherDefaultsProps {
 
 /** Shared classes for the two selects. */
 const SELECT_CLASS =
-  "h-9 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+  "h-9 w-full min-w-0 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
 export function LauncherDefaults({
   settings,
@@ -109,7 +109,7 @@ export function LauncherDefaults({
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         <Label htmlFor="default-editor">Default editor</Label>
         <select
           id="default-editor"
@@ -139,7 +139,7 @@ export function LauncherDefaults({
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         <Label htmlFor="default-terminal">Default terminal</Label>
         <select
           id="default-terminal"

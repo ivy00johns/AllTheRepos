@@ -25,12 +25,16 @@ export function LanguageBar({ languages, className }: LanguageBarProps) {
       />
     );
   }
-  return (
-    <div
-      className={cn(
-        "flex h-[3px] w-full overflow-hidden rounded-full bg-muted",
-        className,
-      )}
+  return (      <div
+        className={cn(
+          /*
+           * The handoff's composition bar: 4px tall, square segments with a
+           * 2px gap, so the proportions read as a bar chart rather than as a
+           * single blended rule.
+           */
+          "flex h-1 w-full gap-[2px] overflow-hidden",
+          className,
+        )}
       role="img"
       aria-label={`Language composition: ${languages
         .map((l) => `${l.name} ${Math.round((l.bytes / total) * 100)}%`)

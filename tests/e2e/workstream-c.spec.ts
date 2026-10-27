@@ -122,10 +122,9 @@ test.describe("workstream C — the three small decisions and one door", () => {
       // off-screen — but it has to be a real h1 and the first heading in the
       // document, or the section h2s below it still have nothing above them.
       const catalogH1 = win.getByRole("heading", { level: 1 });
-      await expect(
-        catalogH1,
-        "the catalog has no h1",
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(catalogH1, "the catalog has no h1").toBeVisible({
+        timeout: 15_000,
+      });
       await expect(catalogH1).toHaveText(/^Catalog/);
 
       const catalogLevels = await headingLevels(win);
@@ -135,21 +134,25 @@ test.describe("workstream C — the three small decisions and one door", () => {
       ).toBe(1);
       // The section headings are still h2 — the fix added a level above them
       // rather than promoting them.
-      expect(catalogLevels.filter((level) => level === 2).length).toBeGreaterThan(
-        0,
-      );
+      expect(
+        catalogLevels.filter((level) => level === 2).length,
+      ).toBeGreaterThan(0);
 
       // ----- The map, whose own name used to be a `<span>`. -----
       const topBar = win.getByRole("banner");
       await topBar.getByRole("link", { name: /^Map$/i }).click();
       await expect(
-        win.getByRole("heading", { name: /^Relationships$/i, level: 1 }),
+        win.getByRole("heading", { name: /^Map$/i, level: 1 }),
         "the map page's own name is not its h1",
       ).toBeVisible({ timeout: 15_000 });
 
       const mapLevels = await headingLevels(win);
-      expect(mapLevels[0], `the map's first heading is h${mapLevels[0]}`).toBe(1);
-      expect(mapLevels.filter((level) => level === 2).length).toBeGreaterThan(0);
+      expect(mapLevels[0], `the map's first heading is h${mapLevels[0]}`).toBe(
+        1,
+      );
+      expect(mapLevels.filter((level) => level === 2).length).toBeGreaterThan(
+        0,
+      );
     } finally {
       await close();
     }
@@ -294,7 +297,7 @@ test.describe("workstream C — the three small decisions and one door", () => {
       // ---- The port column's dot, in the process table. ----
       const row = win
         .locator("tbody tr")
-        .filter({ has: win.locator(`span:text-is("${port}")`) });
+        .filter({ has: win.locator(`span:text-is(":${port}")`) });
       await expect(
         row,
         `the spawned listener on port ${port} never reached the process table`,
@@ -320,9 +323,10 @@ test.describe("workstream C — the three small decisions and one door", () => {
         tableDot,
         "the process table's live dot is not using the status token",
       ).not.toBeNull();
-      expect(tableDot!.accentClass, "the live dot is on `bg-accent` again").toBe(
-        false,
-      );
+      expect(
+        tableDot!.accentClass,
+        "the live dot is on `bg-accent` again",
+      ).toBe(false);
       expect(tableDot!.background).toBe(live);
 
       // ---- The port chip, on the repo's own card. ----
@@ -330,10 +334,9 @@ test.describe("workstream C — the three small decisions and one door", () => {
       const card = win.locator(`article[data-repo-slug^="${SEEDED_REPO}"]`);
       await expect(card).toBeVisible({ timeout: 15_000 });
       const chip = card.locator('button[aria-label^="Port "]').first();
-      await expect(
-        chip,
-        "the card never rendered a port chip",
-      ).toBeVisible({ timeout: 20_000 });
+      await expect(chip, "the card never rendered a port chip").toBeVisible({
+        timeout: 20_000,
+      });
 
       const chipPaint = await chip.evaluate((el) => {
         const dot = el.querySelector<HTMLElement>("span > span:last-child");
@@ -344,9 +347,10 @@ test.describe("workstream C — the three small decisions and one door", () => {
         };
       });
 
-      expect(chipPaint.accentClass, "the chip's dot is on `bg-accent` again").toBe(
-        false,
-      );
+      expect(
+        chipPaint.accentClass,
+        "the chip's dot is on `bg-accent` again",
+      ).toBe(false);
       expect(chipPaint.dot).toBe(live);
       expect(chipPaint.chipColor).toBe(live);
       expect(chipPaint.chipColor, "the chip wears the accent hue").not.toBe(
@@ -375,9 +379,7 @@ test.describe("workstream C — the three small decisions and one door", () => {
         "the primary navigation must contain Repos, Running, Map, Claude and Settings only",
       ).toBe(NAV_LABELS.length);
       await expect(
-        win
-          .locator("header nav")
-          .getByRole("link", { name: /^debug/i }),
+        win.locator("header nav").getByRole("link", { name: /^debug/i }),
         "Debug is back in the primary navigation",
       ).toHaveCount(0);
 
@@ -394,7 +396,10 @@ test.describe("workstream C — the three small decisions and one door", () => {
         "an unpackaged run offers no door to /debug",
       ).toBeVisible({ timeout: 15_000 });
       expect(
-        await win.locator("header nav").getByRole("link", { name: /^debug/i }).count(),
+        await win
+          .locator("header nav")
+          .getByRole("link", { name: /^debug/i })
+          .count(),
         "the dev door is inside the primary navigation",
       ).toBe(0);
 
@@ -410,9 +415,15 @@ test.describe("workstream C — the three small decisions and one door", () => {
       await win.keyboard.press("Enter");
 
       await expect(palette).toBeHidden({ timeout: 5_000 });
+      await expect(win.getByRole("heading", { name: /^Debug$/i })).toBeVisible({
+        timeout: 15_000,
+      });
+      // The page's own name changed to "Debug"; this keeps the old assertion's
+      // reach, that the route landed on the ping panel and not an empty shell.
       await expect(
-        win.getByRole("heading", { name: /^\/debug — system\.ping$/i }),
-      ).toBeVisible({ timeout: 15_000 });
+        win.getByText("system.ping", { exact: true }).first(),
+        "/debug did not render its system.ping panel",
+      ).toBeVisible();
     } finally {
       await close();
     }
@@ -459,9 +470,9 @@ test.describe("workstream C — the three small decisions and one door", () => {
       // It still works — an ordinary action is right there — so an empty palette
       // cannot pass this test.
       await palette.getByPlaceholder(/run a command/i).fill("settings");
-      await expect(
-        palette.getByText(/^open settings$/i).first(),
-      ).toBeVisible({ timeout: 5_000 });
+      await expect(palette.getByText(/^open settings$/i).first()).toBeVisible({
+        timeout: 5_000,
+      });
 
       await palette.getByPlaceholder(/run a command/i).fill("debug");
       await expect(

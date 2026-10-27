@@ -611,16 +611,16 @@ async function main(): Promise<void> {
       },
     );
 
-    await step("views", "Gallery / Grid / Table", async () => {
+    await step("views", "Index / Posters / Table", async () => {
       const group = win.getByRole("group", { name: "View mode" });
-      for (const label of ["Gallery", "Grid", "Table"]) {
+      for (const label of ["Index", "Posters", "Table"]) {
         await group.getByRole("button", { name: new RegExp(`^${label}$`, "i") }).click();
         await win.waitForTimeout(700);
         await shot(win, `real-view-${label.toLowerCase()}`);
       }
-      await group.getByRole("button", { name: /^Grid$/i }).click();
+      await group.getByRole("button", { name: /^Index$/i }).click();
       await win.waitForTimeout(500);
-      return "clicked Gallery, Grid and Table";
+      return "clicked Index, Posters and Table";
     });
 
     await step("group.sort", "Every Group and Sort option", async () => {
@@ -789,11 +789,10 @@ async function main(): Promise<void> {
       await win.waitForTimeout(700);
       const sorted: string[] = [];
       for (const [col, label] of [
-        [/^Project$/i, "Project"],
-        [/^Owner$/i, "Owner"],
+        [/^Name$/i, "Name"],
         [/^Language$/i, "Language"],
+        [/^Last touched$/i, "Last touched"],
         [/^Size$/i, "Size"],
-        [/^Touched$/i, "Touched"],
       ] as Array<[RegExp, string]>) {
         const h = win.getByRole("button", { name: col });
         if (!(await h.count())) continue;
@@ -807,7 +806,7 @@ async function main(): Promise<void> {
       await win.locator("table tbody tr button").first().click();
       await win.waitForTimeout(800);
       await shot(win, "real-table");
-      await win.getByRole("group", { name: "View mode" }).getByRole("button", { name: /^Grid$/i }).click();
+      await win.getByRole("group", { name: "View mode" }).getByRole("button", { name: /^Index$/i }).click();
       await win.waitForTimeout(500);
       return `sorted by ${sorted.join(", ")}; opened a row`;
     });
@@ -815,6 +814,10 @@ async function main(): Promise<void> {
     await step("tags", "Detail panel: add a tag then remove it", async () => {
       await win.locator("[data-repo-slug]").first().click();
       await win.waitForTimeout(900);
+      // The tag composer is behind the Tags header's "Add" now.
+      const detail = win.getByRole("complementary", { name: /repo detail/i });
+      const reveal = detail.getByRole("button", { name: "Add", exact: true });
+      if (await reveal.count()) await reveal.first().click();
       const input = win.getByRole("textbox", { name: /new tag/i });
       if (!(await input.count())) throw new Error("no New tag input");
       await input.first().fill("zz-walkthrough");
@@ -910,7 +913,7 @@ async function main(): Promise<void> {
       await win.keyboard.press("Escape");
       await win.waitForTimeout(300);
       await win.getByRole("banner").getByRole("link", { name: /^running/i }).click({ timeout: 15_000 });
-      await win.getByRole("heading", { name: /^Processes$/i }).waitFor({ timeout: 20_000 });
+      await win.getByRole("heading", { name: /^Running$/i }).waitFor({ timeout: 20_000 });
       await win.waitForTimeout(2500);
       const refresh = win.getByRole("button", { name: /^Refresh$/i });
       if (!(await refresh.count())) throw new Error("no Refresh button on /processes");
@@ -1053,7 +1056,8 @@ async function main(): Promise<void> {
         return;
       }
       await debug.first().click();
-      await win.getByRole("heading", { name: /system\.ping/i }).waitFor({ timeout: 20_000 });
+      await win.getByRole("heading", { name: /^Debug$/i }).waitFor({ timeout: 20_000 });
+      await win.getByText("system.ping", { exact: true }).first().waitFor({ timeout: 20_000 });
       await win.waitForTimeout(1200);
       await win.getByRole("button", { name: /ping again/i }).click();
       await win.waitForTimeout(1200);

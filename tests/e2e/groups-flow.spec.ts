@@ -65,7 +65,7 @@ test("a group is created from the rail, filled from a repo, renamed, and deleted
 
     const membership = win.getByRole("button", { name: "Add to group" });
     await expect(membership).toBeVisible({ timeout: 15_000 });
-    await expect(win.getByText("Not in a group yet.")).toBeVisible();
+    await expect(win.getByText(/not in a group/i)).toBeVisible();
 
     const badge = win.getByRole("button", {
       name: `Remove ${REPO} from E2E group`,
@@ -94,7 +94,7 @@ test("a group is created from the rail, filled from a repo, renamed, and deleted
     // half of `setMembers` a union-only implementation would silently get
     // wrong (it would write the member back rather than out).
     await badge.click();
-    await expect(win.getByText("Not in a group yet.")).toBeVisible({
+    await expect(win.getByText(/not in a group/i)).toBeVisible({
       timeout: 15_000,
     });
     // A zero count renders no badge at all (`CountBadge` returns null), so the
@@ -274,8 +274,12 @@ test("a saved filter is created from the rail, fills itself, and is managed like
 
     // ----- A tag for the filter to find -----
     await win.getByRole("button", { name: /^Demo Web,/ }).click();
-    await win.getByLabel("New tag").fill("focus");
-    await win.getByRole("button", { name: "Add tag" }).click();
+    // The redesigned panel keeps the tag composer behind the Tags header's
+    // "Add", so the field does not exist until that is pressed.
+    const detail = win.getByRole("complementary", { name: /repo detail/i });
+    await detail.getByRole("button", { name: "Add", exact: true }).click();
+    await detail.getByLabel("New tag").fill("focus");
+    await detail.getByRole("button", { name: "Add tag" }).click();
     await expect(
       win.getByRole("button", { name: "Remove tag focus" }),
     ).toBeVisible({ timeout: 15_000 });
