@@ -68,7 +68,21 @@ const LG_BREAKPOINT = 1024;
 const NARROW = { width: 900, height: 800 };
 
 /** Every destination the top bar renders, in the order it renders them. */
-const NAV_LABELS = ["Running", "Map", "Claude", "Settings", "Debug"] as const;
+const NAV_LABELS = [
+  "Repos",
+  "Running",
+  "Map",
+  "Claude",
+  "Settings",
+  "Debug",
+] as const;
+
+/**
+ * The destinations whose *visible* label the redesign keeps at every width.
+ * `Debug` is the dev-only door at the end of the bar and stays icon-only below
+ * `lg`; its name comes from a screen-reader span, which is the case (3) check.
+ */
+const LABELLED_NAV = NAV_LABELS.filter((label) => label !== "Debug");
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -83,7 +97,7 @@ test.describe("shell accessibility", () => {
     }
   });
 
-  test("every top-bar destination keeps its name at 900px, and its label stays collapsed", async () => {
+  test("every top-bar destination keeps its name at 900px, with its label still painted", async () => {
     const { app, close } = await launchApp();
 
     try {
@@ -103,12 +117,10 @@ test.describe("shell accessibility", () => {
         linkFor(label).locator("span").first().boundingBox();
 
       // ----- (1) The width the app opens at: the labels are on screen. -----
-      // Asserted so that a fix for the narrow case cannot be "show the labels
-      // at every width" — the collapse below `lg` is the design.
       expect(await win.evaluate(() => window.innerWidth)).toBeGreaterThanOrEqual(
         LG_BREAKPOINT,
       );
-      for (const label of NAV_LABELS) {
+      for (const label of LABELLED_NAV) {
         const box = await labelBox(label);
         expect(
           box?.width ?? 0,
@@ -127,16 +139,27 @@ test.describe("shell accessibility", () => {
           linkFor(label),
           `${label} should still be named at ${NARROW.width}px`,
         ).toHaveCount(1);
+      }
 
-        // The label is still *rendered* here — clipped into a 1x1 box, which
-        // is what keeps it in the accessible name. `display: none` takes it
-        // out entirely, and that is precisely the bug.
+      // The redesigned bar keeps the five destinations' labels painted below
+      // `lg` — they are text, and a text-only nav has no icon to fall back on.
+      // So the narrow case asserts the opposite of the old collapse: the words
+      // have to still be there, not merely in the accessibility tree.
+      for (const label of LABELLED_NAV) {
         const box = await labelBox(label);
         expect(
-          box?.width ?? 99,
-          `${label}'s label should be collapsed at ${NARROW.width}px, not shown`,
-        ).toBeLessThanOrEqual(2);
+          box?.width ?? 0,
+          `${label}'s label disappeared at ${NARROW.width}px`,
+        ).toBeGreaterThan(20);
       }
+
+      // The dev door is the one destination still drawn as an icon below `lg`;
+      // its name survives in the screen-reader span, which case (3) reads back.
+      const debugBox = await labelBox("Debug");
+      expect(
+        debugBox?.width ?? 0,
+        "the Debug door should stay icon-only at this width",
+      ).toBeLessThanOrEqual(2);
 
       // ----- (3) What the browser's accessibility tree says. -----
       // The one thing a source read genuinely cannot tell you.

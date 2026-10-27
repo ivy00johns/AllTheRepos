@@ -16,14 +16,13 @@
  */
 
 import * as React from "react";
-import { AlertTriangle, Link2, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 
 import type { RemoveRepoLinkInput, RepoRelation } from "@shared/types";
 
 import { getAtr } from "@renderer/lib/atr";
 import { ipcErrorText } from "@renderer/lib/ipc-error";
 import { LINK_KIND_LABELS, linkSentence } from "@renderer/lib/repo-links";
-import { Button } from "@renderer/components/ui/button";
 import {
   useRemoveRepoLink,
   useRepoRelations,
@@ -71,32 +70,26 @@ export function RelatedRepos({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="atr-label font-semibold uppercase tracking-widest text-muted-foreground">
-          {title}
-        </p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="atr-eyebrow">{title}</p>
         {canWrite ? (
-          <Button
-            size="sm"
-            variant="ghost"
+          <button
+            type="button"
             onClick={() => setCurating(true)}
-            className="h-6 px-1.5 atr-label uppercase tracking-widest"
             aria-label={`Assert a relationship for ${repoName}`}
+            className="cursor-pointer text-label font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground"
           >
-            <Link2 className="h-3 w-3" aria-hidden />
-            Add
-          </Button>
+            Link a repo
+          </button>
         ) : null}
       </div>
 
       {items.length === 0 ? (
-        <p className="atr-label leading-snug text-muted-foreground">
-          {relations.isPending
-            ? "Loading…"
-            : "No curated links yet. Add one here, or from a Claude Code session with the alltherepos MCP."}
+        <p className="mt-2 text-body italic text-muted-foreground">
+          {relations.isPending ? "Loading…" : "No linked repositories."}
         </p>
       ) : (
-        <ul className="flex flex-col gap-0.5">
+        <ul className="mt-2 flex flex-col">
           {items.map((rel) => {
             const sentence = linkSentence({
               kind: rel.kind,
@@ -107,7 +100,7 @@ export function RelatedRepos({
             return (
               <li
                 key={`${rel.direction}-${rel.kind}-${rel.slug}`}
-                className="group flex items-start gap-1 rounded-sm px-1 py-0.5 transition-colors duration-150 hover:bg-muted/50"
+                className="group flex items-center gap-2 border-b border-border/60 py-2"
               >
                 <button
                   type="button"
@@ -115,22 +108,14 @@ export function RelatedRepos({
                   onClick={() => onOpenRepo?.(rel.slug)}
                   aria-label={`Open ${rel.name} — ${sentence}`}
                   title={rel.why ? `${sentence} — ${rel.why}` : sentence}
-                  className="flex min-w-0 flex-1 items-start gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                  className="flex min-w-0 flex-1 items-baseline gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
                 >
-                  <span
-                    aria-hidden
-                    className="font-mono atr-micro text-accent"
-                  >
-                    {rel.direction === "outgoing" ? "→" : "←"}
+                  <span className="min-w-0 flex-1 truncate text-body font-medium text-foreground">
+                    {rel.name}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono atr-label text-foreground group-hover:text-accent">
-                      {rel.name}
-                    </span>
-                    <span className="block truncate atr-label text-muted-foreground">
-                      {LINK_KIND_LABELS[rel.kind]}
-                      {rel.why ? ` — ${rel.why}` : ""}
-                    </span>
+                  <span className="atr-meta max-w-[55%] truncate text-right">
+                    {LINK_KIND_LABELS[rel.kind]}
+                    {rel.why ? ` — ${rel.why}` : ""}
                   </span>
                 </button>
 
@@ -141,7 +126,7 @@ export function RelatedRepos({
                     disabled={remove.isPending}
                     aria-label={`Remove link — ${sentence}`}
                     title={`Remove link — ${sentence}`}
-                    className="mt-0.5 shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-40"
+                    className="shrink-0 cursor-pointer rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-40"
                   >
                     <X className="h-3 w-3" aria-hidden />
                   </button>

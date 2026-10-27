@@ -33,12 +33,12 @@ function RepoPage() {
      * the same wait the panel already shows as pulse blocks (ATR-064).
      */
     return (
-      <SkeletonRegion label="Loading repo…" className="gap-4">
+      <SkeletonRegion label="Loading repo…" className="gap-4 px-6 py-8">
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-6 w-2/3" />
         <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-32 w-full max-w-[68ch]" />
+        <Skeleton className="h-20 w-full max-w-[68ch]" />
       </SkeletonRegion>
     );
   }
@@ -79,17 +79,11 @@ function RepoPage() {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/" search={{ repo: repoQuery.data.slug }}>
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            Back to catalog
-          </Link>
-        </Button>
-      </div>
-      <RepoDetailContent repo={repoQuery.data} variant="page" />
-    </div>
-  );
+  /*
+   * The page is the panel without its chrome: the same content, opened at the
+   * display tier on a full-bleed header, then one 68ch column. There is no
+   * Back button — the top bar is the way back, and a page that needs a back
+   * arrow beside a permanent nav is asking the person to choose.
+   */
+  return <RepoDetailContent repo={repoQuery.data} variant="page" />;
 }

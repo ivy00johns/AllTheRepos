@@ -12,19 +12,12 @@
 
 import * as React from "react";
 import { Link, createRoute } from "@tanstack/react-router";
-import { ArrowLeft, Brain, FolderGit2 } from "lucide-react";
-
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+import { relativeTime } from "@renderer/components/catalog/relative-time";
 import { ClaudeUsageHeatmap } from "@renderer/components/claude/claude-usage-heatmap";
-import { ClaudeUsageSparkline } from "@renderer/components/claude/claude-usage-sparkline";
+import { PageHeader } from "@renderer/components/layout/page-header";
 import { Button } from "@renderer/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardTitle,
-} from "@renderer/components/ui/card";
 import {
   useClaudeGlobalUsage,
   useClaudeProjects,
@@ -110,45 +103,14 @@ function ClaudePage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Brain className="h-5 w-5 text-accent" aria-hidden />
-          <div>
-            <h1 className="font-mono text-2xl font-semibold tracking-tight">
-              Claude Usage
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Aggregate Claude Code activity across every project on this
-              machine.
-            </p>
-          </div>
-        </div>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/">
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            Back
-          </Link>
-        </Button>
-      </div>
-
-      {!bridgeAvailable ? (
-        <div className="rounded-lg border border-dashed border-border bg-card/50 p-6">
-          <p className="font-mono text-sm text-foreground">
-            Claude usage unavailable — preload bridge missing.
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Run via <code className="font-mono">pnpm electron:dev</code> so the
-            Electron preload script loads.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Range selector */}
+    <div className="flex flex-col">
+      <PageHeader
+        title="Claude"
+        actions={
           <div
             role="radiogroup"
             aria-label="Date range"
-            className="flex items-center gap-1 rounded-md border border-border bg-card p-1 self-start"
+            className="flex items-center gap-0.5 rounded border border-border p-0.5"
           >
             {RANGE_OPTIONS.map((opt, index) => {
               const active = range === opt.key;
@@ -165,10 +127,10 @@ function ClaudePage() {
                   onKeyDown={(event) => handleRangeKeyDown(event, index)}
                   onClick={() => setRange(opt.key)}
                   className={cn(
-                    "rounded-sm px-3 py-1 font-mono atr-label uppercase tracking-widest transition-colors",
+                    "h-[26px] rounded-[3px] px-2.5 font-mono text-label font-medium transition-colors duration-150",
                     active
-                      ? "bg-accent/15 text-accent"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {opt.label}
@@ -176,37 +138,43 @@ function ClaudePage() {
               );
             })}
           </div>
+        }
+      />
 
-          {/* Stat cards */}
-          <StatCards
+      {!bridgeAvailable ? (
+        <p className="border-b border-border px-6 py-6 text-body text-muted-foreground">
+          Claude usage unavailable — the preload bridge is missing. Run via{" "}
+          <code className="font-mono text-label">pnpm electron:dev</code>.
+        </p>
+      ) : (
+        <>
+          <StatRow
             usage={usageQuery.data}
             projects={projectsQuery.data?.projects ?? []}
             isLoading={usageQuery.isLoading || projectsQuery.isLoading}
           />
 
-          {/* Heatmap */}
-          <section className="space-y-2">
+          <section className="border-b border-border px-6 py-6">
             {usageQuery.data ? (
-              <div className="rounded-lg border border-border bg-card p-4">
-                <ClaudeUsageHeatmap
-                  byDay={usageQuery.data.byDay}
-                  weeks={range === "7d" ? 4 : range === "90d" ? 13 : 12}
-                />
-              </div>
+              <ClaudeUsageHeatmap
+                byDay={usageQuery.data.byDay}
+                weeks={range === "7d" ? 4 : range === "90d" ? 13 : 12}
+              />
             ) : (
-              <div className="rounded-lg border border-dashed border-border bg-card/50 p-6 text-center font-mono text-sm text-muted-foreground">
+              <p className="text-body text-muted-foreground">
                 {usageQuery.isLoading ? "Loading usage…" : "No usage data."}
-              </div>
+              </p>
             )}
           </section>
 
-          {/* Per-project table */}
-          <section aria-labelledby="claude-projects-heading">
+          <section
+            aria-labelledby="claude-projects-heading"
+            className="flex flex-col pb-12"
+          >
             <h2
               id="claude-projects-heading"
-              className="mb-2 flex items-center gap-1.5 atr-label font-semibold uppercase tracking-widest text-muted-foreground"
+              className="px-6 pb-2 pt-6 text-label font-semibold text-muted-foreground"
             >
-              <FolderGit2 className="h-3.5 w-3.5" aria-hidden />
               Projects
             </h2>
             <ProjectsTable
@@ -220,66 +188,48 @@ function ClaudePage() {
   );
 }
 
-interface StatCardsProps {
+interface StatRowProps {
   usage: ClaudeGlobalUsageResult | undefined;
   projects: ClaudeProject[];
   isLoading: boolean;
 }
 
-function StatCards({ usage, projects, isLoading }: StatCardsProps) {
+/**
+ * The handoff's stats: one full-bleed row of hairline-separated cells, not
+ * four cards. A card around a single number doubles the chrome for no extra
+ * information, and the four cards floated inside the page's padding while the
+ * heatmap below ran edge to edge.
+ */
+function StatRow({ usage, projects, isLoading }: StatRowProps) {
   const totalTokens = usage?.totalTokens ?? 0;
   const totalSessions = projects.reduce((acc, p) => acc + p.sessionCount, 0);
-  const activeProjects = projects.filter((p) => p.totalTokens > 0).length;
+  const activeDays = usage
+    ? usage.byDay.filter((day) => day.totalTokens > 0).length
+    : 0;
 
-  // Sum the last 7 days from byDay for "this week's tokens".
-  const thisWeek = React.useMemo(() => {
-    if (!usage) return 0;
-    const tail = usage.byDay.slice(-7);
-    return tail.reduce((acc, d) => acc + d.totalTokens, 0);
-  }, [usage]);
+  const stats = [
+    { label: "Sessions", value: totalSessions.toLocaleString() },
+    { label: "Tokens", value: formatTokens(totalTokens) },
+    { label: "Projects", value: projects.length.toLocaleString() },
+    { label: "Active days", value: activeDays.toLocaleString() },
+  ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <StatCard
-        label="Total tokens"
-        value={formatTokens(totalTokens)}
-        loading={isLoading}
-      />
-      <StatCard
-        label="Sessions"
-        value={totalSessions.toLocaleString()}
-        loading={isLoading}
-      />
-      <StatCard
-        label="Active projects"
-        value={activeProjects.toLocaleString()}
-        loading={isLoading}
-      />
-      <StatCard
-        label="This week"
-        value={formatTokens(thisWeek)}
-        loading={isLoading}
-      />
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] border-b border-border">
+      {stats.map((stat) => (
+        <div
+          key={stat.label}
+          className="flex flex-col gap-2 border-r border-border px-6 py-5 last:border-r-0"
+        >
+          <span className="text-label font-medium text-muted-foreground">
+            {stat.label}
+          </span>
+          <span className="font-mono text-name-lg tabular-nums text-foreground">
+            {isLoading ? "—" : stat.value}
+          </span>
+        </div>
+      ))}
     </div>
-  );
-}
-
-interface StatCardProps {
-  label: string;
-  value: string;
-  loading?: boolean;
-}
-
-function StatCard({ label, value, loading }: StatCardProps) {
-  return (
-    <Card className="p-4">
-      <CardDescription className="atr-label uppercase tracking-widest">
-        {label}
-      </CardDescription>
-      <CardContent className="p-0 pt-1">
-        <CardTitle className="text-2xl">{loading ? "—" : value}</CardTitle>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -315,9 +265,9 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
 
   if (projects.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border bg-card/50 p-6 text-center font-mono text-sm text-muted-foreground">
+      <p className="px-6 pb-6 text-body text-muted-foreground">
         No Claude projects detected.
-      </div>
+      </p>
     );
   }
 
@@ -330,24 +280,39 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
   });
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <table className="w-full border-collapse text-left text-xs">
-        <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
-          <tr>
-            <th scope="col" className="w-6 px-2 py-2" aria-label="Expand" />
-            <th scope="col" className="px-3 py-2 font-medium">
-              Project
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] border-collapse text-left">
+        <thead>
+          <tr className="h-9 border-y border-border">
+            <th scope="col" className="w-8 pl-6" aria-label="Expand" />
+            <th
+              scope="col"
+              className="pr-4 text-label font-medium text-muted-foreground"
+            >
+              Repository
             </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
+            <th
+              scope="col"
+              className="w-24 whitespace-nowrap px-3 text-right text-label font-medium text-muted-foreground"
+            >
               Sessions
             </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Last activity
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
+            <th
+              scope="col"
+              className="w-28 whitespace-nowrap px-3 text-right text-label font-medium text-muted-foreground"
+            >
               Tokens
             </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
+            <th
+              scope="col"
+              className="w-[124px] whitespace-nowrap pl-4 pr-3 text-label font-medium text-muted-foreground"
+            >
+              Last active
+            </th>
+            <th
+              scope="col"
+              className="w-[120px] whitespace-nowrap pl-4 pr-6 text-label font-medium text-muted-foreground"
+            >
               Trend
             </th>
           </tr>
@@ -362,11 +327,11 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
               <React.Fragment key={p.hash}>
                 <tr
                   className={cn(
-                    "border-b border-border hover:bg-muted/20",
-                    expanded && "bg-muted/20",
+                    "h-10 border-b border-border/60 transition-colors duration-150 hover:bg-surface",
+                    expanded && "bg-surface",
                   )}
                 >
-                  <td className="px-2 py-2 align-middle">
+                  <td className="py-1 pl-6 pr-2">
                     {canExpand ? (
                       <button
                         type="button"
@@ -379,7 +344,7 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
                         onClick={() =>
                           setExpandedHash(expanded ? null : p.hash)
                         }
-                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        className="grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground"
                       >
                         {expanded ? (
                           <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -389,44 +354,47 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
                       </button>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="max-w-0 truncate py-1 pr-4">
                     {p.repoSlug ? (
                       <Link
                         to="/repos/$slug"
                         params={{ slug: p.repoSlug }}
-                        className="font-mono text-foreground underline-offset-4 hover:underline"
+                        className="block truncate text-body font-medium text-foreground underline-offset-4 hover:underline"
                       >
-                        {p.repoSlug}
+                        {displayRepoName(p)}
                       </Link>
                     ) : (
                       <span
-                        className="block max-w-[18rem] truncate font-mono text-muted-foreground"
+                        className="block truncate text-body font-medium text-foreground"
                         title={p.repoPath}
                       >
-                        {p.repoPath}
+                        {displayRepoName(p)}
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono">
+                  <td className="whitespace-nowrap px-3 py-1 text-right font-mono atr-meta tabular-nums">
                     {p.sessionCount.toLocaleString()}
                   </td>
-                  <td className="px-3 py-2 font-mono text-muted-foreground">
-                    {p.lastActivityAt
-                      ? new Date(p.lastActivityAt).toLocaleString()
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-accent">
+                  <td className="whitespace-nowrap px-3 py-1 text-right font-mono atr-meta tabular-nums text-foreground">
                     {formatTokens(p.totalTokens)}
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <span className="inline-flex items-center text-accent">
-                      <ClaudeUsageSparkline values={series} />
-                    </span>
+                  <td
+                    className="whitespace-nowrap pl-4 pr-3 py-1 font-mono atr-meta"
+                    title={
+                      p.lastActivityAt
+                        ? new Date(p.lastActivityAt).toLocaleString()
+                        : undefined
+                    }
+                  >
+                    {relativeTime(p.lastActivityAt)}
+                  </td>
+                  <td className="py-1 pl-4 pr-6">
+                    <TrendBars values={series} />
                   </td>
                 </tr>
                 {expanded && p.repoSlug ? (
-                  <tr className="border-b border-border bg-muted/10">
-                    <td colSpan={6} className="px-3 py-3">
+                  <tr className="border-b border-border/60">
+                    <td colSpan={6} className="bg-surface px-6 py-4">
                       <ProjectSessions slug={p.repoSlug} />
                     </td>
                   </tr>
@@ -437,6 +405,45 @@ function ProjectsTable({ usage, projects }: ProjectsTableProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Trend — the project's weekly tokens as 4px bars, 18px tall at most.
+ *
+ * Only drawn when at least four of the twelve buckets are non-zero: with one
+ * busy week among eleven empty ones the bars imply a trend that isn't there,
+ * and the handoff would rather leave the cell empty than fabricate one.
+ */
+function TrendBars({ values }: { values: number[] }) {
+  const points = values.slice(-12);
+  const nonZero = points.filter((value) => value > 0).length;
+  if (nonZero < 4) return null;
+  const max = Math.max(...points, 1);
+  return (
+    <span aria-hidden className="flex h-[18px] items-end gap-0.5">
+      {points.map((value, index) => (
+        <span
+          key={index}
+          className="w-1 bg-sky-400"
+          style={{
+            height: `${Math.max(2, Math.round((value / max) * 18))}px`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * The folder's own name, never `repoSlug` — a slug ends in a path hash
+ * (`lighthouse-ui-e2b08309`) and the hash is not something a person reads.
+ */
+function displayRepoName(project: ClaudeProject): string {
+  const folder = project.repoPath.split(/[\\/]/).filter(Boolean).pop();
+  if (folder) return folder;
+  return (
+    project.repoSlug?.replace(/-[0-9a-f]{8}$/i, "") ?? project.hash.slice(0, 8)
   );
 }
 
@@ -458,15 +465,11 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
   const [openSessionId, setOpenSessionId] = React.useState<string | null>(null);
 
   if (repoStateQuery.isLoading) {
-    return (
-      <p className="font-mono atr-label text-muted-foreground">
-        Loading sessions…
-      </p>
-    );
+    return <p className="text-body text-muted-foreground">Loading sessions…</p>;
   }
   if (repoStateQuery.isError) {
     return (
-      <p className="font-mono atr-label text-destructive">
+      <p className="text-body text-destructive">
         Couldn’t load sessions for {slug}.
       </p>
     );
@@ -475,28 +478,31 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
   const sessions: ClaudeSession[] = repoStateQuery.data?.sessions ?? [];
   if (sessions.length === 0) {
     return (
-      <p className="font-mono atr-label text-muted-foreground">
+      <p className="text-body text-muted-foreground">
         No sessions recorded for this project.
       </p>
     );
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <p className="mb-1 atr-label font-semibold uppercase tracking-widest text-muted-foreground">
+    <div className="flex flex-col">
+      <p className="pb-2 text-label font-semibold text-muted-foreground">
         Sessions
       </p>
       {sessions.map((session) => {
         const open = openSessionId === session.id;
         return (
-          <div key={session.id} className="rounded border border-border/60">
+          <div
+            key={session.id}
+            className="border-b border-border/60 last:border-b-0"
+          >
             <button
               type="button"
               aria-expanded={open}
               onClick={() => setOpenSessionId(open ? null : session.id)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left font-mono atr-label transition-colors",
-                open ? "bg-muted/40" : "hover:bg-muted/30",
+                "flex w-full items-center justify-between gap-3 py-2 pr-2 text-left transition-colors duration-150",
+                open ? "bg-surface-raised" : "hover:bg-surface-raised/60",
               )}
             >
               <span className="flex items-center gap-1.5">
@@ -511,20 +517,16 @@ function ProjectSessions({ slug }: ProjectSessionsProps) {
                     aria-hidden
                   />
                 )}
-                <span className="text-foreground">
+                <span className="font-mono atr-meta text-foreground">
                   {session.id.slice(0, 8)}
                 </span>
               </span>
-              <span className="flex items-center gap-3 text-muted-foreground">
+              <span className="flex items-center gap-3 font-mono atr-meta">
                 <span>{session.messageCount.toLocaleString()} msgs</span>
-                <span className="text-accent">
+                <span className="text-foreground">
                   {formatTokens(session.tokenUsage.totalTokens)}
                 </span>
-                <span>
-                  {session.lastActivityAt
-                    ? new Date(session.lastActivityAt).toLocaleString()
-                    : "—"}
-                </span>
+                <span>{relativeTime(session.lastActivityAt)}</span>
               </span>
             </button>
             {open ? <TranscriptViewer sessionId={session.id} /> : null}
@@ -553,21 +555,21 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
 
   if (transcript.isLoading) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 text-body text-muted-foreground">
         Loading transcript…
       </div>
     );
   }
   if (transcript.isError) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-destructive">
+      <div className="border-t border-border/60 px-3 py-2 text-body text-destructive">
         Couldn’t load this transcript.
       </div>
     );
   }
   if (events.length === 0) {
     return (
-      <div className="border-t border-border/60 px-3 py-2 font-mono atr-label text-muted-foreground">
+      <div className="border-t border-border/60 px-3 py-2 text-body text-muted-foreground">
         This session has no transcript events.
       </div>
     );
@@ -599,9 +601,7 @@ function TranscriptViewer({ sessionId }: TranscriptViewerProps) {
             {transcript.isFetchingNextPage ? "Loading…" : "Load more"}
           </Button>
         ) : (
-          <span className="font-mono atr-label text-muted-foreground">
-            End of transcript
-          </span>
+          <span className="atr-meta">End of transcript</span>
         )}
       </div>
     </div>
@@ -622,15 +622,15 @@ function TranscriptEventRow({ event }: TranscriptEventRowProps) {
   const timestamp =
     typeof event.timestamp === "string" ? event.timestamp : null;
   return (
-    <li className="rounded border border-border/40 bg-card/60 px-2 py-1.5">
-      <div className="flex items-center justify-between gap-2 font-mono atr-label uppercase tracking-widest text-muted-foreground">
-        <span className="text-accent">{event.type || "event"}</span>
+    <li className="border-b border-border/40 py-1.5 last:border-b-0">
+      <div className="flex items-center justify-between gap-2 font-mono atr-meta">
+        <span className="text-foreground">{event.type || "event"}</span>
         {timestamp ? (
           <span>{new Date(timestamp).toLocaleTimeString()}</span>
         ) : null}
       </div>
       {preview ? (
-        <p className="mt-1 whitespace-pre-wrap break-words font-mono atr-label text-foreground">
+        <p className="mt-1 whitespace-pre-wrap break-words text-body text-foreground">
           {preview}
         </p>
       ) : null}

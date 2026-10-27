@@ -61,7 +61,7 @@ export function ConfirmDialog({
         // the backdrop; Escape and Cancel stay available.
         onInteractOutside={destructive ? (event) => event.preventDefault() : undefined}
       >
-        <DialogHeader>
+        <DialogHeader className="pb-5">
           <DialogTitle>{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
@@ -70,7 +70,7 @@ export function ConfirmDialog({
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" size="sm" disabled={pending}>
+            <Button variant="bordered" size="sm" disabled={pending}>
               {cancelLabel}
             </Button>
           </DialogClose>

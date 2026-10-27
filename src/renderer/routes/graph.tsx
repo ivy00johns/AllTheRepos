@@ -14,18 +14,14 @@
 
 import * as React from "react";
 import { createRoute, useNavigate } from "@tanstack/react-router";
-import {
-  Eye,
-  Loader2,
-  Network,
-  RefreshCw,
-  RotateCcw,
-} from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import type { GraphCluster, GraphSignal } from "@shared/types";
 
 import { GraphCanvas } from "@renderer/components/graph/graph-canvas";
 import { RelatedRepos } from "@renderer/components/catalog/related-repos";
+import { colorForLanguage } from "@renderer/components/catalog/language-colors";
+import { PageHeader } from "@renderer/components/layout/page-header";
 import { Button } from "@renderer/components/ui/button";
 import { useGraph } from "@renderer/hooks/use-graph";
 import { cn } from "@renderer/lib/cn";
@@ -414,8 +410,7 @@ function GraphPage() {
    * apart from "this catalog has no links at all", because only the
    * first case has a way back that means anything.
    */
-  const filteredToNothing =
-    (data?.edges.length ?? 0) > 0 && edges.length === 0;
+  const filteredToNothing = (data?.edges.length ?? 0) > 0 && edges.length === 0;
 
   const selectedNode = data?.nodes.find((n) => n.slug === selectedSlug) ?? null;
   const selectedEdges = React.useMemo(() => {
@@ -443,6 +438,8 @@ function GraphPage() {
       key: string;
       label: string;
       meta: string;
+      /** Rendered as the row's 2×12 spine; groups have no language of their own. */
+      language?: string | null;
       selected: boolean;
       pick: () => void;
     }>
@@ -452,6 +449,7 @@ function GraphPage() {
         key: node.slug,
         label: node.name,
         meta: `${node.degree}`,
+        language: node.language,
         selected: node.slug === selectedSlug,
         pick: () => setSelectedSlug(node.slug),
       }));
@@ -473,7 +471,14 @@ function GraphPage() {
       });
     }
     return items;
-  }, [atGroupLevel, data, ungroupedSlugs, visibleNodes, selectedSlug, openCluster]);
+  }, [
+    atGroupLevel,
+    data,
+    ungroupedSlugs,
+    visibleNodes,
+    selectedSlug,
+    openCluster,
+  ]);
 
   /*
    * Where the list's single tab stop sits, clamped to a list that may have
@@ -543,70 +548,33 @@ function GraphPage() {
           edge. Row one is the map's identity and actions; row two is the
           filter strip, which gets the full width.
         */}
-        <div className="shrink-0 border-b border-border">
-          <div className="flex h-11 items-center gap-3 px-4">
-            <Network className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <h1 className="atr-label font-mono uppercase tracking-wider text-muted-foreground">
-              Relationships
-            </h1>
-
-            {/*
-              Where am I. Opening a group used to leave the header reading
-              "Relationships" and a repo count, which is how you end up on a
-              screenful of dots with no idea which group you are inside or how
-              to leave it. The trail names the group and offers the way back.
-            */}
-            {openGroup ? (
-              <nav
-                aria-label="Map location"
-                className="flex min-w-0 items-center gap-1.5"
-              >
-                <button
-                  type="button"
-                  onClick={() => openCluster(null)}
-                  className="atr-label cursor-pointer font-mono uppercase tracking-wider text-muted-foreground underline-offset-2 transition-colors duration-150 hover:text-foreground hover:underline"
-                >
-                  Groups
-                </button>
-                <span aria-hidden className="atr-label text-muted-foreground">
-                  /
-                </span>
-                <span className="atr-truncate font-mono atr-label text-foreground">
-                  {openGroup.label}
-                </span>
-                <span className="atr-meta shrink-0 tabular-nums">
-                  {visibleNodes.length}{" "}
-                  {visibleNodes.length === 1 ? "repo" : "repos"}
-                </span>
-              </nav>
-            ) : null}
-
-            <div className="ml-auto flex items-center gap-2">
+        <PageHeader
+          title="Map"
+          meta={
+            atGroupLevel
+              ? `${data?.clusters.length ?? 0} groups · ${
+                  data?.nodes.length ?? 0
+                } repos · ${edges.length} links`
+              : `${visibleNodes.length} repos · ${
+                  selectedCluster === null && edges.length > OVERVIEW_EDGE_CAP
+                    ? `strongest ${visibleEdges.length} of ${edges.length} links`
+                    : `${visibleEdges.length} links`
+                }`
+          }
+          actions={
+            <>
               {selectedCluster !== null ? (
                 <Button
-                  variant="outline"
+                  variant="bordered"
                   size="sm"
                   onClick={() => openCluster(null)}
                   title="Back to the group map"
                 >
-                  <Eye aria-hidden />
                   {(data?.clusters.length ?? 0) > 0
                     ? "All groups"
                     : "Show everything"}
                 </Button>
               ) : null}
-              <span className="atr-meta tabular-nums">
-                {atGroupLevel
-                  ? `${data?.clusters.length ?? 0} groups · ${
-                      data?.nodes.length ?? 0
-                    } repos · ${edges.length} links`
-                  : `${visibleNodes.length} repos · ${
-                      selectedCluster === null &&
-                      edges.length > OVERVIEW_EDGE_CAP
-                        ? `strongest ${visibleEdges.length} of ${edges.length} links`
-                        : `${visibleEdges.length} links`
-                    }`}
-              </span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -621,59 +589,97 @@ function GraphPage() {
                   aria-hidden
                 />
               </Button>
-            </div>
+            </>
+          }
+        >
+          {/*
+            The handoff's signal toggles: 28px chips on the header line, the
+            border and text doing the on/off, and a count only when there is
+            one. The old strip was a filled segmented control that read as
+            navigation rather than as six independent filters.
+          */}
+          <div
+            role="group"
+            aria-label="Relationship signals"
+            className="flex min-w-0 flex-wrap items-center gap-1.5"
+          >
+            {ALL_SIGNALS.map((signal) => {
+              const active = enabled.has(signal);
+              const count = signalCounts[signal];
+              return (
+                <button
+                  key={signal}
+                  type="button"
+                  aria-pressed={active}
+                  title={`${SIGNAL_HINTS[signal]} · ${count} ${
+                    count === 1 ? "link" : "links"
+                  }`}
+                  onClick={() => {
+                    const next = new Set(enabled);
+                    if (next.has(signal)) next.delete(signal);
+                    else next.add(signal);
+                    setEnabled(next);
+                  }}
+                  className={cn(
+                    "inline-flex h-7 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded border px-2.5 text-label font-medium transition-colors duration-150",
+                    active
+                      ? "border-border-strong text-foreground"
+                      : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
+                  )}
+                >
+                  <span>{SIGNAL_LABELS[signal]}</span>
+                  {count > 0 ? (
+                    <span className="atr-meta tabular-nums">{count}</span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
+        </PageHeader>
 
-          <div className="flex min-w-0 items-center px-4 pb-2">
-            <div
-              role="group"
-              aria-label="Relationship signals"
-              className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-md bg-muted p-0.5"
+        {/*
+          Where am I. Opening a group used to leave the header reading
+          "Relationships", which is how you end up on a screenful of dots with
+          no idea which group you are inside or how to leave it.
+        */}
+        {openGroup ? (
+          <nav
+            aria-label="Map location"
+            className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border px-6 py-2 text-label"
+          >
+            <button
+              type="button"
+              onClick={() => openCluster(null)}
+              className="cursor-pointer text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
-              {ALL_SIGNALS.map((signal) => {
-                const active = enabled.has(signal);
-                const count = signalCounts[signal];
-                return (
-                  <button
-                    key={signal}
-                    type="button"
-                    className="atr-segment"
-                    data-active={active ? "true" : "false"}
-                    aria-pressed={active}
-                    title={`${SIGNAL_HINTS[signal]} · ${count} ${
-                      count === 1 ? "link" : "links"
-                    }`}
-                    onClick={() => {
-                      const next = new Set(enabled);
-                      if (next.has(signal)) next.delete(signal);
-                      else next.add(signal);
-                      setEnabled(next);
-                    }}
-                  >
-                    <span>{SIGNAL_LABELS[signal]}</span>
-                    <span className="atr-micro font-mono tabular-nums text-muted-foreground">
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+              Groups
+            </button>
+            <span aria-hidden className="text-border-strong">
+              /
+            </span>
+            <span className="atr-truncate text-foreground">
+              {openGroup.label}
+            </span>
+            <span className="atr-meta shrink-0 tabular-nums">
+              {visibleNodes.length}{" "}
+              {visibleNodes.length === 1 ? "repo" : "repos"}
+            </span>
+          </nav>
+        ) : null}
 
         <div className="min-h-0 flex-1">
           {graph.isPending ? (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center gap-2 text-body text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Reading every project&apos;s dependencies…
             </div>
           ) : graph.isError ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="max-w-md text-sm text-destructive">
+              <p className="max-w-md text-body text-destructive">
                 {(graph.error as Error).message}
               </p>
               <Button
-                variant="outline"
+                variant="bordered"
                 size="sm"
                 onClick={() => void graph.refetch()}
                 disabled={graph.isFetching}
@@ -684,11 +690,11 @@ function GraphPage() {
             </div>
           ) : filteredToNothing ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="max-w-sm text-sm text-muted-foreground">
+              <p className="max-w-sm text-body text-muted-foreground">
                 No links carry the signals you have switched on.
               </p>
               <Button
-                variant="outline"
+                variant="bordered"
                 size="sm"
                 onClick={() => setEnabled(new Set(ALL_SIGNALS))}
               >
@@ -710,28 +716,29 @@ function GraphPage() {
         </div>
       </div>
 
-      <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
+      <aside className="flex w-[280px] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">
         {/*
           The keyboard equivalent of tapping a dot. Kept above the selection
           detail so it is there in the default state, when nothing is selected
           and there is otherwise no way to select anything.
         */}
-        <section className="border-b border-border p-4">
-          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
+        <section className="border-b border-border px-4 py-4">
+          <h2 className="text-label font-semibold text-muted-foreground">
             {atGroupLevel ? "Groups" : "Repositories"}
           </h2>
-          <p className="atr-label mt-1 leading-snug text-muted-foreground">
-            {atGroupLevel
-              ? "The map opens on groups — repos that belong together. It is painted on a canvas, so nothing on it can take focus: open a group from this list instead and the map follows. Arrow keys move, Enter or Space opens."
-              : "The map is painted on a canvas, so no dot on it can take focus. Pick one here instead — arrow keys move through the list, and Enter or Space selects the same node."}
-          </p>
 
+          {/*
+            The keyboard's only path onto the canvas. Its shape follows the
+            index: 30px rows, a language spine and the name at body size — a
+            list of mono strings described the map to a screen reader and to
+            nobody else.
+          */}
           <div
             role="listbox"
             aria-label={
               atGroupLevel ? "Groups on the map" : "Repositories on the map"
             }
-            className="mt-3 flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+            className="mt-2 flex max-h-72 flex-col overflow-y-auto"
           >
             {railItems.map((item, index) => (
               <button
@@ -745,9 +752,18 @@ function GraphPage() {
                 }}
                 onKeyDown={(event) => handleRailKeyDown(event, index)}
                 onClick={() => selectRailItem(index)}
-                className="atr-rail-row px-2 py-1"
+                className="atr-rail-row -mx-4 px-4"
               >
-                <span className="atr-truncate font-mono atr-label text-foreground">
+                {item.language ? (
+                  <span
+                    aria-hidden
+                    className="h-3 w-0.5 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor: colorForLanguage(item.language),
+                    }}
+                  />
+                ) : null}
+                <span className="atr-truncate text-body text-foreground">
                   {item.label}
                 </span>
                 <span className="atr-meta ml-auto shrink-0 tabular-nums">
@@ -758,7 +774,7 @@ function GraphPage() {
           </div>
 
           {railItems.length === 0 ? (
-            <p className="atr-label mt-2 text-muted-foreground">
+            <p className="mt-2 text-label text-muted-foreground">
               {graph.isPending
                 ? "Reading the catalog…"
                 : atGroupLevel
@@ -769,17 +785,15 @@ function GraphPage() {
         </section>
 
         {selectedNode ? (
-          <section className="border-b border-border p-4">
-            <h2 className="font-mono text-sm font-semibold text-foreground">
+          <section className="border-b border-border px-4 py-4">
+            <h2 className="text-name font-semibold text-foreground">
               {selectedNode.name}
             </h2>
-            <p className="atr-meta mt-0.5">{tildify(selectedNode.folder)}</p>
-            <p className="atr-label mt-2 font-mono uppercase tracking-wider text-muted-foreground">
-              Strongest links
-            </p>
+            <p className="atr-meta mt-1">{tildify(selectedNode.folder)}</p>
+            <p className="atr-eyebrow mt-3">Strongest links</p>
             <ul className="mt-1 flex flex-col gap-1">
               {selectedEdges.length === 0 ? (
-                <li className="atr-label text-muted-foreground">
+                <li className="text-label text-muted-foreground">
                   Nothing connects to this one.
                 </li>
               ) : (
@@ -793,11 +807,11 @@ function GraphPage() {
                         onClick={() => setSelectedSlug(other)}
                         className="w-full cursor-pointer rounded px-1 py-0.5 text-left transition-colors duration-150 hover:bg-surface-raised"
                       >
-                        <span className="atr-truncate block font-mono atr-label text-foreground">
+                        <span className="atr-truncate block text-body text-foreground">
                           {nameOf(other)}
                         </span>
                         {edge.curated?.length ? (
-                          <span className="atr-truncate block atr-label text-accent">
+                          <span className="atr-truncate block text-label text-accent">
                             {edge.curated
                               .map((c) =>
                                 c.from === selectedSlug
@@ -807,7 +821,7 @@ function GraphPage() {
                               .join(", ")}
                           </span>
                         ) : null}
-                        <span className="atr-truncate block atr-label text-muted-foreground">
+                        <span className="atr-truncate block atr-meta">
                           {edge.why.join(", ") || edge.signals.join(", ")}
                         </span>
                       </button>
@@ -820,7 +834,7 @@ function GraphPage() {
         ) : null}
 
         {selectedNode ? (
-          <section className="border-b border-border p-4">
+          <section className="border-b border-border px-4 py-4">
             <RelatedRepos
               slug={selectedNode.slug}
               repoName={selectedNode.name}
@@ -830,18 +844,18 @@ function GraphPage() {
           </section>
         ) : null}
 
-        <section className="p-4">
-          <h2 className="atr-label font-mono font-medium uppercase tracking-wider text-muted-foreground">
+        <section className="px-4 py-4">
+          <h2 className="text-label font-semibold text-muted-foreground">
             Scattered clusters
           </h2>
-          <p className="atr-label mt-1 leading-snug text-muted-foreground">
+          <p className="mt-2 text-label leading-snug text-muted-foreground">
             Groups whose members are related but live in different folders. The
             number is how many sit outside the group&apos;s main home.
           </p>
 
           <ul className="mt-3 flex flex-col gap-1">
             {scattered.length === 0 ? (
-              <li className="atr-label text-muted-foreground">
+              <li className="text-label text-muted-foreground">
                 {graph.isPending ? "…" : "Nothing scattered — tidy machine."}
               </li>
             ) : (
@@ -857,10 +871,10 @@ function GraphPage() {
                     data-selected={
                       selectedCluster === cluster.id ? "true" : "false"
                     }
-                    className="atr-rail-row flex-col items-start gap-0.5 px-2 py-1.5"
+                    className="atr-rail-row h-auto flex-col items-start gap-0.5 py-1.5"
                   >
                     <span className="flex w-full items-center gap-1.5">
-                      <span className="atr-truncate font-mono atr-label text-foreground">
+                      <span className="atr-truncate text-body text-foreground">
                         {cluster.label}
                       </span>
                       <span className="atr-micro ml-auto shrink-0 rounded bg-warning/15 px-1 font-mono text-warning">
@@ -873,7 +887,7 @@ function GraphPage() {
                   </button>
 
                   {selectedCluster === cluster.id ? (
-                    <div className="mb-2 mt-1 flex flex-col gap-1 rounded-md border border-border bg-card p-2">
+                    <div className="mb-2 mt-1 flex flex-col gap-1">
                       <p className="atr-meta">
                         Mostly in {tildify(cluster.dominantFolder)}
                       </p>
@@ -881,7 +895,7 @@ function GraphPage() {
                         {cluster.strays.slice(0, 8).map((slug) => (
                           <li
                             key={slug}
-                            className="atr-truncate font-mono atr-label text-muted-foreground"
+                            className="atr-truncate text-label text-muted-foreground"
                           >
                             {nameOf(slug)}
                           </li>
@@ -895,7 +909,6 @@ function GraphPage() {
           </ul>
         </section>
       </aside>
-
     </div>
   );
 }

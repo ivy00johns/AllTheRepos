@@ -73,7 +73,7 @@ export function SearchBar({
   return (
     <div className={cn("relative w-full", className)}>
       <Search
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden
       />
       <Input
@@ -82,11 +82,11 @@ export function SearchBar({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search repos by name, description, tag, language..."
+        placeholder="Find a repository"
         aria-label="Search repos"
-        className="h-11 w-full pl-9 pr-28 text-sm"
+        className="h-8 w-full pl-8 pr-20 text-body"
       />
-      <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 atr-micro text-muted-foreground">
+      <div className="pointer-events-none absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 atr-micro text-muted-foreground">
         {loading ? (
           <span className="font-mono">searching…</span>
         ) : value ? (
@@ -100,12 +100,13 @@ export function SearchBar({
             esc
           </button>
         ) : (
-          <>
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">
-              /
-            </kbd>
-            <span>focus</span>
-          </>
+          /*
+           * Just the key. `/ focus` explained a shortcut nobody had asked
+           * about and turned the quietest part of the bar into a chip.
+           */
+          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono">
+            /
+          </kbd>
         )}
       </div>
     </div>

@@ -12,13 +12,14 @@
  */
 
 import * as React from "react";
-import { AlertTriangle, FolderMinus } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@renderer/components/ui/dialog";
@@ -61,12 +62,9 @@ export function ScanRootDialog({
 
   return (
     <Dialog open={Boolean(path)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FolderMinus className="h-4 w-4 text-warning" aria-hidden />
-            Stop scanning this folder
-          </DialogTitle>
+          <DialogTitle>Stop scanning this folder</DialogTitle>
           <DialogDescription>
             <span className="font-mono">{path ? tildify(path) : ""}</span> will
             no longer be searched for repos. Nothing on disk is deleted,
@@ -74,6 +72,7 @@ export function ScanRootDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex flex-col gap-4 px-5 py-4">
         {count > 0 ? (
           <fieldset className="flex flex-col gap-2">
             <legend className="sr-only">
@@ -94,9 +93,9 @@ export function ScanRootDialog({
               <label
                 key={String(option.value)}
                 className={cn(
-                  "flex cursor-pointer gap-2 rounded-md border p-3 transition-colors duration-150",
+                  "flex cursor-pointer gap-3 rounded-md border p-3 transition-colors duration-150",
                   forget === option.value
-                    ? "border-accent bg-surface-raised"
+                    ? "border-border-strong bg-surface"
                     : "border-border hover:border-border-strong",
                 )}
               >
@@ -108,10 +107,10 @@ export function ScanRootDialog({
                   onChange={() => setForget(option.value)}
                 />
                 <span className="min-w-0">
-                  <span className="block text-xs text-foreground">
+                  <span className="block text-body text-foreground">
                     {option.label}
                   </span>
-                  <span className="block atr-label text-muted-foreground">
+                  <span className="block pt-0.5 text-label text-muted-foreground">
                     {option.hint}
                   </span>
                 </span>
@@ -119,21 +118,24 @@ export function ScanRootDialog({
             ))}
           </fieldset>
         ) : (
-          <p className="atr-meta">No repos have been catalogued here.</p>
+          <p className="text-body text-muted-foreground">
+            No repos have been catalogued here.
+          </p>
         )}
 
         {remove.isError ? (
           <p
             role="alert"
-            className="flex items-center gap-2 text-xs text-destructive"
+            className="flex items-center gap-2 text-label text-destructive"
           >
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
             {(remove.error as Error).message}
           </p>
         ) : null}
+        </div>
 
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter>
+          <Button variant="bordered" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
@@ -143,7 +145,7 @@ export function ScanRootDialog({
           >
             Stop scanning
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

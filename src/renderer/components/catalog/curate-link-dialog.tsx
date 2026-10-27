@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { Check, Link2, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 import type { RepoLinkKind } from "@shared/types";
 
@@ -29,6 +29,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@renderer/components/ui/dialog";
@@ -61,7 +62,7 @@ export function CurateLinkDialog({
 }: CurateLinkDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent>
         {open ? (
           <CurateLinkForm
             onClose={() => onOpenChange(false)}
@@ -134,9 +135,8 @@ function CurateLinkForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          <Link2 className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-          <span className="truncate">Relate {fromName} to another repo</span>
+        <DialogTitle className="truncate">
+          Relate {fromName} to another repo
         </DialogTitle>
         <DialogDescription>
           Written to the same table the MCP writes, so it appears here and on
@@ -144,11 +144,11 @@ function CurateLinkForm({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 px-5 py-4">
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="curate-link-search"
-            className="atr-label font-mono uppercase tracking-wider text-muted-foreground"
+            className="text-label font-medium text-muted-foreground"
           >
             Which repository
           </label>
@@ -161,71 +161,73 @@ function CurateLinkForm({
             autoFocus
             className="h-8"
           />
-          <div className="max-h-44 overflow-y-auto rounded-md border border-border/60">
-            {!typed ? (
-              <p className="atr-label p-3 text-muted-foreground">
-                Type to search the catalog.
-              </p>
-            ) : search.isFetching && hits.length === 0 ? (
-              <p className="atr-label flex items-center gap-2 p-3 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                Searching…
-              </p>
-            ) : hits.length === 0 ? (
-              <p className="atr-label p-3 text-muted-foreground">
-                Nothing in the catalog matches that.
-              </p>
-            ) : (
-              <ul>
-                {hits.map((hit) => {
-                  const isTarget = target?.slug === hit.repo.slug;
-                  return (
-                    <li key={hit.repo.slug}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTarget({
-                            slug: hit.repo.slug,
-                            name: hit.repo.name,
-                          })
-                        }
-                        aria-pressed={isTarget}
-                        className={cn(
-                          "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors duration-150",
-                          isTarget ? "bg-secondary" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <Check
+          {/* No box until there is something to put in it: an empty bordered
+              list under the search field read as a second, disabled input. */}
+          {!typed ? null : (
+            <div className="max-h-44 overflow-y-auto rounded-md border border-border">
+              {search.isFetching && hits.length === 0 ? (
+                <p className="flex items-center gap-2 p-3 text-label text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                  Searching…
+                </p>
+              ) : hits.length === 0 ? (
+                <p className="p-3 text-label text-muted-foreground">
+                  Nothing in the catalog matches that.
+                </p>
+              ) : (
+                <ul>
+                  {hits.map((hit) => {
+                    const isTarget = target?.slug === hit.repo.slug;
+                    return (
+                      <li key={hit.repo.slug}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTarget({
+                              slug: hit.repo.slug,
+                              name: hit.repo.name,
+                            })
+                          }
+                          aria-pressed={isTarget}
                           className={cn(
-                            "h-3 w-3 shrink-0 text-accent",
-                            !isTarget && "invisible",
+                            "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors duration-150",
+                            isTarget
+                              ? "bg-surface-raised"
+                              : "hover:bg-surface-raised/60",
                           )}
-                          aria-hidden
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="atr-label block truncate font-mono text-foreground">
-                            {hit.repo.name}
+                        >
+                          <Check
+                            className={cn(
+                              "h-3 w-3 shrink-0 text-foreground",
+                              !isTarget && "invisible",
+                            )}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-body font-medium text-foreground">
+                              {hit.repo.name}
+                            </span>
+                            <span className="block truncate font-mono text-meta text-muted-foreground">
+                              {hit.repo.fullPath}
+                            </span>
                           </span>
-                          <span className="atr-micro block truncate text-muted-foreground">
-                            {hit.repo.fullPath}
-                          </span>
-                        </span>
-                        {linked.has(hit.repo.slug) ? (
-                          <span className="atr-micro shrink-0 text-muted-foreground">
-                            already linked
-                          </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+                          {linked.has(hit.repo.slug) ? (
+                            <span className="shrink-0 font-mono text-meta text-muted-foreground">
+                              already linked
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <span className="atr-label font-mono uppercase tracking-wider text-muted-foreground">
+          <span className="text-label font-medium text-muted-foreground">
             How they relate
           </span>
           <div className="flex flex-wrap gap-1.5">
@@ -236,9 +238,9 @@ function CurateLinkForm({
                 onClick={() => setKind(option)}
                 aria-pressed={kind === option}
                 className={cn(
-                  "atr-label rounded-md border px-2 py-1 transition-colors duration-150",
+                  "rounded border px-2.5 py-1 text-label font-medium transition-colors duration-150",
                   kind === option
-                    ? "border-accent bg-accent/10 text-accent"
+                    ? "border-foreground bg-foreground text-background"
                     : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
                 )}
               >
@@ -251,7 +253,7 @@ function CurateLinkForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="curate-link-why"
-            className="atr-label font-mono uppercase tracking-wider text-muted-foreground"
+            className="text-label font-medium text-muted-foreground"
           >
             Why
           </label>
@@ -267,7 +269,7 @@ function CurateLinkForm({
             spellCheck={false}
             className="h-8"
           />
-          <p className="atr-label min-h-4 font-mono text-muted-foreground">
+          <p className="min-h-4 text-label text-muted-foreground">
             {sentence
               ? `${sentence}${why.trim() ? ` — ${why.trim()}` : ""}`
               : "Pick a repository to see the assertion."}
@@ -275,14 +277,14 @@ function CurateLinkForm({
         </div>
 
         {assert.error ? (
-          <p role="alert" className="atr-label text-destructive">
+          <p role="alert" className="text-label text-destructive">
             {ipcErrorText(assert.error)}
           </p>
         ) : null}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+      <DialogFooter>
+        <Button variant="bordered" onClick={onClose}>
           Cancel
         </Button>
         <Button onClick={handleAssert} disabled={!ready || assert.isPending}>
@@ -291,7 +293,7 @@ function CurateLinkForm({
           ) : null}
           Assert link
         </Button>
-      </div>
+      </DialogFooter>
     </>
   );
 }

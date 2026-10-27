@@ -31,9 +31,15 @@ import { cn } from "@renderer/lib/cn";
 interface PortChipProps {
   process: ProcessInfo;
   className?: string;
+  /**
+   * `inline` drops the chip's border, fill and padding so it can sit in the
+   * index entry's meta line as `● :8080` — data in the line's own type, still
+   * the same button with the same menu (open, copy URL, kill).
+   */
+  variant?: "chip" | "inline";
 }
 
-export function PortChip({ process, className }: PortChipProps) {
+export function PortChip({ process, className, variant = "chip" }: PortChipProps) {
   const url = `http://localhost:${process.port}`;
   const kill = useKillProcess();
   const [confirming, setConfirming] = React.useState(false);
@@ -73,7 +79,10 @@ export function PortChip({ process, className }: PortChipProps) {
             type="button"
             aria-label={`Port ${process.port} actions (PID ${process.pid})`}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md border border-status-live/40 bg-status-live/10 px-2 py-0.5 font-mono atr-micro text-status-live transition-colors hover:bg-status-live/20 focus:outline-none focus:ring-2 focus:ring-ring",
+              "inline-flex items-center gap-1 font-mono text-status-live transition-colors focus:outline-none focus:ring-2 focus:ring-ring",
+              variant === "inline"
+                ? "atr-meta rounded-sm hover:text-status-live/80"
+                : "atr-micro rounded-md border border-status-live/40 bg-status-live/10 px-2 py-0.5 hover:bg-status-live/20",
               kill.isPending && "opacity-50",
               className,
             )}
@@ -137,6 +146,7 @@ export function PortChip({ process, className }: PortChipProps) {
 interface PortChipsForRepoProps {
   processes: ProcessInfo[];
   className?: string;
+  variant?: "chip" | "inline";
 }
 
 /**
@@ -147,12 +157,13 @@ interface PortChipsForRepoProps {
 export function PortChipsForRepo({
   processes,
   className,
+  variant,
 }: PortChipsForRepoProps) {
   if (processes.length === 0) return null;
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
       {processes.map((p) => (
-        <PortChip key={`${p.pid}-${p.port}`} process={p} />
+        <PortChip key={`${p.pid}-${p.port}`} process={p} variant={variant} />
       ))}
     </span>
   );

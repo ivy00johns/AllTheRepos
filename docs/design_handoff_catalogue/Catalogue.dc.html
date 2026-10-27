@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#0b0f14;color:#e8edf2;color-scheme:dark;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#e8edf2;text-decoration:underline;text-decoration-color:#3a4a5e;text-underline-offset:3px}
+a:hover{text-decoration-color:#e8edf2}
+input{font:inherit;color:inherit}
+input::placeholder{color:#93a1b1}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid rgba(232,237,242,.8);outline-offset:2px}
+/* Inputs keep the ring. A bordered field draws it just outside its own border; a composite field (the search box, the palette's input row) rings its container instead, because the input inside it is borderless. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid rgba(232,237,242,.8);outline-offset:-1px;border-radius:4px}
+header label:focus-within{outline:2px solid rgba(232,237,242,.8);outline-offset:2px}
+header label:focus-within input{outline:none}
+[role=dialog] > div:first-child:focus-within{outline:2px solid rgba(232,237,242,.8);outline-offset:-2px}
+[role=dialog] > div:first-child:focus-within input{outline:none}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#283444;border-radius:10px;border:3px solid #0b0f14}::-webkit-scrollbar-track{background:transparent}
+@media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+</helmet>
+<div style="height:100vh;min-height:600px;display:grid;grid-template-rows:48px minmax(0,1fr);background:#0b0f14;">
+
+  <header style="display:grid;grid-template-columns:232px minmax(0,1fr) auto;align-items:stretch;border-bottom:1px solid #283444;">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 16px;background:#141b24;border-right:1px solid #283444;">
+      <span style="width:8px;height:8px;border-radius:2px;background:#22c55e;"></span>
+      <span style="font:600 13px/1 'IBM Plex Sans';letter-spacing:-0.01em;">AllTheRepos</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;padding:0 24px;min-width:0;">
+      <label style="flex:1;max-width:560px;min-width:0;display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#93a1b1" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <input ref="{{ searchRef }}" value="{{ query }}" onChange="{{ onQuery }}" placeholder="Find a repository" style="flex:1;min-width:0;background:none;border:0;font-size:13px;line-height:1.5;">
+        <span style="font:500 10px/1 'JetBrains Mono';color:#93a1b1;border:1px solid #283444;border-radius:4px;padding:3px 5px;">/</span>
+      </label>
+      <span style="font:400 11px/1.2 'JetBrains Mono';color:{{ countColor }};white-space:nowrap;">{{ countLabel }}</span>
+    </div>
+    <nav style="display:flex;align-items:stretch;gap:20px;padding:0 24px;">
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+        <button onClick="{{ n.go }}" style="display:flex;align-items:center;gap:6px;font:500 12px/1.2 'IBM Plex Sans';color:{{ n.color }};box-shadow:{{ n.rule }};transition:color 140ms cubic-bezier(0.2,0,0,1);" style-hover="color:#e8edf2;">
+          <span>{{ n.label }}</span>
+          <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:4px;font:500 10px/1 'JetBrains Mono';color:#4ade80;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span>{{ n.badge }}</span></sc-if>
+        </button>
+      </sc-for>
+    </nav>
+  </header>
+
+  <div style="display:grid;grid-template-columns:{{ cols }};min-height:0;transition:grid-template-columns 180ms cubic-bezier(0.2,0,0,1);">
+
+    <aside style="background:#141b24;border-right:1px solid #283444;overflow:auto;padding:16px 0 24px;display:flex;flex-direction:column;gap:24px;">
+      <sc-for list="{{ rail }}" as="sec" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;">
+          <div style="padding:0 16px 8px;font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">{{ sec.title }}</div>
+          <sc-for list="{{ sec.items }}" as="it" hint-placeholder-count="5">
+            <button onClick="{{ it.pick }}" style="display:flex;align-items:center;gap:8px;height:30px;padding:0 16px 0 {{ it.indent }};text-align:left;font:400 13px/1.2 'IBM Plex Sans';color:{{ it.color }};background:{{ it.bg }};box-shadow:{{ it.rule }};transition:background 140ms cubic-bezier(0.2,0,0,1);" style-hover="background:#1c2634;">
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ it.label }}</span>
+              <span style="font:400 11px/1 'JetBrains Mono';color:{{ it.countColor }};">{{ it.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-direction:column;gap:2px;padding:0 16px;">
+        <button style="height:28px;text-align:left;font:400 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">+ Add folder to scan</button>
+        <button onClick="{{ openDialog }}" style="height:28px;text-align:left;font:400 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">+ New group</button>
+      </div>
+    </aside>
+
+    <sc-if value="{{ isRepos }}" hint-placeholder-val="{{ true }}">
+    <main style="min-width:0;overflow:hidden;display:flex;flex-direction:column;min-height:0;">
+      <div style="display:flex;flex-direction:column;gap:6px;padding:0 24px;border-bottom:1px solid #283444;">
+        <div style="display:flex;align-items:stretch;gap:8px 24px;min-height:44px;flex-wrap:wrap;white-space:nowrap;">
+          <div role="tablist" style="display:flex;gap:16px;min-height:44px;">
+            <sc-for list="{{ views }}" as="v" hint-placeholder-count="3">
+              <button role="tab" onClick="{{ v.pick }}" style="display:flex;align-items:center;font:500 12px/1.2 'IBM Plex Sans';color:{{ v.color }};box-shadow:{{ v.rule }};transition:color 140ms cubic-bezier(0.2,0,0,1);" style-hover="color:#e8edf2;">{{ v.label }}</button>
+            </sc-for>
+          </div>
+          <span style="width:1px;background:#283444;margin:12px 0;"></span>
+          <div style="display:flex;align-items:center;gap:16px;min-height:44px;font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">
+            <button style="display:flex;gap:6px;align-items:center;" style-hover="color:#e8edf2;">Group <span style="color:#e8edf2;">Folder</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 9 6 6 6-6"></path></svg></button>
+            <button style="display:flex;gap:6px;align-items:center;" style-hover="color:#e8edf2;">Sort <span style="color:#e8edf2;">Last touched</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 9 6 6 6-6"></path></svg></button>
+          </div>
+          <div style="flex:1;"></div>
+          <button title="More: Fetch all, Pull all, Tag cleanup, Save filter" style="align-self:center;width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#93a1b1;" style-hover="background:#1c2634;color:#e8edf2;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></button>
+        </div>
+        <sc-if value="{{ filterNote }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:12px;align-items:center;padding-bottom:10px;font:400 12px/1.2 'IBM Plex Sans';color:#93a1b1;">
+            <span>Showing {{ filterNote }}</span>
+            <button onClick="{{ clearFilters }}" style="font:500 12px/1.2 'IBM Plex Sans';color:#e8edf2;text-decoration:underline;text-decoration-color:#3a4a5e;text-underline-offset:3px;">Clear</button>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow:auto;">
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:48px 24px;display:flex;gap:12px;align-items:center;font:400 12px/1.5 'IBM Plex Sans';color:#93a1b1;">No repository matches “{{ query }}”. <button onClick="{{ clearFilters }}" style="font-weight:500;color:#e8edf2;">Clear search</button></div>
+        </sc-if>
+
+        <sc-if value="{{ isIndex }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:0 24px 48px;">
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+              <section style="padding-top:28px;">
+                <div style="display:flex;gap:8px;align-items:baseline;padding-bottom:8px;font:600 12px/1.2 'IBM Plex Sans';color:#93a1b1;"><span>{{ g.name }}</span><span style="font:400 11px/1.2 'JetBrains Mono';">{{ g.count }}</span></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));column-gap:24px;">
+                  <sc-for list="{{ g.items }}" as="e" hint-placeholder-count="2">
+                    <div onClick="{{ e.select }}" style="position:relative;display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:12px;padding:12px 8px 14px 16px;border-top:1px solid #283444;background:{{ e.bg }};cursor:default;transition:background 140ms cubic-bezier(0.2,0,0,1);">
+                      <span style="position:absolute;left:0;top:12px;bottom:14px;width:2px;background:{{ e.spine }};"></span>
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:4px;">
+                        <div style="font:500 15px/1.35 'IBM Plex Sans';color:#e8edf2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;">{{ e.name }}</div>
+                        <div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ e.desc }}</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;padding-top:2px;">
+                          <span>{{ e.when }}</span><span aria-hidden="true" style="color:#3a4a5e;">·</span><span>{{ e.lang }}</span><span aria-hidden="true" style="color:#3a4a5e;">·</span><span>{{ e.size }}</span>
+                          <sc-if value="{{ e.port }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="display:flex;align-items:center;gap:5px;color:#4ade80;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span><span>:{{ e.port }}</span></span></sc-if>
+                          <sc-if value="{{ e.dirty }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="color:#f0a83c;">{{ e.dirty }} uncommitted</span></sc-if>
+                          <sc-if value="{{ e.own }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="color:#a78bfa;">{{ e.own }}</span></sc-if>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:2px;justify-content:flex-end;align-items:flex-start;visibility:{{ e.gutter }};">
+                        <button title="Open in editor" style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#e8edf2;" style-hover="background:#283444;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></button>
+                        <button title="More" style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#93a1b1;" style-hover="background:#283444;color:#e8edf2;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></button>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </section>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isPosters }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:0 24px 48px;">
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+              <section style="padding-top:28px;">
+                <div style="display:flex;gap:8px;align-items:baseline;padding-bottom:8px;font:600 12px/1.2 'IBM Plex Sans';color:#93a1b1;"><span>{{ g.name }}</span><span style="font:400 11px/1.2 'JetBrains Mono';">{{ g.count }}</span></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));column-gap:24px;">
+                  <sc-for list="{{ g.items }}" as="e" hint-placeholder-count="2">
+                    <div onClick="{{ e.select }}" style="display:flex;flex-direction:column;gap:12px;padding:20px 20px 28px;border-top:1px solid #283444;background:{{ e.bg }};cursor:default;transition:background 140ms cubic-bezier(0.2,0,0,1);">
+                      <span style="width:48px;height:6px;background:{{ e.spine }};"></span>
+                      <div style="font:600 28px/1.15 'IBM Plex Sans';letter-spacing:-0.015em;color:#e8edf2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;">{{ e.name }}</div>
+                      <div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;max-width:52ch;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:39px;">{{ e.desc }}</div>
+                      <div style="display:flex;flex-wrap:wrap;gap:4px;font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">
+                        <span>{{ e.when }}</span><span aria-hidden="true" style="color:#3a4a5e;">·</span><span>{{ e.lang }}</span>
+                        <sc-if value="{{ e.port }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="display:flex;align-items:center;gap:5px;color:#4ade80;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span><span>:{{ e.port }}</span></span></sc-if>
+                        <sc-if value="{{ e.dirty }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="color:#f0a83c;">{{ e.dirty }} uncommitted</span></sc-if>
+                        <sc-if value="{{ e.own }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color:#3a4a5e;">·</span><span style="color:#a78bfa;">{{ e.own }}</span></sc-if>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </section>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isTable }}" hint-placeholder-val="{{ false }}">
+          <div role="table" style="min-width:720px;padding-bottom:48px;">
+            <div role="row" style="position:sticky;top:0;z-index:1;display:grid;grid-template-columns:minmax(160px,1.3fr) minmax(0,2fr) 110px 110px 72px;gap:16px;align-items:center;height:36px;padding:0 24px;background:#141b24;border-bottom:1px solid #283444;font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">
+              <span>Name</span><span>Description</span><span>Language</span><span>Last touched</span><span style="text-align:right;">Size</span>
+            </div>
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+              <div>
+                <div style="display:flex;gap:8px;align-items:baseline;padding:20px 24px 8px;font:600 12px/1.2 'IBM Plex Sans';color:#93a1b1;border-bottom:1px solid #283444;"><span>{{ g.name }}</span><span style="font:400 11px/1.2 'JetBrains Mono';">{{ g.count }}</span></div>
+                <sc-for list="{{ g.items }}" as="e" hint-placeholder-count="2">
+                  <div role="row" onClick="{{ e.select }}" style="position:relative;display:grid;grid-template-columns:minmax(160px,1.3fr) minmax(0,2fr) 110px 110px 72px;gap:16px;align-items:center;min-height:36px;padding:6px 24px;border-bottom:1px solid #1c2634;background:{{ e.bg }};cursor:default;">
+                    <span style="position:absolute;left:0;top:0;bottom:0;width:2px;background:{{ e.rowRule }};"></span>
+                    <span style="display:flex;gap:8px;align-items:center;min-width:0;font:500 13px/1.35 'IBM Plex Sans';color:#e8edf2;overflow-wrap:anywhere;">{{ e.name }}<sc-if value="{{ e.port }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;flex:none;border-radius:50%;background:#4ade80;" title="Listening"></span></sc-if></span>
+                    <span style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ e.desc }}</span>
+                    <span style="display:flex;gap:8px;align-items:center;font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;"><span style="width:2px;height:12px;background:{{ e.langColor }};"></span>{{ e.lang }}</span>
+                    <span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">{{ e.when }}</span>
+                    <span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;text-align:right;font-variant-numeric:tabular-nums;">{{ e.size }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </main>
+    </sc-if>
+
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <main style="min-width:0;overflow:auto;display:flex;flex-direction:column;">
+        <div style="flex:none;display:flex;align-items:center;gap:16px;min-height:56px;padding:12px 24px;border-bottom:1px solid #283444;flex-wrap:wrap;"><h1 style="margin:0;font:600 28px/1.15 'IBM Plex Sans';letter-spacing:-0.015em;">Settings</h1><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">v0.14.2</span></div>
+        <div style="padding:0 24px 48px;">
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Scan paths</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">Folders AllTheRepos indexes. Nested repositories are found automatically.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;flex-direction:column;">
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:8px 0;border-top:1px solid #283444;border-bottom:1px solid #283444;">
+                  <span style="font:400 13px/1.35 'JetBrains Mono';">~/Code</span><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">12 repos · 4 min ago</span>
+                  <button style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#f0616d;">Remove</button>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;"><input placeholder="Add a folder, e.g. ~/Work" style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;flex:1;"><button style="height:32px;padding:0 12px;border:1px solid #283444;border-radius:6px;font:500 13px/1 'IBM Plex Sans';color:#e8edf2;white-space:nowrap;" style-hover="background:#1c2634;">Add folder</button></div>
+            </div>
+          </section>
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Embeddings</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">Turns on semantic search, so a query can match what a repo does, not only its name. Runs locally with Ollama, or through OpenAI.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;border:1px solid #283444;border-radius:4px;padding:2px;gap:2px;align-self:flex-start;"><button style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'IBM Plex Sans';background:#e8edf2;color:#0b0f14;">Ollama</button><button style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'IBM Plex Sans';color:#93a1b1;">OpenAI</button><button style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'IBM Plex Sans';color:#93a1b1;">Off</button></div>
+              <div style="display:flex;flex-wrap:wrap;gap:12px;"><label style="display:flex;flex-direction:column;gap:6px;flex:1 1 200px;min-width:0;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Host</span><input value="http://localhost:11434" readonly style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;font-family:'JetBrains Mono';font-size:11px;"></label><label style="display:flex;flex-direction:column;gap:6px;flex:1 1 200px;min-width:0;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Model</span><input value="nomic-embed-text" readonly style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;font-family:'JetBrains Mono';font-size:11px;"></label></div>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><button style="height:32px;padding:0 12px;border:1px solid #283444;border-radius:6px;font:500 13px/1 'IBM Plex Sans';color:#e8edf2;white-space:nowrap;" style-hover="background:#1c2634;">Test connection</button><span style="display:flex;gap:6px;align-items:center;font:400 12px/1.2 'IBM Plex Sans';color:#f0a83c;"><span style="width:6px;height:6px;border-radius:50%;background:#f0a83c;"></span>Ollama isn’t answering at this host. Semantic search is off.</span></div>
+              <div style="font:400 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Changes save as you type.</div>
+            </div>
+          </section>
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Editor and terminal</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">What Open and Terminal launch from the detail panel, palette and spotlight.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;flex-wrap:wrap;gap:12px;"><label style="display:flex;flex-direction:column;gap:6px;flex:1 1 200px;min-width:0;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Editor</span><button style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;">Visual Studio Code<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#93a1b1" stroke-width="1.5"><path d="m6 9 6 6 6-6"></path></svg></button></label><label style="display:flex;flex-direction:column;gap:6px;flex:1 1 200px;min-width:0;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Terminal</span><button style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;">Ghostty<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#93a1b1" stroke-width="1.5"><path d="m6 9 6 6 6-6"></path></svg></button></label></div><div style="font:400 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Changes save as you type.</div></div>
+          </section>
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Updates</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">You’re on the latest version.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;"><div style="display:flex;border:1px solid #283444;border-radius:4px;padding:2px;gap:2px;align-self:flex-start;"><button style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'IBM Plex Sans';background:#e8edf2;color:#0b0f14;">Stable</button><button style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'IBM Plex Sans';color:#93a1b1;">Beta</button></div><button style="height:32px;padding:0 12px;border:1px solid #283444;border-radius:6px;font:500 13px/1 'IBM Plex Sans';color:#e8edf2;white-space:nowrap;" style-hover="background:#1c2634;">Check for updates</button><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">checked today, 09:12</span></div></div>
+          </section>
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Identities</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">Git identities that count as you. Repos with commits from these are marked Mine.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;flex-direction:column;border-top:1px solid #283444;">
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:8px 0;border-bottom:1px solid #283444;"><span style="font:400 13px/1.35 'IBM Plex Sans';">Ivy Okafor</span><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">ivy@example.dev</span><button style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#f0616d;">Remove</button></div>
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:8px 0;border-bottom:1px solid #283444;"><span style="font:400 13px/1.35 'IBM Plex Sans';">ivy00j</span><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">github.com</span><button style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#f0616d;">Remove</button></div>
+              </div>
+              <button style="align-self:flex-start;font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">+ Add identity</button>
+            </div>
+          </section>
+          <section style="display:flex;flex-wrap:wrap;gap:16px 48px;padding:24px 0;border-bottom:1px solid #283444;border-bottom:0;"><div style="flex:1 1 240px;max-width:420px;display:flex;flex-direction:column;gap:6px;"><div style="font:600 15px/1.35 'IBM Plex Sans';">Scan now</div><div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">Scans run on launch and when a folder changes. Run one by hand after moving things around.</div></div>
+            <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;"><button style="height:32px;padding:0 14px;border-radius:6px;background:#e8edf2;color:#0b0f14;font:500 13px/1 'IBM Plex Sans';white-space:nowrap;" style-hover="background:#ffffff;">Scan now</button><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">last: 4 min ago · 12 repos · 1.8 s</span></div></div>
+          </section>
+        </div>
+      </main>
+    </sc-if>
+
+    <sc-if value="{{ isRunning }}" hint-placeholder-val="{{ false }}">
+      <main style="min-width:0;overflow:auto;display:flex;flex-direction:column;">
+        <div style="flex:none;display:flex;align-items:center;gap:16px;min-height:56px;padding:12px 24px;border-bottom:1px solid #283444;flex-wrap:wrap;"><h1 style="margin:0;font:600 28px/1.15 'IBM Plex Sans';letter-spacing:-0.015em;">Running</h1><span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">{{ procCount }}</span></div>
+        <sc-if value="{{ hasProcs }}" hint-placeholder-val="{{ true }}">
+          <div role="table" style="min-width:680px;">
+            <div role="row" style="display:grid;grid-template-columns:minmax(140px,1.2fr) 88px minmax(0,2fr) 64px 72px 132px;gap:16px;align-items:center;height:36px;padding:0 24px;border-bottom:1px solid #283444;font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;"><span>Repository</span><span>Port</span><span>Command</span><span style="text-align:right;">PID</span><span>Age</span><span></span></div>
+            <sc-for list="{{ procs }}" as="p" hint-placeholder-count="3">
+              <div role="row" style="display:grid;grid-template-columns:minmax(140px,1.2fr) 88px minmax(0,2fr) 64px 72px 132px;gap:16px;align-items:center;min-height:44px;padding:6px 24px;border-bottom:1px solid #1c2634;" style-hover="background:#141b24;">
+                <button onClick="{{ p.open }}" style="text-align:left;font:500 13px/1.35 'IBM Plex Sans';overflow-wrap:anywhere;" style-hover="text-decoration:underline;">{{ p.name }}</button>
+                <span style="justify-self:start;display:flex;gap:6px;align-items:center;font:500 11px/1 'JetBrains Mono';color:#4ade80;padding:4px 6px;border:1px solid rgba(74,222,128,.35);border-radius:4px;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span><span>:{{ p.port }}</span></span>
+                <span style="font:400 11px/1.4 'JetBrains Mono';color:#93a1b1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.cmd }}</span>
+                <span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;text-align:right;font-variant-numeric:tabular-nums;">{{ p.pid }}</span>
+                <span style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">{{ p.age }}</span>
+                <span style="display:flex;gap:4px;justify-content:flex-end;">
+                  <button title="Copy URL" style="white-space:nowrap;height:28px;padding:0 8px;border-radius:6px;font:500 12px/1 'IBM Plex Sans';color:#93a1b1;" style-hover="background:#1c2634;color:#e8edf2;">Copy URL</button>
+                  <button onClick="{{ p.kill }}" title="Stop process" style="height:28px;padding:0 8px;border-radius:6px;font:500 12px/1 'IBM Plex Sans';color:#93a1b1;" style-hover="background:rgba(240,97,109,.12);color:#f0616d;">Stop</button>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noProcs }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:32px 24px;display:flex;gap:12px;align-items:center;font:400 12px/1.5 'IBM Plex Sans';color:#93a1b1;">Nothing is listening. Start a dev server in any indexed repo and it appears here. <button onClick="{{ restoreProcs }}" style="font-weight:500;color:#e8edf2;">Restore demo</button></div>
+        </sc-if>
+      </main>
+    </sc-if>
+
+    <sc-if value="{{ isClaude }}" hint-placeholder-val="{{ false }}">
+      <main style="min-width:0;overflow:auto;display:flex;flex-direction:column;">
+        <div style="flex:none;display:flex;align-items:center;gap:16px;min-height:56px;padding:12px 24px;border-bottom:1px solid #283444;flex-wrap:wrap;">
+          <h1 style="margin:0;font:600 28px/1.15 'IBM Plex Sans';letter-spacing:-0.015em;">Claude</h1><div style="flex:1;"></div>
+          <div style="display:flex;border:1px solid #283444;border-radius:4px;padding:2px;gap:2px;">
+            <sc-for list="{{ ranges }}" as="rg" hint-placeholder-count="4"><button onClick="{{ rg.pick }}" style="height:26px;padding:0 10px;border-radius:3px;font:500 12px/1 'JetBrains Mono';background:{{ rg.bg }};color:{{ rg.color }};">{{ rg.label }}</button></sc-for>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border-bottom:1px solid #283444;">
+          <sc-for list="{{ stats }}" as="st" hint-placeholder-count="4">
+            <div style="padding:20px 24px;border-right:1px solid #283444;display:flex;flex-direction:column;gap:8px;">
+              <span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">{{ st.k }}</span>
+              <span style="font:400 22px/1.1 'JetBrains Mono';font-variant-numeric:tabular-nums;">{{ st.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <section style="padding:24px 24px 28px;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;"><span style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Activity · last 12 weeks</span>
+            <span style="display:flex;gap:6px;align-items:center;font:400 11px/1 'JetBrains Mono';color:#93a1b1;">less<sc-for list="{{ heatLegend }}" as="hl" hint-placeholder-count="5"><span style="width:10px;height:10px;border-radius:2px;background:{{ hl }};"></span></sc-for>more</span></div>
+          <div style="display:grid;grid-template-columns:28px repeat(12,minmax(0,1fr));grid-template-rows:repeat(7,14px);grid-auto-flow:column;gap:3px;">
+            <span style="font:400 10px/14px 'JetBrains Mono';color:#93a1b1;">Mon</span><span></span><span style="font:400 10px/14px 'JetBrains Mono';color:#93a1b1;">Wed</span><span></span><span style="font:400 10px/14px 'JetBrains Mono';color:#93a1b1;">Fri</span><span></span><span></span>
+            <sc-for list="{{ heat }}" as="c" hint-placeholder-count="84"><span title="{{ c.t }}" style="border-radius:2px;background:{{ c.bg }};"></span></sc-for>
+          </div>
+        </section>
+        <div role="table" style="min-width:640px;padding-bottom:48px;">
+          <div style="padding:24px 24px 8px;font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Projects</div>
+          <div role="row" style="display:grid;grid-template-columns:minmax(140px,1.4fr) 80px 96px 120px minmax(80px,1fr);gap:16px;align-items:center;height:36px;padding:0 24px;border-top:1px solid #283444;border-bottom:1px solid #283444;font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;"><span>Repository</span><span style="text-align:right;">Sessions</span><span style="text-align:right;">Tokens</span><span>Last active</span><span>Trend</span></div>
+          <sc-for list="{{ projects }}" as="pj" hint-placeholder-count="5">
+            <div role="row" style="display:grid;grid-template-columns:minmax(140px,1.4fr) 80px 96px 120px minmax(80px,1fr);gap:16px;align-items:center;min-height:40px;padding:6px 24px;border-bottom:1px solid #1c2634;">
+              <span style="font:500 13px/1.35 'IBM Plex Sans';">{{ pj.name }}</span>
+              <span style="font:400 11px/1 'JetBrains Mono';text-align:right;font-variant-numeric:tabular-nums;color:#93a1b1;">{{ pj.sessions }}</span>
+              <span style="font:400 11px/1 'JetBrains Mono';text-align:right;font-variant-numeric:tabular-nums;">{{ pj.tokens }}</span>
+              <span style="font:400 11px/1 'JetBrains Mono';color:#93a1b1;">{{ pj.last }}</span>
+              <span style="display:flex;align-items:flex-end;gap:2px;height:18px;">
+                <sc-if value="{{ pj.hasTrend }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ pj.trend }}" as="b" hint-placeholder-count="12"><span style="width:4px;height:{{ b }};background:#38bdf8;"></span></sc-for></sc-if>
+              </span>
+            </div>
+          </sc-for>
+        </div>
+      </main>
+    </sc-if>
+
+    <sc-if value="{{ isMap }}" hint-placeholder-val="{{ false }}">
+      <main style="min-width:0;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,300px);grid-template-rows:auto minmax(0,1fr);">
+        <div style="grid-column:1 / -1;display:flex;align-items:center;gap:20px;min-height:56px;padding:12px 24px;border-bottom:1px solid #283444;flex-wrap:wrap;">
+          <h1 style="margin:0;font:600 28px/1.15 'IBM Plex Sans';letter-spacing:-0.015em;">Map</h1>
+          <div role="group" aria-label="Signals" style="display:flex;flex-wrap:wrap;gap:6px;">
+            <sc-for list="{{ signals }}" as="sg" hint-placeholder-count="6">
+              <button onClick="{{ sg.pick }}" aria-pressed="{{ sg.on }}" style="white-space:nowrap;height:28px;padding:0 10px;border-radius:4px;border:1px solid {{ sg.border }};display:flex;gap:6px;align-items:center;font:500 12px/1 'IBM Plex Sans';color:{{ sg.color }};" style-hover="border-color:#3a4a5e;">{{ sg.label }}<sc-if value="{{ sg.count }}" hint-placeholder-val="{{ false }}"><span style="font:400 11px/1 'JetBrains Mono';color:#93a1b1;">{{ sg.count }}</span></sc-if></button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="position:relative;min-width:0;min-height:0;margin:32px 48px;">
+          {{ edges }}
+          <sc-for list="{{ clusterLabels }}" as="cl" hint-placeholder-count="4">
+            <span style="position:absolute;left:{{ cl.x }};top:{{ cl.y }};transform:translate(-50%,-100%);font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;pointer-events:none;white-space:nowrap;">{{ cl.name }}</span>
+          </sc-for>
+          <sc-for list="{{ nodes }}" as="nd" hint-placeholder-count="12">
+            <button onMouseEnter="{{ nd.enter }}" onMouseLeave="{{ nd.leave }}" onClick="{{ nd.focus }}" aria-label="{{ nd.name }}" style="position:absolute;left:{{ nd.x }};top:{{ nd.y }};width:24px;height:24px;margin:-12px 0 0 -12px;display:grid;place-items:center;">
+              <span style="width:{{ nd.size }};height:{{ nd.size }};border-radius:50%;background:{{ nd.color }};box-shadow:{{ nd.ring }};transition:box-shadow 140ms cubic-bezier(0.2,0,0,1);"></span>
+              <sc-if value="{{ nd.showLabel }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:50%;top:26px;transform:translateX(-50%);white-space:nowrap;padding:3px 6px;border-radius:4px;background:#1c2634;font:500 12px/1.2 'IBM Plex Sans';color:#e8edf2;pointer-events:none;">{{ nd.name }}</span></sc-if>
+            </button>
+          </sc-for>
+        </div>
+        <aside role="listbox" aria-label="Clusters" style="border-left:1px solid #283444;overflow:auto;padding:8px 0 24px;">
+          <sc-for list="{{ clusters }}" as="cg" hint-placeholder-count="5">
+            <div style="padding-top:16px;">
+              <div style="display:flex;gap:8px;padding:0 16px 6px;font:600 12px/1.2 'IBM Plex Sans';color:#93a1b1;"><span>{{ cg.name }}</span><span style="font:400 11px/1.2 'JetBrains Mono';">{{ cg.count }}</span></div>
+              <sc-for list="{{ cg.items }}" as="ci" hint-placeholder-count="2">
+                <button role="option" onClick="{{ ci.focus }}" onMouseEnter="{{ ci.enter }}" onMouseLeave="{{ ci.leave }}" style="width:100%;display:flex;gap:10px;align-items:center;height:30px;padding:0 16px;text-align:left;font:400 13px/1.2 'IBM Plex Sans';color:{{ ci.color }};background:{{ ci.bg }};box-shadow:{{ ci.rule }};" style-hover="background:#1c2634;"><span style="width:2px;height:12px;background:{{ ci.lang }};"></span>{{ ci.name }}</button>
+              </sc-for>
+            </div>
+          </sc-for>
+        </aside>
+      </main>
+    </sc-if>
+
+    <sc-if value="{{ d }}" hint-placeholder-val="{{ false }}">
+      <aside style="min-width:0;border-left:1px solid #283444;overflow:auto;display:flex;flex-direction:column;">
+        <div style="flex:none;padding:20px 20px 16px;display:flex;flex-direction:column;gap:14px;border-bottom:1px solid #283444;">
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
+              <div style="font:600 22px/1.2 'IBM Plex Sans';letter-spacing:-0.01em;overflow-wrap:anywhere;">{{ d.name }}</div>
+              <div style="font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;overflow-wrap:anywhere;">{{ d.path }}</div>
+            </div>
+            <button onClick="{{ closeDetail }}" title="Close (Esc)" style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#93a1b1;" style-hover="background:#1c2634;color:#e8edf2;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+          </div>
+          <div style="font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">{{ d.desc }}</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button style="height:32px;padding:0 14px;border-radius:6px;background:#e8edf2;color:#0b0f14;font:500 13px/1 'IBM Plex Sans';display:flex;gap:8px;align-items:center;" style-hover="background:#ffffff;">Open<span style="font:500 10px/1 'JetBrains Mono';opacity:.6;">↵</span></button>
+            <button style="height:32px;padding:0 12px;border-radius:6px;border:1px solid #283444;font:500 13px/1 'IBM Plex Sans';color:#e8edf2;" style-hover="background:#1c2634;">Terminal</button>
+            <div style="flex:1;"></div>
+            <button title="More" style="width:32px;height:32px;border-radius:6px;display:grid;place-items:center;color:#93a1b1;" style-hover="background:#1c2634;color:#e8edf2;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></button>
+          </div>
+        </div>
+        <div role="tablist" style="flex:none;display:flex;gap:20px;padding:0 20px;height:40px;border-bottom:1px solid #283444;">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+            <button role="tab" onClick="{{ t.pick }}" style="font:500 12px/1.2 'IBM Plex Sans';color:{{ t.color }};box-shadow:{{ t.rule }};" style-hover="color:#e8edf2;">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <div style="flex:none;display:flex;flex-direction:column;">
+          <dl style="flex:none;margin:0;display:grid;grid-template-columns:1fr 1fr;padding:0 20px;">
+            <sc-for list="{{ d.facts }}" as="f" hint-placeholder-count="4">
+              <div style="padding:12px 12px 12px 0;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:6px;min-width:0;">
+                <dt style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">{{ f.k }}</dt>
+                <dd style="margin:0;font:400 13px/1.35 'IBM Plex Sans';color:{{ f.color }};overflow-wrap:anywhere;">{{ f.v }}</dd>
+              </div>
+            </sc-for>
+          </dl>
+          <div style="padding:16px 20px;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:10px;">
+            <div style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Languages</div>
+            <div style="display:flex;height:4px;gap:2px;">
+              <sc-for list="{{ d.langs }}" as="l" hint-placeholder-count="2"><span style="flex:{{ l.pct }};background:{{ l.color }};"></span></sc-for>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;">
+              <sc-for list="{{ d.langs }}" as="l" hint-placeholder-count="2"><span style="display:flex;gap:6px;align-items:center;"><span style="width:2px;height:10px;background:{{ l.color }};"></span><span style="color:#e8edf2;">{{ l.name }}</span>{{ l.pct }}%</span></sc-for>
+            </div>
+          </div>
+          <div style="padding:16px 20px;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Tags</span><button style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">Add</button></div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <sc-for list="{{ d.tags }}" as="tg" hint-placeholder-count="3"><span style="font:400 11px/1 'JetBrains Mono';padding:5px 7px;border:1px solid #283444;border-radius:4px;color:#e8edf2;">{{ tg }}</span></sc-for>
+            </div>
+          </div>
+          <div style="padding:16px 20px;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Related</span><button style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">Link a repo</button></div>
+            <sc-if value="{{ d.hasRelated }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;">
+                <sc-for list="{{ d.related }}" as="r" hint-placeholder-count="2"><button onClick="{{ r.go }}" style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;text-align:left;font:500 13px/1.35 'IBM Plex Sans';" style-hover="text-decoration:underline;"><span>{{ r.name }}</span><span style="font:400 11px/1.35 'JetBrains Mono';color:#93a1b1;">{{ r.why }}</span></button></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ d.noRelated }}" hint-placeholder-val="{{ false }}"><div style="font:400 12px/1.5 'IBM Plex Sans';color:#93a1b1;">No linked repositories.</div></sc-if>
+          </div>
+          <div style="padding:16px 20px;border-bottom:1px solid #283444;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;"><span style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Groups</span><button onClick="{{ openDialog }}" style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;" style-hover="color:#e8edf2;">Add to group</button></div>
+            <div style="font:400 12px/1.5 'IBM Plex Sans';color:#93a1b1;">Not in a group.</div>
+          </div>
+          <article style="padding:24px 20px 48px;display:flex;flex-direction:column;gap:12px;max-width:68ch;">
+            <div style="font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">Readme</div>
+            <h2 style="margin:4px 0 0;font:600 18px/1.3 'IBM Plex Sans';">{{ d.name }}</h2>
+            <p style="margin:0;font:400 13px/1.6 'IBM Plex Sans';color:#e8edf2;text-wrap:pretty;">{{ d.readme }}</p>
+            <h3 style="margin:12px 0 0;font:600 15px/1.35 'IBM Plex Sans';">Running it</h3>
+            <p style="margin:0;font:400 13px/1.6 'IBM Plex Sans';color:#e8edf2;text-wrap:pretty;">Install dependencies, then start the dev server. The port is picked up by the Running view automatically.</p>
+            <pre style="margin:0;padding:12px 14px;border:1px solid #283444;border-radius:6px;font:400 11px/1.6 'JetBrains Mono';color:#e8edf2;overflow:auto;">{{ d.cmd }}</pre>
+          </article>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePalette }}" style="position:fixed;inset:0;background:rgba(5,8,11,.6);display:flex;justify-content:center;align-items:flex-start;padding-top:12vh;z-index:10;">
+      <div onClick="{{ stop }}" role="dialog" aria-label="Command palette" style="width:min(600px,calc(100vw - 48px));background:#1c2634;border:1px solid #3a4a5e;border-radius:10px;box-shadow:0 16px 40px -8px rgba(0,0,0,.6);overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:48px;border-bottom:1px solid #283444;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#93a1b1" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <input ref="{{ paletteRef }}" value="{{ pq }}" onChange="{{ onPq }}" placeholder="Type a repo or a command" style="flex:1;background:none;border:0;font-size:15px;">
+          <span style="font:500 10px/1 'JetBrains Mono';color:#93a1b1;border:1px solid #3a4a5e;border-radius:4px;padding:3px 5px;">esc</span>
+        </div>
+        <div style="max-height:380px;overflow:auto;padding:6px;">
+          <sc-for list="{{ pGroups }}" as="pg" hint-placeholder-count="2">
+            <div style="padding-bottom:4px;">
+              <div style="padding:10px 10px 6px;font:400 11px/1.2 'JetBrains Mono';letter-spacing:0.08em;text-transform:uppercase;color:#93a1b1;">{{ pg.title }}</div>
+              <sc-for list="{{ pg.items }}" as="pi" hint-placeholder-count="3">
+                <div onMouseMove="{{ pi.hover }}" onClick="{{ pi.run }}" style="display:flex;align-items:center;gap:12px;height:36px;padding:0 10px;border-radius:6px;background:{{ pi.bg }};color:{{ pi.color }};transition:background 120ms cubic-bezier(0.2,0,0,1);cursor:default;">
+                  <span style="flex:1;min-width:0;font:500 13px/1.2 'IBM Plex Sans';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ pi.label }}</span>
+                  <span style="font:400 11px/1.2 'JetBrains Mono';color:{{ pi.subColor }};">{{ pi.sub }}</span>
+                  <sc-if value="{{ pi.key }}" hint-placeholder-val="{{ false }}"><span style="font:500 10px/1 'JetBrains Mono';padding:3px 5px;border-radius:4px;border:1px solid {{ pi.keyBorder }};color:{{ pi.subColor }};">{{ pi.key }}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+          <sc-if value="{{ pEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:16px 10px;font:400 12px/1.5 'IBM Plex Sans';color:#93a1b1;">Nothing matches “{{ pq }}”.</div></sc-if>
+        </div>
+        <div style="display:flex;gap:16px;padding:10px 16px;border-top:1px solid #283444;font:400 11px/1.2 'JetBrains Mono';color:#93a1b1;"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+      </div>
+    </div>
+  </sc-if>
+<sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDialog }}" style="position:fixed;inset:0;background:rgba(5,8,11,.6);display:grid;place-items:center;z-index:11;padding:24px;">
+      <div onClick="{{ stop }}" role="dialog" aria-labelledby="ng-title" style="width:min(440px,100%);background:#1c2634;border:1px solid #3a4a5e;border-radius:10px;box-shadow:0 16px 40px -8px rgba(0,0,0,.6);">
+        <div style="padding:20px 20px 0;display:flex;flex-direction:column;gap:6px;">
+          <h2 id="ng-title" style="margin:0;font:600 18px/1.3 'IBM Plex Sans';">New group</h2>
+          <p style="margin:0;font:400 13px/1.5 'IBM Plex Sans';color:#93a1b1;text-wrap:pretty;">A group is a hand-picked set of repos, shown in the rail. A repo can be in more than one.</p>
+        </div>
+        <div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+          <label style="display:flex;flex-direction:column;gap:8px;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Name</span><input ref="{{ dialogRef }}" placeholder="e.g. Client work" style="height:32px;padding:0 10px;border:1px solid #283444;border-radius:4px;background:#0b0f14;font:400 13px/1 'IBM Plex Sans';color:#e8edf2;min-width:0;background:#141b24;"></label>
+          <div style="display:flex;flex-direction:column;gap:8px;"><span style="font:500 12px/1.2 'IBM Plex Sans';color:#93a1b1;">Start with</span>
+            <div style="font:400 13px/1.5 'IBM Plex Sans';"><span>{{ dialogSeed }}</span></div></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #283444;">
+          <button onClick="{{ closeDialog }}" style="height:32px;padding:0 12px;border:1px solid #283444;border-radius:6px;font:500 13px/1 'IBM Plex Sans';color:#e8edf2;white-space:nowrap;" style-hover="background:#283444;">Cancel</button>
+          <button onClick="{{ closeDialog }}" style="height:32px;padding:0 14px;border-radius:6px;background:#e8edf2;color:#0b0f14;font:500 13px/1 'IBM Plex Sans';white-space:nowrap;" style-hover="background:#ffffff;">Create group</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;route&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Repos&quot;,&quot;Running&quot;,&quot;Map&quot;,&quot;Claude&quot;,&quot;Settings&quot;],&quot;default&quot;:&quot;Repos&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;index&quot;,&quot;posters&quot;,&quot;table&quot;],&quot;default&quot;:&quot;index&quot;,&quot;tsType&quot;:&quot;'index'|'posters'|'table'&quot;},&quot;openDetail&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;paletteOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const INK = '#e8edf2', MUTED = '#93a1b1', RAISED = '#1c2634', SURF = '#141b24';
+const LANG = { TypeScript:'#38bdf8', Go:'#2dd4bf', Python:'#60a5fa', Rust:'#94a3b8', 'C++':'#7c8aa0', HCL:'#64748b', Jupyter:'#828e9f', CSS:'#3b82f6', Shell:'#5b6b7f', GLSL:'#475569', Astro:'#6b7b8f' };
+const FOLDERS = ['design','graphics','infra','labs','services','web'];
+const REPOS = [
+  { slug:'lighthouse-ui', folder:'design', lang:'TypeScript', desc:'The desktop surface: catalog, filter chips and the detail rail.', when:'today', size:'4.1 MB', langs:[['TypeScript',78],['CSS',18],['Shell',4]], tags:['ui','electron','tailwind'], commit:'3h ago', fav:true, related:[['orchestrator','same author, shared types']], cmd:'pnpm install\npnpm dev' },
+  { slug:'pixel-forge', folder:'graphics', lang:'Rust', desc:'Sprite pipeline with a live shader preview.', when:'2 months ago', size:'12 MB', langs:[['Rust',84],['GLSL',16]], tags:['sprites','wgpu'], commit:'2 months ago', cmd:'cargo run --release' },
+  { slug:'voxel-engine', folder:'graphics', lang:'C++', desc:'Chunked voxel renderer: sparse octree, GPU-persistent meshes.', when:'4 weeks ago', size:'38 MB', langs:[['C++',91],['GLSL',9]], tags:['rendering','octree'], commit:'4 weeks ago', related:[['pixel-forge','shared shader dir']], cmd:'cmake -B build && cmake --build build' },
+  { slug:'terraform-live', folder:'infra', lang:'HCL', desc:'The applied stack — every change here is a change in production.', when:'2 weeks ago', size:'880 KB', langs:[['HCL',94],['Shell',6]], tags:['terraform','prod'], commit:'2 weeks ago', related:[['edge-proxy','deploys it']], cmd:'terraform plan' },
+  { slug:'edge-proxy', folder:'infra', lang:'Go', desc:'Tiny reverse proxy with per-tenant rate limits.', when:'5 days ago', size:'2.3 MB', port:8080, langs:[['Go',97],['Shell',3]], tags:['proxy','go'], commit:'5 days ago', cmd:'go run ./cmd/edge' },
+  { slug:'orchestrator', folder:'labs', lang:'TypeScript', desc:'Dispatch layer: a work graph, a fleet, a merge queue.', when:'10 months ago', size:'6.7 MB', langs:[['TypeScript',100]], tags:['agents','queue'], commit:'10 months ago', cmd:'pnpm install\npnpm start' },
+  { slug:'sketchbook', folder:'labs', lang:'Jupyter', desc:'Throwaway notebooks that never became a paper.', when:'5 months ago', size:'210 MB', own:'local only', langs:[['Jupyter',88],['Python',12]], tags:['notebooks'], commit:'5 months ago', cmd:'jupyter lab' },
+  { slug:'weatherbird', folder:'labs', lang:'Python', desc:'Forecast deltas against the public station archive.', when:'3 months ago', size:'9.4 MB', port:4310, langs:[['Python',92],['Shell',8]], tags:['weather','data'], commit:'3 months ago', cmd:'uv run serve --port 4310' },
+  { slug:'ledger-core', folder:'services', lang:'Go', desc:'Double-entry ledger with an append-only journal.', when:'yesterday', size:'5.2 MB', dirty:3, langs:[['Go',89],['Shell',11]], tags:['finance','postgres'], commit:'yesterday', cmd:'go test ./... && go run .' },
+  { slug:'mail-relay', folder:'services', lang:'TypeScript', desc:'Outbound mail queue with retries and a bounce log.', when:'3 days ago', size:'3.0 MB', port:8787, langs:[['TypeScript',95],['Shell',5]], tags:['email','workers'], commit:'3 days ago', related:[['ledger-core','sends its receipts']], cmd:'pnpm dev --port 8787' },
+  { slug:'field-notes', folder:'web', lang:'Astro', desc:'Personal site and the occasional long post.', when:'3 weeks ago', size:'18 MB', langs:[['Astro',62],['TypeScript',24],['CSS',14]], tags:['site','writing'], commit:'3 weeks ago', cmd:'pnpm dev' },
+  { slug:'kiln', folder:'web', lang:'Rust', desc:'Static site generator, cloned to read how its router works.', when:'6 months ago', size:'15 MB', own:'cloned', langs:[['Rust',96],['Shell',4]], tags:['ssg','reading'], commit:'6 months ago', cmd:'cargo build' },
+];
+const PROCS = [
+  { slug:'edge-proxy', port:8080, cmd:'go run ./cmd/edge --listen :8080', pid:48211, age:'2h 14m' },
+  { slug:'weatherbird', port:4310, cmd:'uv run serve --port 4310', pid:51907, age:'38m' },
+  { slug:'mail-relay', port:8787, cmd:'node --watch dist/server.js', pid:52230, age:'6m' },
+];
+const PROJECTS = [
+  ['lighthouse-ui', 41, '2.4M', 'today', [2,3,5,4,6,8,7,9,6,8,10,9]],
+  ['orchestrator', 18, '1.1M', '4 days ago', [6,8,9,7,5,4,3,2,2,1,1,1]],
+  ['ledger-core', 12, '640K', 'yesterday', [0,0,1,2,1,3,2,4,3,5,4,6]],
+  ['edge-proxy', 7, '310K', '5 days ago', [1,0,2,1,0,3,1,0,2,1,0,1]],
+  ['field-notes', 2, '42K', '3 weeks ago', [0,0,0,0,0,0,0,0,1,0,1,0]],
+];
+const HEAT = ['#1c2634','#334155','#3b82f6','#38bdf8','#2dd4bf'];
+const CLUSTERS = [
+  { name:'Desktop app', c:[24,24], m:['lighthouse-ui','orchestrator'] },
+  { name:'Graphics', c:[74,20], m:['pixel-forge','voxel-engine'] },
+  { name:'Infrastructure', c:[26,74], m:['terraform-live','edge-proxy'] },
+  { name:'Services', c:[74,72], m:['ledger-core','mail-relay'] },
+  { name:'Unclustered', c:null, m:['sketchbook','weatherbird','field-notes','kiln'] },
+];
+const LOOSE = { sketchbook:[50,46], weatherbird:[92,46], 'field-notes':[8,48], kiln:[50,94] };
+const EDGES = [['lighthouse-ui','orchestrator'],['pixel-forge','voxel-engine'],['terraform-live','edge-proxy'],['ledger-core','mail-relay'],['edge-proxy','mail-relay'],['lighthouse-ui','field-notes'],['orchestrator','ledger-core']];
+const SIGNALS = [['Same owner',6],['Co-edited',4],['Shared deps',3],['Curated links',4],['Same folder',0],['Imports',0]];
+const VIEWS = [['all','All repos',r=>true],['fav','Favourites',r=>r.fav],['mine','Mine',r=>!r.own],['local','Local only',r=>r.own==='local only'],['cloned','Cloned',r=>r.own==='cloned'],['dirty','Uncommitted',r=>!!r.dirty]];
+
+class Component extends DCLogic {
+  state = { view: this.props.defaultView ?? 'index', sel: (this.props.openDetail ?? true) ? 'lighthouse-ui' : null, query:'', rail:'all', tab:'Details', palette: this.props.paletteOpen ?? false, pq:'', pi:0, route: this.props.route ?? 'Repos', procs: PROCS.map(p=>p.slug), range:'30d', sig:{0:true,1:true,2:true,3:true}, focus:'lighthouse-ui', hover:null, dialog:false };
+  dialogRef = React.createRef();
+  searchRef = React.createRef(); paletteRef = React.createRef();
+
+  componentDidMount() {
+    this.onKey = (ev) => {
+      const s = this.state, typing = ev.target && ev.target.tagName === 'INPUT';
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); this.openPalette(); return; }
+      if (s.dialog) { if (ev.key === 'Escape') this.setState({ dialog:false }); return; }
+      if (s.palette) {
+        const items = this.paletteItems();
+        if (ev.key === 'Escape') return this.setState({ palette:false });
+        if (ev.key === 'ArrowDown') { ev.preventDefault(); return this.setState({ pi: Math.min(items.length-1, s.pi+1) }); }
+        if (ev.key === 'ArrowUp') { ev.preventDefault(); return this.setState({ pi: Math.max(0, s.pi-1) }); }
+        if (ev.key === 'Enter' && items[s.pi]) { ev.preventDefault(); items[s.pi].run(); }
+        return;
+      }
+      if (ev.key === '/' && !typing) { ev.preventDefault(); this.searchRef.current && this.searchRef.current.focus(); return; }
+      if (ev.key === 'Escape') { if (typing) ev.target.blur(); else this.setState({ sel:null }); return; }
+      if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && !typing) {
+        ev.preventDefault();
+        const list = this.ordered(); if (!list.length) return;
+        const i = list.findIndex(r => r.slug === s.sel);
+        const n = ev.key === 'ArrowDown' ? Math.min(list.length-1, i+1) : Math.max(0, i < 0 ? 0 : i-1);
+        this.setState({ sel: list[n].slug });
+      }
+    };
+    window.addEventListener('keydown', this.onKey);
+    if (this.state.palette) setTimeout(() => this.paletteRef.current && this.paletteRef.current.focus(), 50);
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this.onKey); }
+
+  openPalette() { this.setState({ palette:true, pq:'', pi:0 }, () => setTimeout(() => this.paletteRef.current && this.paletteRef.current.focus(), 0)); }
+
+  openDialog() { this.setState({ palette:false, dialog:true }, () => setTimeout(() => this.dialogRef.current && this.dialogRef.current.focus(), 0)); }
+  filtered() {
+    const s = this.state, q = s.query.trim().toLowerCase();
+    let pred = r => true;
+    if (s.rail === 'root') pred = r => true;
+    else if (s.rail.startsWith('folder:')) { const f = s.rail.slice(7); pred = r => r.folder === f; }
+    else { const v = VIEWS.find(v => v[0] === s.rail); if (v) pred = v[2]; }
+    return REPOS.filter(r => pred(r) && (!q || [r.slug, r.desc, r.lang, r.folder, ...r.tags].join(' ').toLowerCase().includes(q)));
+  }
+  ordered() { const f = this.filtered(); return FOLDERS.flatMap(fo => f.filter(r => r.folder === fo)); }
+
+  paletteItems() {
+    const q = this.state.pq.trim().toLowerCase(), m = t => !q || t.toLowerCase().includes(q);
+    const repos = REPOS.filter(r => m(r.slug) || m(r.desc)).slice(0, q ? 6 : 4).map(r => ({ group:'Repositories', label:r.slug, sub:r.folder, run:() => this.setState({ sel:r.slug, palette:false, rail:'all', query:'' }) }));
+    const go = [['Repos','⌘1'],['Running','⌘2'],['Map','⌘3'],['Claude','⌘4'],['Settings','⌘,']].filter(x => m(x[0])).map(x => ({ group:'Go to', label:x[0], key:x[1], run:() => this.setState({ palette:false, route:x[0] }) }));
+    const acts = [['Open selected in editor','↵'],['New group',''],['Tag cleanup',''],['Fetch all repositories',''],['Scan now','']].filter(x => m(x[0])).map(x => ({ group:'Actions', label:x[0], key:x[1], run:() => x[0]==='New group' ? this.openDialog() : x[0]==='Scan now' ? this.setState({ palette:false, route:'Settings' }) : this.setState({ palette:false }) }));
+    return [...repos, ...go, ...acts];
+  }
+
+  renderVals() {
+    const s = this.state, list = this.filtered(), total = REPOS.length;
+    const mk = (r) => {
+      const on = r.slug === s.sel;
+      return { name:r.slug, desc:r.desc, when:r.when, lang:r.lang, size:r.size, port:r.port, dirty:r.dirty, own:r.own,
+        langColor: LANG[r.lang], spine: on ? INK : LANG[r.lang], rowRule: on ? INK : 'transparent',
+        bg: on ? RAISED : 'transparent', gutter: on ? 'visible' : 'hidden',
+        select: () => this.setState({ sel: on ? null : r.slug }) };
+    };
+    const groups = FOLDERS.map(f => ({ name:f, items:list.filter(r => r.folder === f).map(mk) })).filter(g => g.items.length).map(g => ({ ...g, count:g.items.length }));
+
+    const viewLabel = s.rail === 'root' ? '~/Code' : s.rail.startsWith('folder:') ? s.rail.slice(7) : (VIEWS.find(v => v[0] === s.rail) || [])[1];
+    const notes = [];
+    if (s.rail !== 'all' && s.rail !== 'root') notes.push(viewLabel);
+    if (s.query.trim()) notes.push(`matching “${s.query.trim()}”`);
+
+    const railItem = (key, label, count, indent, countColor) => {
+      const on = s.rail === key;
+      return { label, count, indent, color: on ? INK : '#c3ccd6', bg: on ? RAISED : 'transparent', rule: on ? `inset 2px 0 0 ${INK}` : 'none', countColor: countColor || MUTED, pick: () => this.setState({ rail:key, route:'Repos' }) };
+    };
+    const rail = [
+      { title:'Views', items: VIEWS.map(([k,l,p]) => { const c = REPOS.filter(p).length; return railItem(k, l, c || '', '16px', k==='dirty' && c ? '#f0a83c' : null); }) },
+      { title:'Folders', items: [railItem('root', '~/Code', total, '16px'), ...FOLDERS.map(f => railItem('folder:'+f, f, REPOS.filter(r => r.folder===f).length, '32px'))] },
+      { title:'Groups', items: [] },
+    ].filter(x => x.items.length);
+
+    const r = s.route === 'Repos' && REPOS.find(x => x.slug === s.sel);
+    const d = r && { name:r.slug, desc:r.desc, path:`~/Code/${r.folder}/${r.slug}`, cmd:r.cmd, tags:r.tags,
+      readme: `${r.desc} It lives in ~/Code/${r.folder} and is indexed alongside everything else on this machine.`,
+      facts: [{k:'Branch',v:'main',color:INK},{k:'Last commit',v:r.commit,color:INK},{k:'Status',v: r.dirty ? `${r.dirty} files uncommitted` : 'Clean',color: r.dirty ? '#f0a83c' : INK},{k:'Remote',v: r.own==='local only' ? 'None — local only' : `github.com/${r.own==='cloned'?'kiln-ssg':'ivy00j'}/${r.slug}`,color: r.own ? '#a78bfa' : INK},{k:'Size',v:r.size,color:INK},{k:'Port',v: r.port ? `:${r.port} listening` : 'Not running',color: r.port ? '#4ade80' : MUTED}],
+      langs: r.langs.map(([n,p]) => ({ name:n, pct:p, color:LANG[n] })),
+      hasRelated: !!(r.related && r.related.length), noRelated: !(r.related && r.related.length),
+      related: (r.related||[]).map(([n,w]) => ({ name:n, why:w, go:() => this.setState({ sel:n }) })) };
+
+    const pItems = s.palette ? this.paletteItems() : [];
+    const pGroups = ['Repositories','Go to','Actions'].map(t => ({ title:t, items: pItems.map((it,i) => ({ it, i })).filter(x => x.it.group === t).map(({ it, i }) => {
+      const on = i === s.pi;
+      return { label:it.label, sub:it.sub || '', key:it.key || '', run:it.run, bg: on ? INK : 'transparent', color: on ? '#0b0f14' : INK, subColor: on ? '#283444' : MUTED, keyBorder: on ? '#93a1b1' : '#3a4a5e', hover: () => { if (this.state.pi !== i) this.setState({ pi:i }); } };
+    }) })).filter(g => g.items.length);
+
+    const views = [['index','Index'],['posters','Posters'],['table','Table']].map(([k,l]) => ({ label:l, color: s.view===k ? INK : MUTED, rule: s.view===k ? `inset 0 -2px 0 ${INK}` : 'none', pick: () => this.setState({ view:k }) }));
+    const tabs = ['Details','Notes','Claude'].map(t => ({ label:t, color: s.tab===t ? INK : MUTED, rule: s.tab===t ? `inset 0 -2px 0 ${INK}` : 'none', pick: () => this.setState({ tab:t }) }));
+    const nav = [['Repos'],['Running',3],['Map'],['Claude'],['Settings']].map(([l,b]) => ({ label:l, badge:b, color: s.route===l ? INK : MUTED, rule: s.route===l ? `inset 0 -2px 0 ${INK}` : 'none', go: () => this.setState({ route:l }) }));
+    nav[1].badge = s.procs.length || null;
+    const byslug = Object.fromEntries(REPOS.map(r => [r.slug, r]));
+    const procs = PROCS.filter(p => s.procs.includes(p.slug)).map(p => ({ ...p, name:p.slug, open: () => this.setState({ route:'Repos', sel:p.slug, rail:'all', query:'' }), kill: () => this.setState(st => ({ procs: st.procs.filter(x => x !== p.slug) })) }));
+    const mult = { '7d':0.25, '30d':1, '90d':2.6, 'All':4.1 }[s.range];
+    const stats = [['Sessions', Math.round(80*mult)], ['Tokens', (4.5*mult).toFixed(1)+'M'], ['Projects', s.range==='7d'?3:5], ['Active days', Math.min(Math.round(19*mult), s.range==='7d'?5:999)]].map(([k,v]) => ({ k, v:String(v) }));
+    const heat = Array.from({ length:84 }, (_, i) => { const v = (Math.sin(i*1.7)+Math.cos(i*0.37)+ (i%7>4?-1.2:0.4) + i/60); const lvl = v < -0.4 ? 0 : v < 0.4 ? 1 : v < 1 ? 2 : v < 1.6 ? 3 : 4; return { bg:HEAT[lvl], t:`${lvl*7} sessions` }; });
+    const projects = PROJECTS.map(([name, sessions, tokens, last, tr]) => { const mx = Math.max(...tr); const shaped = tr.filter(x => x>0).length >= 4; return { name, sessions:Math.round(sessions*mult), tokens, last, hasTrend:shaped, trend: tr.map(x => Math.max(2, Math.round(x/mx*18))+'px') }; });
+    const ranges = ['7d','30d','90d','All'].map(l => ({ label:l, bg: s.range===l ? INK : 'transparent', color: s.range===l ? '#0b0f14' : MUTED, pick: () => this.setState({ range:l }) }));
+    const pos = {};
+    CLUSTERS.forEach(c => c.m.forEach((m, i) => { pos[m] = c.c ? [c.c[0] + (i ? 9 : -9), c.c[1] + (i ? 7 : -3)] : LOOSE[m]; }));
+    const lit = s.hover || s.focus;
+    const near = new Set([lit]); EDGES.forEach(([a,b]) => { if (a===lit) near.add(b); if (b===lit) near.add(a); });
+    const nodes = REPOS.map(r => { const [x,y] = pos[r.slug]; const f = r.slug === s.focus, hv = r.slug === s.hover;
+      return { name:r.slug, x:x+'%', y:y+'%', color: near.has(r.slug) ? LANG[r.lang] : '#3a4a5e', size: f ? '12px' : '9px', ring: f ? `0 0 0 3px #0b0f14, 0 0 0 5px ${INK}` : 'none', showLabel: f || hv,
+        enter: () => this.setState({ hover:r.slug }), leave: () => this.setState({ hover:null }), focus: () => this.setState({ focus:r.slug }) }; });
+    const edges = React.createElement('svg', { viewBox:'0 0 100 100', preserveAspectRatio:'none', style:{ position:'absolute', inset:0, width:'100%', height:'100%', overflow:'visible' } },
+      EDGES.map(([a,b], i) => { const on = a===lit || b===lit; return React.createElement('line', { key:i, x1:pos[a][0], y1:pos[a][1], x2:pos[b][0], y2:pos[b][1], stroke: on ? '#93a1b1' : '#283444', strokeWidth: on ? 1.5 : 1, vectorEffect:'non-scaling-stroke' }); }));
+    const clusterLabels = CLUSTERS.filter(c => c.c).map(c => ({ name:c.name, x:c.c[0]+'%', y:(c.c[1]-10)+'%' }));
+    const clusters = CLUSTERS.map(c => ({ name:c.name, count:c.m.length, items: c.m.map(m => { const on = m === s.focus; return { name:m, lang:LANG[byslug[m].lang], color: on ? INK : '#c3ccd6', bg: on ? RAISED : 'transparent', rule: on ? `inset 2px 0 0 ${INK}` : 'none', focus: () => this.setState({ focus:m }), enter: () => this.setState({ hover:m }), leave: () => this.setState({ hover:null }) }; }) }));
+    const signals = SIGNALS.map(([l,c], i) => { const on = !!s.sig[i]; return { label:l, count:c || null, on, border: on ? '#93a1b1' : '#283444', color: on ? INK : MUTED, pick: () => this.setState(st => ({ sig: { ...st.sig, [i]: !st.sig[i] } })) }; });
+
+    return {
+      query:s.query, onQuery: e => this.setState({ query:e.target.value }), searchRef:this.searchRef,
+      countLabel: `${list.length} of ${total}`, countColor: list.length < total ? INK : MUTED,
+      filterNote: notes.length ? `${list.length} of ${total} · ${notes.join(' · ')}` : null,
+      clearFilters: () => this.setState({ query:'', rail:'all' }),
+      isRepos: s.route==='Repos', isSettings: s.route==='Settings', isRunning: s.route==='Running', isClaude: s.route==='Claude', isMap: s.route==='Map',
+      procs, hasProcs: procs.length > 0, noProcs: procs.length === 0, procCount: `${procs.length} listening`, restoreProcs: () => this.setState({ procs: PROCS.map(p=>p.slug) }),
+      stats, heat, heatLegend: HEAT, projects, ranges, nodes, edges, clusterLabels, clusters, signals,
+      dialogOpen: s.dialog, openDialog: () => this.openDialog(), closeDialog: () => this.setState({ dialog:false }), dialogRef: this.dialogRef, dialogSeed: s.sel ? s.sel : 'No repos yet — add them from the catalog.',
+      nav, rail, views, tabs, groups, isEmpty: list.length === 0,
+      isIndex: s.route==='Repos' && s.view==='index' && list.length > 0, isPosters: s.view==='posters' && list.length > 0, isTable: s.view==='table' && list.length > 0,
+      cols: d ? '232px minmax(280px,1fr) minmax(320px,440px)' : '232px minmax(0,1fr)',
+      d, closeDetail: () => this.setState({ sel:null }),
+      paletteOpen: s.palette, pq:s.pq, onPq: e => this.setState({ pq:e.target.value, pi:0 }), paletteRef:this.paletteRef,
+      pGroups, pEmpty: s.palette && pItems.length === 0,
+      closePalette: () => this.setState({ palette:false }), stop: e => e.stopPropagation(),
+    };
+  }
+}
+</script>
+</body>
+</html>

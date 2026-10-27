@@ -50,8 +50,13 @@ const README = [
   "",
 ].join("\n");
 
-/** The accent the theme promises, as `getComputedStyle` reports it. */
-const ACCENT = "rgb(34, 197, 94)";
+/**
+ * The ink the redesign's prose grammar promises, as `getComputedStyle` reports
+ * it. README links and inline code are ink now: the accent is the app mark and
+ * the live dot only, so a document's links cannot be the loudest colour on the
+ * screen (`src/renderer/styles/globals.css`, the `.atr-prose` block).
+ */
+const INK = "rgb(232, 237, 242)";
 
 function launch(profileDir: string) {
   return electron.launch({
@@ -228,11 +233,12 @@ test.describe("repo detail panel — README and folder rail", () => {
         };
       });
 
-      // Markdown, not a wall of text: the heading takes the mono face and the
-      // links, list markers and inline code take the app's own styling.
-      expect(styles.headingFont).toContain("JetBrains Mono");
-      expect(styles.linkColor).toBe(ACCENT);
-      expect(styles.codeColor).toBe(ACCENT);
+      // Markdown, not a wall of text: the heading takes the page's sans face,
+      // and links and inline code take the app's ink — the handoff moved the
+      // README off the mono/underlined treatment.
+      expect(styles.headingFont).toContain("IBM Plex Sans");
+      expect(styles.linkColor).toBe(INK);
+      expect(styles.codeColor).toBe(INK);
       expect(styles.listStyle).toBe("disc");
     } finally {
       await app.close();

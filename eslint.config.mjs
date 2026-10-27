@@ -62,6 +62,12 @@ export default tseslint.config(
       // checked byte-for-byte by `pnpm first-launch:check`. Reformatting it to
       // satisfy a rule would fail that check, so it is not linted at all.
       "src/shared/adhoc-notice.ts",
+      // The Catalogue design handoff ships the prototype's own runtime
+      // (`support.js`) beside its HTML. It is a vendored design artifact, not
+      // application source: it is written in ES5 for a standalone file and is
+      // never imported by the renderer, so its `var`s are not this codebase's
+      // mistakes to fix. The prototype itself stays readable and unchanged.
+      "docs/design_handoff_catalogue/**",
     ],
   },
   {

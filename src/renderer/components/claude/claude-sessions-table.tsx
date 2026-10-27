@@ -31,7 +31,7 @@ export function ClaudeSessionsTable({
 
   if (sessions.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-border bg-card/50 p-3 text-xs italic text-muted-foreground">
+      <p className="text-body italic text-muted-foreground">
         No sessions recorded for this repo yet.
       </p>
     );
@@ -61,27 +61,42 @@ export function ClaudeSessionsTable({
   return (
     <div className="space-y-2">
       {error ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono atr-label text-destructive">
+        <p className="border-l-2 border-destructive py-1 pl-3 text-body text-destructive">
           {error}
         </p>
       ) : null}
-      <div className="overflow-hidden rounded-md border border-border bg-card">
-        <table className="w-full border-collapse text-left text-xs">
-          <thead className="border-b border-border bg-muted/40 font-mono atr-label uppercase tracking-widest text-muted-foreground">
-            <tr>
-              <th scope="col" className="px-3 py-2 font-medium">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="h-8 border-y border-border">
+              <th
+                scope="col"
+                className="pr-3 text-label font-medium text-muted-foreground"
+              >
                 Started
               </th>
-              <th scope="col" className="px-3 py-2 font-medium">
+              <th
+                scope="col"
+                className="pr-3 text-label font-medium text-muted-foreground"
+              >
                 Last activity
               </th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">
+              <th
+                scope="col"
+                className="pr-3 text-right text-label font-medium text-muted-foreground"
+              >
                 Messages
               </th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">
+              <th
+                scope="col"
+                className="pr-3 text-right text-label font-medium text-muted-foreground"
+              >
                 Tokens
               </th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">
+              <th
+                scope="col"
+                className="text-right text-label font-medium text-muted-foreground"
+              >
                 Action
               </th>
             </tr>
@@ -90,21 +105,21 @@ export function ClaudeSessionsTable({
             {rows.map((s) => (
               <tr
                 key={s.id}
-                className="border-b border-border last:border-b-0 hover:bg-muted/20"
+                className="border-b border-border/60 last:border-b-0 hover:bg-surface"
               >
-                <td className="px-3 py-2 font-mono text-muted-foreground">
+                <td className="py-1.5 pr-3 font-mono atr-meta">
                   {relativeTime(s.startedAt)}
                 </td>
-                <td className="px-3 py-2 font-mono text-foreground">
+                <td className="py-1.5 pr-3 font-mono atr-meta text-foreground">
                   {relativeTime(s.lastActivityAt)}
                 </td>
-                <td className="px-3 py-2 text-right font-mono">
+                <td className="py-1.5 pr-3 text-right font-mono atr-meta tabular-nums">
                   {s.messageCount.toLocaleString()}
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-accent">
+                <td className="py-1.5 pr-3 text-right font-mono atr-meta tabular-nums text-foreground">
                   {formatTokens(s.tokenUsage.totalTokens)}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="py-1.5 text-right">
                   <Button
                     variant="ghost"
                     size="sm"

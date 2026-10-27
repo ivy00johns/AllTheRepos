@@ -97,9 +97,9 @@ test("the Settings box refuses a relative path, adds a folder, and keeps what it
   try {
     const win = await app.firstWindow();
     await win.waitForLoadState("domcontentloaded");
-    await expect(
-      win.getByRole("link", { name: /^AllTheRepos$/i }),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(win.getByRole("link", { name: /^AllTheRepos$/i })).toBeVisible(
+      { timeout: 20_000 },
+    );
 
     await win
       .getByRole("banner")
@@ -109,6 +109,11 @@ test("the Settings box refuses a relative path, adds a folder, and keeps what it
     const field = win.getByLabel("New scan path");
     await expect(field).toBeVisible({ timeout: 20_000 });
     const roots = win.getByRole("button", { name: /^Remove scan path / });
+    // The shell rail lists roots too, so a path assertion has to name the
+    // Settings block it belongs to rather than matching both surfaces.
+    const scanBlock = win
+      .getByRole("heading", { name: "Scan paths" })
+      .locator("xpath=ancestor::section[1]");
     // The template profile ships with none, so every count below is the count
     // this test made.
     await expect(roots).toHaveCount(0);
@@ -119,7 +124,7 @@ test("the Settings box refuses a relative path, adds a folder, and keeps what it
     // there, and refuses. Stored verbatim it would be a root no repo can be
     // under, which is exactly what the box used to do.
     await field.fill("repos");
-    await win.getByRole("button", { name: "Add path" }).click();
+    await win.getByRole("button", { name: "Add folder", exact: true }).click();
     await expect(win.getByRole("alert")).toContainText("doesn't exist", {
       timeout: 15_000,
     });
@@ -136,8 +141,10 @@ test("the Settings box refuses a relative path, adds a folder, and keeps what it
     // outside of.
     for (const path of [dir, otherDir]) {
       await field.fill(path);
-      await win.getByRole("button", { name: "Add path" }).click();
-      await expect(win.getByText(path, { exact: true })).toBeVisible({
+      await win
+        .getByRole("button", { name: "Add folder", exact: true })
+        .click();
+      await expect(scanBlock.getByText(path, { exact: true })).toBeVisible({
         timeout: 20_000,
       });
     }
@@ -195,8 +202,8 @@ test("the Settings box refuses a relative path, adds a folder, and keeps what it
       roots,
       "the removed path has to leave the list, and the other one stay",
     ).toHaveCount(1, { timeout: 20_000 });
-    await expect(win.getByText(dir, { exact: true })).toHaveCount(0);
-    await expect(win.getByText(otherDir, { exact: true })).toBeVisible();
+    await expect(scanBlock.getByText(dir, { exact: true })).toHaveCount(0);
+    await expect(scanBlock.getByText(otherDir, { exact: true })).toBeVisible();
 
     // ----- The rail loses the root and keeps the repo -----
     await win
@@ -240,9 +247,9 @@ test("the rail's Add folder to scan adds and scans the picked folder", async () 
   try {
     const win = await app.firstWindow();
     await win.waitForLoadState("domcontentloaded");
-    await expect(
-      win.getByRole("link", { name: /^AllTheRepos$/i }),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(win.getByRole("link", { name: /^AllTheRepos$/i })).toBeVisible(
+      { timeout: 20_000 },
+    );
 
     // A native sheet cannot be operated by a driver, so the answer comes from
     // the main process. This is the `dialog.showOpenDialog` the handler calls —

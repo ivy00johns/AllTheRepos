@@ -200,7 +200,7 @@ async function main() {
       await win.getByRole("button", { name: /^table$/i }).first().click();
       await win.waitForTimeout(700);
       await still(win, "05-triage.png");
-      await win.getByRole("button", { name: /^gallery$/i }).first().click();
+      await win.getByRole("button", { name: /^posters$/i }).first().click();
       await win.waitForTimeout(400);
 
       // Beat 6: one repo's detail rail, with its tags and notes.

@@ -14,6 +14,14 @@
  * mode in the test title, so the question a failure asks is "what changed in the
  * grid view" rather than "something is different somewhere".
  *
+ * The second capture is the wide layout with a repo open: 1440 wide, the
+ * detail panel takes its 380, and the catalog is left narrower than three
+ * 340px posters. That is the one shape where a group of three has to leave its
+ * last poster alone on a line, so the picture is the only place the full-width
+ * trailing row is checked at the width the handoff targets. The test also
+ * measures that row before taking the picture, because a baseline regenerated
+ * from a broken layout would otherwise enshrine the half-row hole forever.
+ *
  * The modes are read off the running toolbar rather than listed here, the same way
  * `type-scale.spec.ts` reads them, so a fourth view is covered the day it is
  * added instead of the day someone remembers this file.
@@ -44,11 +52,9 @@
  *     and a different length on CI than here. It is machine data rather than
  *     design, so it is painted out rather than compared; everything around it is
  *     still compared, which is where the type and the spacing live.
- *   - And the cover art is masked, with its box measured instead: that art is a
- *     rotated SVG at a fractional scale, which rasterizes a fraction of a pixel
- *     differently between runs. See {@link COVER_BOX} — a mask is exactly the
- *     kind of thing that can hide a real change, which is why the number is
- *     asserted rather than trusted.
+ *   - Cover art is gone from every density: the index, Posters and the table
+ *     are type and data only. The selector that used to mark the art box is
+ *     asserted to be absent, so a cover cannot quietly return to a baseline.
  *
  *   - And the process sweep is declared rather than observed. The top bar draws a
  *     count badge as soon as anything is listening, so a capture taken while a dev
@@ -80,6 +86,9 @@ const CATALOG = "/";
 
 /** The window every capture is taken at, so the baseline is one shape. */
 const WINDOW = { width: 1280, height: 800 } as const;
+
+/** The handoff's wide layout, where the detail panel is part of the column. */
+const WIDE_WINDOW = { width: 1440, height: 900 } as const;
 
 /**
  * Resize the real BrowserWindow, then wait for the renderer to agree.
@@ -129,30 +138,15 @@ function machinePaths(win: Page): Locator {
 }
 
 /**
- * The cover art box, which the comparison masks and measures instead.
+ * The art box the redesign deleted.
  *
- * The generated cover is a rotated SVG sliced into a fractional scale, and a
- * fraction of a pixel rasterizes differently between two runs of the same code:
- * an A/B pair of runs put 7409 pixels of this repository's own art on the diff,
- * as outlines around one card's motif, with nothing else changed. So the art is
- * painted out of the comparison and its box is asserted as numbers — which is
- * what a change to this element's size actually is.
+ * Kept as a selector rather than a comment because an absence is the one
+ * property a picture cannot prove: a new cover would simply become part of a
+ * fresh baseline. All three densities assert it stays gone.
  */
 function covers(win: Page): Locator {
   return win.locator("[data-cover]");
 }
-
-/**
- * The art box's size in each view mode, in CSS px.
- *
- * Stated here rather than derived, because the mask is what makes it necessary:
- * a cover that quietly changed size is no longer visible in the picture.
- */
-const COVER_BOX: Record<string, { width: number; height: number }> = {
-  gallery: { width: 321, height: 127 },
-  grid: { width: 44, height: 44 },
-  table: { width: 32, height: 32 },
-};
 
 /**
  * Everything that has to be true before a capture means anything.
@@ -171,18 +165,6 @@ async function settle(win: Page, expectedRows: number): Promise<void> {
   // below it, and that shift is what the picture is for.
   await expect(rows(win)).toHaveCount(expectedRows);
   await win.evaluate(() => document.fonts.ready);
-}
-
-/** Every cover box on screen, as a size. */
-async function coverBoxes(
-  win: Page,
-): Promise<Array<{ width: number; height: number }>> {
-  return win.evaluate(() =>
-    Array.from(document.querySelectorAll("[data-cover]")).map((el) => {
-      const box = el.getBoundingClientRect();
-      return { width: Math.round(box.width), height: Math.round(box.height) };
-    }),
-  );
 }
 
 /** The view modes the toolbar offers, read off the running app. */
@@ -283,21 +265,11 @@ test.describe("the catalog, as pictures", () => {
             ),
         );
 
-        // The art's size, before it is masked out of the picture below.
-        const boxes = await coverBoxes(win);
-        const expected = COVER_BOX[slugify(mode)];
+        // No density draws cover art after the redesign.
         expect(
-          boxes.length,
-          `${mode} view drew no covers to measure`,
-        ).toBeGreaterThan(0);
-        for (const box of boxes) {
-          expect
-            .soft(
-              box,
-              `${mode} view's cover art is ${box.width}x${box.height}, not ${expected.width}x${expected.height} — the mask hides this, so it is asserted`,
-            )
-            .toEqual(expected);
-        }
+          await covers(win).count(),
+          `${mode} view drew cover art, but the redesign dropped it from every density`,
+        ).toBe(0);
 
         const name = `catalog-${slugify(mode)}-${renderEnvironment()}.png`;
         shots.push(name);
@@ -306,7 +278,7 @@ test.describe("the catalog, as pictures", () => {
         await expect
           .soft(win, `${CATALOG} — ${mode} view`)
           .toHaveScreenshot(name, {
-            mask: [machinePaths(win), covers(win)],
+            mask: [machinePaths(win)],
           });
       }
 
@@ -314,6 +286,97 @@ test.describe("the catalog, as pictures", () => {
       // this run actually looked at are asserted to be one per view mode.
       const env = renderEnvironment();
       expect(shots).toEqual(modes.map((mode) => `catalog-${slugify(mode)}-${env}.png`));
+    } finally {
+      await close();
+    }
+  });
+
+  test("Posters at 1440 gives an odd trailing row the full width", async () => {
+    test.setTimeout(180_000);
+
+    const { app, close } = await launchApp({
+      env: processFixtureEnv(NO_LISTENERS),
+    });
+
+    try {
+      const win = await app.firstWindow();
+      await win.waitForLoadState("domcontentloaded");
+      await expect(
+        win.getByRole("link", { name: /no running processes/i }),
+      ).toBeAttached();
+
+      await resizeWindow(app, win, WIDE_WINDOW.width, WIDE_WINDOW.height);
+      await settle(win, 3);
+
+      // Open a repo first: the panel is part of the layout at this width, so
+      // the catalog loses its 380 and a three-poster group can no longer fit
+      // on one line. This is the shape the trailing-row rule exists for.
+      await rows(win).first().click();
+      const panel = win.locator('aside[aria-label="Repo detail"]');
+      await expect(panel).toHaveAttribute("aria-hidden", "false");
+      await expect(
+        panel.getByRole("button", { name: "Close detail panel" }),
+      ).toBeVisible({ timeout: 15_000 });
+
+      await win
+        .getByRole("group", { name: "View mode" })
+        .getByRole("button", { name: "Posters", exact: true })
+        .click();
+      await expect(rows(win).first()).toBeVisible({ timeout: 15_000 });
+
+      // Measure before photographing. The panel width animates, so the first
+      // read can still see the catalog at its pre-panel width; poll until the
+      // two-row shape settles. A baseline regenerated from the broken shape
+      // would otherwise look like a pass forever.
+      await expect
+        .poll(
+          () =>
+            win.evaluate(() => {
+              const list = document.querySelector('[role="list"]');
+              const items = [...document.querySelectorAll("[data-repo-slug]")];
+              if (!list || items.length !== 3) return null;
+              const listWidth = list.getBoundingClientRect().width;
+              const tops = new Set<number>();
+              let firstWidth = 0;
+              let lastWidth = 0;
+              items.forEach((item, index) => {
+                const rect = item.getBoundingClientRect();
+                tops.add(Math.round(rect.top));
+                if (index === 0) firstWidth = rect.width;
+                if (index === items.length - 1) lastWidth = rect.width;
+              });
+              return {
+                rows: tops.size,
+                firstIsTrack: firstWidth <= listWidth * 0.6,
+                lastCoversList: lastWidth >= listWidth * 0.9,
+              };
+            }),
+          {
+            message:
+              "the wide Posters layout never settled into two rows with a full-width trailing poster",
+            timeout: 5_000,
+          },
+        )
+        .toEqual({ rows: 2, firstIsTrack: true, lastCoversList: true });
+
+      await win.mouse.move(0, 0);
+      await win.evaluate(
+        () =>
+          new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done())),
+          ),
+      );
+
+      expect(
+        await covers(win).count(),
+        "Posters view drew cover art, but the redesign dropped it from every density",
+      ).toBe(0);
+
+      await expect
+        .soft(win, `${CATALOG} — Posters view, 1440 with the detail panel open`)
+        .toHaveScreenshot(`catalog-posters-1440-detail-${renderEnvironment()}.png`, {
+          mask: [machinePaths(win)],
+        });
     } finally {
       await close();
     }

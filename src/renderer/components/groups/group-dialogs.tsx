@@ -103,10 +103,16 @@ export function CreateGroupDialog({
             moves — it is only a view of the catalog.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="new-group-name">Name</Label>
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <Label
+            htmlFor="new-group-name"
+            className="text-label font-medium text-muted-foreground"
+          >
+            Name
+          </Label>
           <Input
             id="new-group-name"
+            className="h-8"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
@@ -119,14 +125,14 @@ export function CreateGroupDialog({
             autoFocus
           />
           {createGroup.isError ? (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-label text-destructive">
               {createGroup.error.message || "Could not create the group."}
             </p>
           ) : null}
         </div>
         <DialogFooter>
           <Button
-            variant="outline"
+            variant="bordered"
             onClick={() => onOpenChange(false)}
             disabled={createGroup.isPending}
           >
@@ -308,12 +314,18 @@ export function SavedFilterDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 px-5 py-4">
           {editing ? null : (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="saved-filter-name">Name</Label>
+              <Label
+                htmlFor="saved-filter-name"
+                className="text-label font-medium text-muted-foreground"
+              >
+                Name
+              </Label>
               <Input
                 id="saved-filter-name"
+                className="h-8"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 onKeyDown={(event) => {
@@ -330,12 +342,17 @@ export function SavedFilterDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="saved-filter-language">Language</Label>
+              <Label
+                htmlFor="saved-filter-language"
+                className="text-label font-medium text-muted-foreground"
+              >
+                Language
+              </Label>
               <select
                 id="saved-filter-language"
                 value={draft.language}
                 onChange={(event) => set("language", event.target.value)}
-                className="h-9 w-full cursor-pointer rounded-md border border-border bg-input px-2 text-sm text-foreground transition-colors duration-150 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-8 w-full cursor-pointer rounded border border-border bg-background px-2 text-body text-foreground transition-colors duration-150 focus-visible:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="">Any language</option>
                 {languages.map((language) => (
@@ -347,10 +364,16 @@ export function SavedFilterDialog({
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="saved-filter-days">Touched in the last</Label>
+              <Label
+                htmlFor="saved-filter-days"
+                className="text-label font-medium text-muted-foreground"
+              >
+                Touched in the last
+              </Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="saved-filter-days"
+                  className="h-8"
                   type="number"
                   min={1}
                   step={1}
@@ -367,9 +390,15 @@ export function SavedFilterDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="saved-filter-tags">Tagged with</Label>
+            <Label
+              htmlFor="saved-filter-tags"
+              className="text-label font-medium text-muted-foreground"
+            >
+              Tagged with
+            </Label>
             <Input
               id="saved-filter-tags"
+              className="h-8"
               value={draft.tags}
               onChange={(event) => set("tags", event.target.value)}
               placeholder="cli, rust"
@@ -386,7 +415,7 @@ export function SavedFilterDialog({
             view from the toolbar arrives here with them pre-ticked.
           */}
           <div className="flex flex-col gap-2">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <label className="flex cursor-pointer items-center gap-2 text-body text-foreground">
               <input
                 type="checkbox"
                 checked={draft.dirtyOnly}
@@ -395,7 +424,7 @@ export function SavedFilterDialog({
               />
               Only repos with uncommitted changes
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <label className="flex cursor-pointer items-center gap-2 text-body text-foreground">
               <input
                 type="checkbox"
                 checked={draft.favoritesOnly}
@@ -404,7 +433,7 @@ export function SavedFilterDialog({
               />
               Only pinned repos
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <label className="flex cursor-pointer items-center gap-2 text-body text-foreground">
               <input
                 type="checkbox"
                 checked={draft.includeArchived}
@@ -431,7 +460,7 @@ export function SavedFilterDialog({
             <p
               id="saved-filter-days-error"
               role="alert"
-              className="text-xs text-destructive"
+              className="text-label text-destructive"
             >
               {daysError}
             </p>
@@ -448,7 +477,7 @@ export function SavedFilterDialog({
           </p>
 
           {saveError ? (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-label text-destructive">
               {saveError.message || "Could not save the filter."}
             </p>
           ) : null}
@@ -456,7 +485,7 @@ export function SavedFilterDialog({
 
         <DialogFooter>
           <Button
-            variant="outline"
+            variant="bordered"
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
@@ -511,10 +540,16 @@ export function RenameGroupDialog({
           <DialogTitle>Rename group</DialogTitle>
           <DialogDescription>Give “{group.name}” a new name.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`rename-group-${group.id}`}>Name</Label>
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <Label
+            htmlFor={`rename-group-${group.id}`}
+            className="text-label font-medium text-muted-foreground"
+          >
+            Name
+          </Label>
           <Input
             id={`rename-group-${group.id}`}
+            className="h-8"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
@@ -526,14 +561,14 @@ export function RenameGroupDialog({
             autoFocus
           />
           {renameGroup.isError ? (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-label text-destructive">
               {renameGroup.error.message || "Could not rename the group."}
             </p>
           ) : null}
         </div>
         <DialogFooter>
           <Button
-            variant="outline"
+            variant="bordered"
             onClick={() => onOpenChange(false)}
             disabled={renameGroup.isPending}
           >
@@ -592,7 +627,7 @@ export function DeleteGroupDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="pb-5">
           <DialogTitle>Delete group</DialogTitle>
           <DialogDescription>
             {group.isSmart ? (
@@ -610,13 +645,13 @@ export function DeleteGroupDialog({
           </DialogDescription>
         </DialogHeader>
         {deleteGroup.isError ? (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="px-5 pb-4 text-label text-destructive">
             {deleteGroup.error.message || "Could not delete the group."}
           </p>
         ) : null}
         <DialogFooter>
           <Button
-            variant="outline"
+            variant="bordered"
             onClick={() => onOpenChange(false)}
             disabled={deleteGroup.isPending}
           >

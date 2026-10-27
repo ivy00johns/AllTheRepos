@@ -32,6 +32,7 @@ import * as React from "react";
 import { Command } from "cmdk";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 
 import { useUiStore } from "@renderer/stores/ui";
 import { cn } from "@renderer/lib/cn";
@@ -183,9 +184,10 @@ export function CommandPalette() {
         />
         <DialogPrimitive.Content
           className={cn(
-            "fixed left-1/2 top-[20%] z-50 w-full max-w-xl -translate-x-1/2",
-            "rounded-lg border border-border bg-popover text-popover-foreground shadow-xl",
-            "outline-none",
+            "fixed left-1/2 top-[12vh] z-50 -translate-x-1/2",
+            "w-[min(600px,calc(100vw-48px))]",
+            "rounded-[10px] border border-border-strong bg-surface-raised text-foreground shadow-overlay",
+            "overflow-hidden outline-none",
           )}
           aria-label="Command Palette"
         >
@@ -193,23 +195,33 @@ export function CommandPalette() {
             Command Palette
           </DialogPrimitive.Title>
           <Command label="Command Palette" className="flex flex-col">
-            <Command.Input
-              autoFocus
-              placeholder="Run a command…"
-              className={cn(
-                "h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none",
-                "placeholder:text-muted-foreground",
-              )}
-            />
-            <Command.List className="max-h-80 overflow-y-auto p-1">
-              <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
-                No commands found.
+            {/* The 48px input row: icon, one line of 15px text, `esc` chip. */}
+            <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+              <Search
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <Command.Input
+                autoFocus
+                placeholder="Run a command…"
+                className={cn(
+                  "h-full min-w-0 flex-1 bg-transparent text-name outline-none",
+                  "placeholder:text-muted-foreground",
+                )}
+              />
+              <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
+                esc
+              </kbd>
+            </div>
+            <Command.List className="max-h-[min(420px,60vh)] overflow-y-auto p-1.5">
+              <Command.Empty className="px-3 py-8 text-center text-body text-muted-foreground">
+                Nothing matches.
               </Command.Empty>
               {grouped.map(([heading, items]) => (
                 <Command.Group
                   key={heading}
                   heading={heading}
-                  className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
+                  className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.08em] [&_[cmdk-group-heading]]:text-muted-foreground"
                 >
                   {items.map((a) => (
                     <Command.Item
@@ -217,20 +229,26 @@ export function CommandPalette() {
                       value={`${a.id} ${a.label} ${a.hint ?? ""}`}
                       onSelect={() => onSelect(a.id)}
                       className={cn(
-                        "flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-sm",
-                        "aria-selected:bg-muted aria-selected:text-foreground",
+                        "group flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-body",
+                        /*
+                         * The cursor is an ink block — the same mark the index
+                         * uses for selection — and cmdk guarantees it exists by
+                         * selecting the first item on open. A muted tint left
+                         * "which row will Enter run" unanswerable.
+                         */
+                        "aria-selected:bg-foreground aria-selected:text-background",
                       )}
                     >
                       <div className="flex min-w-0 flex-col">
-                        <span className="truncate">{a.label}</span>
+                        <span className="truncate font-medium">{a.label}</span>
                         {a.hint ? (
-                          <span className="truncate text-xs text-muted-foreground">
+                          <span className="truncate font-mono text-meta text-muted-foreground group-aria-selected:text-background/70">
                             {a.hint}
                           </span>
                         ) : null}
                       </div>
                       {a.shortcut ? (
-                        <kbd className="ml-3 inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono atr-micro text-muted-foreground">
+                        <kbd className="ml-3 inline-flex shrink-0 items-center rounded border border-border px-1.5 py-0.5 font-mono text-micro text-muted-foreground group-aria-selected:border-background/40 group-aria-selected:text-background/70">
                           {prettyShortcut(a.shortcut)}
                         </kbd>
                       ) : null}
@@ -240,6 +258,11 @@ export function CommandPalette() {
               ))}
             </Command.List>
           </Command>
+          <div className="flex shrink-0 items-center gap-4 border-t border-border px-4 py-2 font-mono text-meta text-muted-foreground">
+            <span>↑↓ move</span>
+            <span>↵ open</span>
+            <span>esc close</span>
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

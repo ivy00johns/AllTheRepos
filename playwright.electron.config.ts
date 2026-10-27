@@ -27,6 +27,18 @@ import { defineConfig } from "@playwright/test";
 // window a person would see are not the same requirement.
 process.env.ATR_E2E = "1";
 
+// Fixture repos are committed by the specs themselves, and a developer's global
+// `commit.gpgsign` makes those commits depend on a signing agent being awake —
+// a 1Password prompt that times out fails a fixture with "failed to write
+// commit object" rather than failing anything about the app. Git reads these
+// command-scope variables from the environment, so pinning signing off here
+// covers every fixture commit the suite makes, on any machine, without touching
+// the developer's own config. The specs still pass `-c user.email`/`-c
+// user.name` themselves, so identity is unaffected.
+process.env.GIT_CONFIG_COUNT = "1";
+process.env.GIT_CONFIG_KEY_0 = "commit.gpgsign";
+process.env.GIT_CONFIG_VALUE_0 = "false";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   // Phase 0: electron-launch.spec.ts; Phase 1: catalog-flow.spec.ts;

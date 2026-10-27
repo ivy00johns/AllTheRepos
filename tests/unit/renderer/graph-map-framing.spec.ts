@@ -116,6 +116,7 @@ const PALETTE: Palette = {
   accent: "rgb(120,220,170)",
   warning: "rgb(230,190,90)",
   background: "rgb(12,16,20)",
+  surfaceRaised: "rgb(28,38,52)",
 };
 
 /**

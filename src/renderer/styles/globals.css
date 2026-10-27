@@ -71,6 +71,16 @@
    * Single user-overridable accent var per NEW-PLAN.md §5.12.
    * Phase 1 will wire this to a settings store; Phase 0 just bakes
    * the default OLED-black palette value.
+   *
+   * The "Catalogue" redesign (docs/design_handoff_catalogue) demotes this
+   * colour to the app icon and the wordmark's 8×8 square. It is no longer a
+   * fill in chrome: no button, tab, chip, badge, ring or selection uses it.
+   * Chrome speaks in four jobs only — ink for interaction, a hairline for
+   * structure, status hues for state, and ownership for provenance. Green in
+   * the window means one thing now: something is live.
+   *
+   * The 140 call sites that still paint with it are removed screen by screen
+   * as each one is re-cut; the token stays so those screens keep building.
    */
   --accent: #22c55e;
 
@@ -95,7 +105,13 @@
   --color-border: #283444;
   --color-border-strong: #3a4a5e;
   --color-input: #141b23;
-  --color-ring: var(--accent);
+  /*
+   * Focus ring — ink, not the accent. The handoff's rule: every interaction
+   * state is ink, so a keyboard user and a pointer user see the same colour
+   * mean the same thing. 80% ink so a 2px outline reads as a frame rather
+   * than as another element.
+   */
+  --color-ring: color-mix(in srgb, var(--color-foreground) 80%, transparent);
   --color-destructive: #f0616d;
   --color-destructive-foreground: #2a0508;
   --color-warning: #f0a83c;
@@ -137,41 +153,91 @@
   --color-activity-unknown: #2a323c;
 
   /*
-   * Ownership marks. Mine borrows the accent (it's "yours", like the
-   * app's own colour); cloned is a neutral so a wall of third-party
-   * repos stays visually quiet; local-only gets violet — distinct from
-   * every status hue, and the state most worth noticing.
+   * Ownership marks — one hue for "not yours", silence for "yours".
+   *
+   * Mine used to borrow the accent, on the reasoning that it is "yours, like
+   * the app's own colour". The redesign retires that: the accent is no longer
+   * a chrome colour at all, so a green cloud said "live" and "yours" on the
+   * same screen. Mine is now the quiet default — muted ink, with the label
+   * carrying the meaning — and anything that is not yours takes the violet, in
+   * data contexts only. Cloned and local-only are the same hue because they
+   * are the same fact ("this is not on your account"); the label distinguishes
+   * them, and colour is never the only channel.
    */
-  --color-own-mine: var(--accent);
-  /*
-   * Measured on the repo card: 11px text in #7c8899 came out at 4.24:1, under
-   * the 4.5:1 AA needs at that size. #828e9f is the smallest step that clears
-   * it (4.6:1) and keeps the muted-against-mine reading.
-   */
-  --color-own-external: #828e9f;
+  --color-own-mine: var(--color-muted-foreground);
   --color-own-local: #a78bfa;
+  /* Cloned from someone else. Was a neutral grey at 4.6:1; the handoff folds
+   * it into the ownership hue rather than keeping a fourth provenance colour. */
+  --color-own-external: var(--color-own-local);
 
   /*
-   * Type scale — the dense-content step: 13px.
+   * Type scale — five reading steps and their four data tiers.
    *
-   * One above `.atr-label` (12px) and one below Tailwind's `text-sm` (14px),
-   * for content that is dense but still read as itself rather than as a label
-   * or a piece of data: a rail row, the repo name in the table, a legend glyph
-   * standing beside its `.atr-meta` caption.
+   * The 2026-10 "Catalogue" handoff (docs/design_handoff_catalogue) replaced
+   * a scale that had no display step at all: everything from a page title to a
+   * column header sat between 11 and 14px, so a repo's name could not be the
+   * largest thing on the screen. These are the steps, smallest to largest, in
+   * the order a screen reads:
    *
-   * It is a theme token instead of a `@layer components` class for a reason
-   * that is structural, not stylistic. `.atr-rail-row` is itself a component
-   * class and the rail row's own text is one of the four places this size was
-   * written as `text-[13px]`; Tailwind 4 cannot `@apply` a component class, so
-   * the step has to be a real utility before the row and the components can
-   * name the same one. Declared here it is stated once, and
-   * `tests/unit/renderer/type-scale.spec.ts` fails on a raw pixel size anywhere
-   * else — this step's included.
+   *   display 28  poster name, repo page name
+   *   name-lg 22  detail panel header (and the Claude stat values, in mono)
+   *   title   18  page titles, dialog titles, README h2
+   *   name    15  index entry name, settings block heading, palette input
+   *   body    13  descriptions, prose, inputs, table names
+   *   label   12  tabs, nav, toolbar, column headers, quiet text buttons
+   *   meta    11  mono data: paths, timestamps, ports, counts, pids
+   *   eyebrow 11  mono uppercase section eyebrows, and nothing else
+   *   micro   10  kbd chips, nav badge numbers, heatmap day labels
    *
-   * No `--text-body--line-height` on purpose: this lands where `text-[13px]`
-   * stood, and that set a size and nothing more, so no surface moves.
+   * Two rules ride with the numbers, because they are what stops the scale
+   * being re-litigated per screen:
+   *
+   *   - Nothing is smaller than 12px except mono data. `meta`, `eyebrow` and
+   *     `micro` are the sanctioned exceptions and `.atr-meta` / `.atr-micro`
+   *     are their component spellings.
+   *   - Uppercase tracking belongs to `eyebrow` alone. Every tier above it is
+   *     sentence case, which is the single change that stops a dense index
+   *     reading as a wall of shouting.
+   *
+   * They live in `@theme` rather than in `@layer components` for a reason that
+   * is structural: `.atr-rail-row` is itself a component class and its own
+   * text is one of the places 13px was once written literally, and Tailwind 4
+   * cannot `@apply` a component class — so each step has to be a real utility
+   * before a component class can name it. Declared here it is stated once, and
+   * `tests/unit/renderer/type-scale.spec.ts` fails on a raw size anywhere else.
+   *
+   * Line heights and tracking come with the size, so `text-title` in a
+   * component cannot silently pair 18px with a leading meant for prose.
    */
+  --text-display: 1.75rem;
+  --text-display--line-height: 1.15;
+  --text-display--letter-spacing: -0.015em;
+
+  --text-name-lg: 1.375rem;
+  --text-name-lg--line-height: 1.2;
+  --text-name-lg--letter-spacing: -0.01em;
+
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.3;
+
+  --text-name: 0.9375rem;
+  --text-name--line-height: 1.35;
+
   --text-body: 0.8125rem;
+  --text-body--line-height: 1.5;
+
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.2;
+
+  --text-meta: 0.6875rem;
+  --text-meta--line-height: 1.2;
+
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow--line-height: 1.2;
+  --text-eyebrow--letter-spacing: 0.08em;
+
+  --text-micro: 0.625rem;
+  --text-micro--line-height: 1;
 
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
@@ -204,8 +270,10 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Selected text is an ink wash. It was an accent wash, which made dragging
+   * over a paragraph look like the paragraph was running. */
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+    background: color-mix(in srgb, var(--color-foreground) 22%, transparent);
   }
 
   *:focus-visible {
@@ -254,55 +322,90 @@
   .atr-surface:hover {
     @apply border-border-strong bg-surface-raised;
   }
+  /*
+   * Selection is ink, not the accent.
+   *
+   * This was `border-accent`: a green outline was the same mark as a primary
+   * action and the same hue as a live port, so "which one am I looking at"
+   * competed with "which one is running". Ink on a raised surface is the
+   * handoff's selection grammar, and it is the one mark the rail, the table and
+   * the index all share — the 2px left spine in `.atr-rail-row` below is the
+   * same idea where a row has an edge to hang it on. A card keeps a 1px ink
+   * border instead, because its 8px radius would clip a square spine into a
+   * notch; the cards themselves disappear when the grid becomes the index.
+   */
   .atr-surface[data-selected="true"] {
-    @apply border-accent bg-surface-raised;
+    @apply border-foreground bg-surface-raised;
   }
 
   /*
-   * Type tiers — the label decision, recorded once (ATR-072).
+   * Type tiers — the label decision, recorded once (ATR-072), re-cut to the
+   * handoff's scale.
    *
    * The 2026-10-07 review measured 127 sub-12px usages across 20+ files and
    * found one role written three ways: 9px, 10px and 11px were each used for
    * uppercase section labels and control captions as well as for metadata.
-   * Every one of them now names a tier, and no component states a raw pixel
-   * size at any value — `tests/unit/renderer/type-scale.spec.ts` fails on one,
-   * so the question does not get re-litigated per screen:
+   * Every one of them now names a tier, and no component states a raw size at
+   * any value — `tests/unit/renderer/type-scale.spec.ts` fails on one, so the
+   * question does not get re-litigated per screen:
    *
-   *   .atr-label  — every label, caption and section heading: 12px, the floor
-   *                 the review asked for. Size and leading only, so a site
-   *                 keeps its own weight, tracking, case and colour.
-   *   .atr-micro  — the one sanctioned sub-12px tier: a number or a unit read
-   *                 as data rather than as prose (a badge count, a PID, a
-   *                 percentage). Never a label, a heading or a sentence.
-   *   text-body   — the 13px dense-content step (the `--text-body` token in
-   *                 `@theme`, since this class would have to `@apply` it): the
-   *                 text a row is *about* — a rail row's own label, the repo
-   *                 name in the table, a legend glyph beside its caption.
+   *   .atr-label  — every label, caption and column header: `text-label`
+   *                 (12px), the floor the review asked for. Size and leading
+   *                 only, so a site keeps its own weight, case and colour.
+   *   .atr-micro  — the one sanctioned sub-12px tier: `text-micro` (10px),
+   *                 for a number or a unit read as data rather than as prose (a
+   *                 badge count, a PID, a percentage, a kbd chip).
+   *   .atr-meta   — mono data sitting inside running text: `text-meta` (11px).
+   *                 It keeps `leading-none` because it is almost always an
+   *                 inline span in a fixed-height row, where 1.2 would make the
+   *                 metadata decide the row's height.
+   *   .atr-eyebrow — the only uppercase, tracked spelling: `text-eyebrow`
+   *                 (11px, 0.08em) in mono and muted. Section labels only
+   *                 (`VIEWS`, `FOLDERS`, `LANGUAGES`), never a sentence.
+   *   text-body   — the 13px step: the text a row is *about* — a rail row's own
+   *                 label, the repo name in the table, a legend glyph beside its
+   *                 caption.
    *
-   * `.atr-meta` below stays the metadata tier for timestamps, paths and counts
-   * that sit inside running text — 11px is that tier's decision, not drift.
+   * The two 12px spellings that used to coexist (`text-xs` here, `text-label`
+   * in the new scale) collapsed into one when the tokens landed: two names for
+   * one size is the drift this block exists to prevent.
    */
   .atr-label {
-    @apply text-xs leading-tight;
+    @apply text-label;
   }
   .atr-micro {
-    @apply text-[10px] leading-none;
+    @apply text-micro;
   }
 
   /* Small monospace metadata — timestamps, counts, paths. */
   .atr-meta {
-    @apply font-mono text-[11px] leading-none text-muted-foreground;
+    @apply font-mono text-meta leading-none text-muted-foreground;
   }
 
-  /* Left rail row: folder entries and the saved-view entries. */
+  /* Section eyebrow — the one place uppercase and tracking are allowed. */
+  .atr-eyebrow {
+    @apply font-mono text-eyebrow uppercase text-muted-foreground;
+  }
+
+  /*
+   * Left rail row: folder entries and the saved-view entries.
+   *
+   * 30px tall, full-bleed, 16px of left inset — the handoff's row rather than
+   * the 24px pill it used to be. A rail that is a column of pills reads as a
+   * toolbar; a column of hairline-free 30px lines reads as an index, and the
+   * 2px ink spine on the selected row becomes visible against the surface
+   * because the row runs to the edge.
+   */
   .atr-rail-row {
-    @apply flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-body transition-colors duration-150;
+    @apply flex h-[30px] w-full cursor-pointer items-center gap-1.5 pr-4 pl-4 text-left text-body transition-colors duration-150;
   }
   .atr-rail-row:hover {
     @apply bg-surface-raised text-foreground;
   }
+  /* Rail selection: raised, ink, and a 2px ink spine on the left edge. */
   .atr-rail-row[data-selected="true"] {
-    @apply bg-secondary font-medium text-foreground;
+    @apply bg-surface-raised font-medium text-foreground;
+    box-shadow: inset 2px 0 0 var(--color-foreground);
   }
 
   /*
@@ -312,20 +415,22 @@
    * The active state was `bg-secondary` on a `bg-muted` container: measured at
    * rgb(35,46,59) against rgb(26,34,45), a ~5% luminance step that reads as
    * nothing on a marginal display, so "which one is on" was guesswork
-   * (ATR-068). It now takes the accent treatment the detail tabs and the range
-   * selector already use, making "on" a hue change. The height moved with it:
-   * 28px sat below every other control on the same row (Button `sm` and the
-   * toolbar's own selects are 32px), which is the mismatch the finding named.
-   * Both surfaces share this class, so both move together.
+   * (ATR-068). It then took the accent treatment, which read "on" as a hue
+   * change — but the accent is the live hue now, so a filter chip could say
+   * "running". It is ink on the raised surface instead: the same mark the rail
+   * and the selection rule use, and the one thing a marginal display still
+   * shows. The height stays at 32px, matching Button `sm` and the toolbar's own
+   * selects on the same row. Both surfaces share this class, so both move
+   * together.
    */
   .atr-segment {
-    @apply flex h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-xs text-muted-foreground transition-colors duration-150;
+    @apply flex h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-label text-muted-foreground transition-colors duration-150;
   }
   .atr-segment:hover {
     @apply bg-surface-raised text-foreground;
   }
   .atr-segment[data-active="true"] {
-    @apply bg-accent/15 font-medium text-accent;
+    @apply bg-surface-raised font-medium text-foreground;
   }
 
   /* Truncating single-line text that still shrinks inside flex parents. */
@@ -362,6 +467,12 @@
   .atr-prose p {
     margin: 0.75em 0;
   }
+  /*
+   * The handoff's README type: sans headings at the page's own tiers (h2 18,
+   * h3 15), not the mono/underlined-rules treatment the old prose had. A
+   * README is the repo's own document; setting its headings in the app's data
+   * face made every README look like a changelog.
+   */
   .atr-prose h1,
   .atr-prose h2,
   .atr-prose h3,
@@ -369,36 +480,33 @@
   .atr-prose h5,
   .atr-prose h6 {
     margin: 1.4em 0 0.6em;
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-weight: 600;
     line-height: 1.3;
     color: var(--color-foreground);
   }
   .atr-prose h1 {
-    font-size: 1.5em;
+    font-size: var(--text-name-lg);
   }
   .atr-prose h2 {
-    padding-bottom: 0.25em;
-    border-bottom: 1px solid var(--color-border);
-    font-size: 1.28em;
+    font-size: var(--text-title);
   }
   .atr-prose h3 {
-    font-size: 1.12em;
+    font-size: var(--text-name);
   }
-  .atr-prose h4 {
-    font-size: 1em;
-  }
+  .atr-prose h4,
   .atr-prose h5,
   .atr-prose h6 {
-    font-size: 0.92em;
-    color: var(--color-muted-foreground);
+    font-size: var(--text-body);
   }
   .atr-prose a {
-    color: var(--color-accent);
-    text-decoration: none;
+    color: var(--color-foreground);
+    text-decoration: underline;
+    text-decoration-color: var(--color-border-strong);
+    text-underline-offset: 3px;
   }
   .atr-prose a:hover {
-    text-decoration: underline;
+    text-decoration-color: var(--color-foreground);
   }
   .atr-prose strong {
     font-weight: 600;
@@ -430,7 +538,7 @@
     background: var(--color-muted);
     font-family: var(--font-mono);
     font-size: 0.86em;
-    color: var(--color-accent);
+    color: var(--color-foreground);
   }
   .atr-prose pre {
     margin: 0.9em 0;
@@ -440,7 +548,7 @@
     border-radius: var(--radius-md);
     background: var(--color-background);
     font-family: var(--font-mono);
-    font-size: 0.8em;
+    font-size: var(--text-meta);
     line-height: 1.6;
   }
   .atr-prose pre code {

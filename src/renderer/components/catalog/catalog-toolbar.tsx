@@ -5,6 +5,13 @@
  * SEE sit on the left; the count and the controls that act on a
  * SELECTION sit on the right, appearing only when there is a selection
  * to act on so the default state stays quiet.
+ *
+ * The left cluster is the handoff's: the three densities are text tabs with a
+ * 2px ink rule under the active one, a hairline closes them, and Group/Sort are
+ * inline selects whose *value* is the ink — not a row of segmented buttons and
+ * two bordered dropdowns. That was the difference between a 44px bar and an
+ * 89px two-row dashboard header, and it is why the index started a row lower
+ * than the handoff's does.
  */
 
 import * as React from "react";
@@ -12,11 +19,8 @@ import {
   Archive,
   ArrowDownUp,
   ChevronDown,
-  LayoutGrid,
   ListChecks,
   Minus,
-  Rows3,
-  Image as ImageIcon,
   X,
   DownloadCloud,
   Filter,
@@ -50,29 +54,33 @@ import {
   type ViewMode,
 } from "@renderer/stores/catalog-view";
 
+/**
+ * The three densities, in the handoff's order and with its names.
+ *
+ * The store keys are still `grid` and `gallery` — they are persisted in
+ * `atr:catalog-view:v1`, so renaming them would discard everyone's saved view —
+ * but the labels are Index and Posters. Calling the index "Grid" was the one
+ * label in the redesign that lied: clicking it opened a list.
+ */
 const VIEW_MODES: Array<{
   mode: ViewMode;
   label: string;
   hint: string;
-  Icon: typeof LayoutGrid;
 }> = [
   {
-    mode: "gallery",
-    label: "Gallery",
-    hint: "Large covers — best for recognising a project you haven't opened in months",
-    Icon: ImageIcon,
+    mode: "grid",
+    label: "Index",
+    hint: "One full-width line per repo — the default",
   },
   {
-    mode: "grid",
-    label: "Grid",
-    hint: "Cover plus details — the balanced default",
-    Icon: LayoutGrid,
+    mode: "gallery",
+    label: "Posters",
+    hint: "The name at display size — best for recognising a project you haven't opened in months",
   },
   {
     mode: "table",
     label: "Table",
-    hint: "One line per repo — best for auditing and bulk reorganising",
-    Icon: Rows3,
+    hint: "One line per repo with sortable columns — best for auditing and bulk reorganising",
   },
 ];
 
@@ -114,25 +122,40 @@ function ToolbarSelect<T extends string>({
   const id = React.useId();
   return (
     <div className="flex items-center gap-1.5">
+      {/*
+        A field label, not an eyebrow: sentence case at the 12px tier, so the
+        uppercase in this app stays with the rail's section names.
+      */}
       <label
         htmlFor={id}
-        className="flex items-center gap-1 font-mono atr-label uppercase tracking-wider text-muted-foreground"
+        className="flex items-center gap-1 text-label text-muted-foreground"
       >
         {icon}
         {label}
       </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-        className="h-8 cursor-pointer rounded border border-border bg-input px-1.5 text-xs text-foreground transition-colors duration-150 hover:border-border-strong"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      {/*
+        The native select, stripped to its text: `appearance-none` plus our own
+        chevron keeps the platform control's keyboard behaviour while the value
+        reads as part of the sentence rather than as a boxed form field.
+      */}
+      <div className="relative flex items-center">
+        <select
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value as T)}
+          className="h-7 cursor-pointer appearance-none rounded bg-transparent pl-0 pr-5 text-label font-medium text-foreground transition-colors duration-150 hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          className="pointer-events-none absolute right-0 h-3 w-3 text-muted-foreground"
+          aria-hidden
+        />
+      </div>
     </div>
   );
 }
@@ -219,23 +242,23 @@ export function CatalogToolbar({
       <div
         role="group"
         aria-label="View mode"
-        className="flex items-center gap-0.5 rounded-md bg-muted p-0.5"
+        className="flex items-stretch gap-4"
       >
-        {VIEW_MODES.map(({ mode: value, label, hint, Icon }) => (
+        {VIEW_MODES.map(({ mode: value, label, hint }) => (
           <button
             key={value}
             type="button"
-            className="atr-segment"
-            data-active={mode === value ? "true" : "false"}
             aria-pressed={mode === value}
             title={hint}
             onClick={() => setMode(value)}
+            className="flex cursor-pointer items-center pb-1 text-label font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground aria-pressed:shadow-[inset_0_-2px_0_var(--color-foreground)]"
           >
-            <Icon className="h-3.5 w-3.5" aria-hidden />
-            <span>{label}</span>
+            {label}
           </button>
         ))}
       </div>
+
+      <span aria-hidden className="h-4 w-px self-center bg-border" />
 
       <ToolbarSelect
         label="Group"

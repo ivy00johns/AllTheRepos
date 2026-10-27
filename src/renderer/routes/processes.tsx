@@ -1,26 +1,28 @@
 /**
- * Processes route ("/processes").
+ * Running route ("/processes").
  *
- * Flat-table view of every listening dev server detected by the
- * main-side ProcessService. Uses the simple-shell wrapper from
- * `__root.tsx` (single-column layout, no detail panel).
+ * The handoff opens every secondary route the same way: the page header (28
+ * display title, its one fact in mono, controls on the right), then the
+ * content full-bleed. Running's fact is how many servers are listening, taken
+ * from the same `useProcesses` cache the table reads — a second subscription
+ * to one TanStack key, not a second sweep.
  *
- * The actual table lives in `<ProcessList />` — this route file
- * owns only page chrome (title, breadcrumb back-button, Refresh action,
- * bridge fallback message).
- *
- * Opening the page runs one sweep (`useRefreshProcesses`), because reading
- * the cached snapshot cannot show a server that started after the last tick.
- * The Refresh button is the same sweep on demand.
+ * The table itself lives in `<ProcessList />`; this file owns the chrome and
+ * the one-step sweep on arrival, because the snapshot the page opens on was
+ * produced by an earlier tick and a server started since then would not be in
+ * it. The Refresh action is the same sweep on demand.
  */
 
-import { Link, createRoute } from "@tanstack/react-router";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { createRoute } from "@tanstack/react-router";
+import { RefreshCw } from "lucide-react";
 import * as React from "react";
 
+import { PageHeader } from "@renderer/components/layout/page-header";
 import { ProcessList } from "@renderer/components/process/process-list";
-import { Button } from "@renderer/components/ui/button";
-import { useRefreshProcesses } from "@renderer/hooks/use-processes";
+import {
+  useProcesses,
+  useRefreshProcesses,
+} from "@renderer/hooks/use-processes";
 import { cn } from "@renderer/lib/cn";
 import { getAtr } from "@renderer/lib/atr";
 
@@ -36,63 +38,59 @@ function ProcessesPage() {
   const bridgeAvailable = typeof window !== "undefined" && Boolean(getAtr());
   const refresh = useRefreshProcesses();
   const { mutate: refreshNow } = refresh;
+  const listing = useProcesses();
+  const count = listing.data?.processes.length ?? 0;
 
-  // One sweep per visit: the snapshot the panel opens on was produced by an
+  // One sweep per visit: the snapshot the page opens on was produced by an
   // earlier tick, and a dev server started since then would not be in it.
   React.useEffect(() => {
     if (bridgeAvailable) refreshNow();
   }, [bridgeAvailable, refreshNow]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-mono text-2xl font-semibold tracking-tight">
-            Processes
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Listening dev servers detected across all configured repos.
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          {bridgeAvailable ? (
-            <Button
-              variant="ghost"
-              size="sm"
+    <>
+      <PageHeader
+        title="Running"
+        meta={
+          count > 0
+            ? `${count} listening`
+            : bridgeAvailable
+              ? "Nothing listening"
+              : "Process detection unavailable"
+        }
+        actions={
+          bridgeAvailable ? (
+            <button
+              type="button"
               onClick={() => refreshNow()}
               disabled={refresh.isPending}
               aria-busy={refresh.isPending}
               title="Scan for listening servers now"
+              className="flex h-7 cursor-pointer items-center gap-1.5 rounded px-2 text-label font-medium text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground disabled:cursor-wait disabled:opacity-60"
             >
               <RefreshCw
-                className={cn("h-4 w-4", refresh.isPending && "animate-spin")}
+                className={cn("h-3.5 w-3.5", refresh.isPending && "animate-spin")}
                 aria-hidden
               />
               Refresh
-            </Button>
-          ) : null}
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/">
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Back
-            </Link>
-          </Button>
-        </div>
-      </div>
+            </button>
+          ) : null
+        }
+      />
 
       {bridgeAvailable ? (
         <ProcessList />
       ) : (
-        <div className="rounded-lg border border-dashed border-border bg-card/50 p-6">
-          <p className="font-mono text-sm text-foreground">
+        <div className="px-6 py-8">
+          <p className="text-body font-medium text-foreground">
             Process detection unavailable — preload bridge missing.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 max-w-[68ch] text-body text-muted-foreground">
             Run via <code className="font-mono">pnpm electron:dev</code> so the
             Electron preload script loads.
           </p>
         </div>
       )}
-    </div>
+    </>
   );
 }

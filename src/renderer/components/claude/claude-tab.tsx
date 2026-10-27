@@ -17,15 +17,7 @@
  */
 
 import * as React from "react";
-import {
-  Bot,
-  Edit,
-  FileText,
-  History,
-  PlayCircle,
-  Plug,
-  Wand2,
-} from "lucide-react";
+import { Edit, PlayCircle } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { Separator } from "@renderer/components/ui/separator";
@@ -59,36 +51,28 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
   if (!bridgeAvailable) {
     return (
-      <div className="rounded-lg border border-dashed border-border bg-card/50 p-6">
-        <p className="font-mono text-sm text-foreground">
-          Claude integration unavailable — preload bridge missing.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Run via <code className="font-mono">pnpm electron:dev</code> so the
-          Electron preload script loads.
-        </p>
-      </div>
+      <p className="text-body text-muted-foreground">
+        Claude integration unavailable — the preload bridge is missing. Run via{" "}
+        <code className="font-mono text-label">pnpm electron:dev</code>.
+      </p>
     );
   }
 
   if (stateQuery.isLoading) {
     return (
-      <div
-        aria-busy="true"
-        className="rounded-lg border border-border bg-card p-6 text-center font-mono text-sm text-muted-foreground"
-      >
+      <p aria-busy="true" className="text-body text-muted-foreground">
         Loading Claude state…
-      </div>
+      </p>
     );
   }
 
   if (stateQuery.error) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-        <p className="font-medium text-destructive">
+      <div className="border-l-2 border-destructive py-1 pl-3">
+        <p className="text-body font-medium text-destructive">
           Failed to load Claude state
         </p>
-        <pre className="mt-2 overflow-x-auto font-mono text-xs text-muted-foreground">
+        <pre className="mt-1 overflow-x-auto font-mono atr-meta">
           {stateQuery.error.message}
         </pre>
       </div>
@@ -135,7 +119,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
           {launching ? "Launching…" : "Launch Claude Code"}
         </Button>
         <Button
-          variant="outline"
+          variant="bordered"
           onClick={handleOpenClaudeMd}
           disabled={openingMd || !state.claudeMdPath}
           aria-label="Edit CLAUDE.md"
@@ -143,32 +127,27 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
           <Edit className="h-4 w-4" aria-hidden />
           {openingMd ? "Opening…" : "Edit CLAUDE.md"}
         </Button>
-        <span className="ml-auto font-mono atr-label uppercase tracking-widest text-muted-foreground">
+        <span className="ml-auto atr-meta">
           {tokens} tokens · {state.sessions.length} session
           {state.sessions.length === 1 ? "" : "s"}
         </span>
       </div>
 
       {launchError ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 font-mono atr-label text-destructive">
+        <p className="border-l-2 border-destructive py-1 pl-3 text-body text-destructive">
           {launchError}
         </p>
       ) : null}
 
       {/* CLAUDE.md preview */}
       <section aria-labelledby="claude-md-heading">
-        <SectionHeading
-          id="claude-md-heading"
-          icon={<FileText className="h-3.5 w-3.5" aria-hidden />}
-        >
-          CLAUDE.md
-        </SectionHeading>
+        <SectionHeading id="claude-md-heading">CLAUDE.md</SectionHeading>
         {state.claudeMdContent ? (
-          <div className="rounded-md border border-border bg-card p-4">
+          <div className="rounded-md border border-border bg-surface p-4">
             <Markdown>{state.claudeMdContent}</Markdown>
           </div>
         ) : (
-          <p className="rounded-md border border-dashed border-border bg-card/50 p-3 text-xs italic text-muted-foreground">
+          <p className="text-body italic text-muted-foreground">
             No CLAUDE.md detected at the repo root.
           </p>
         )}
@@ -178,10 +157,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
       {/* Skills */}
       <section aria-labelledby="claude-skills-heading">
-        <SectionHeading
-          id="claude-skills-heading"
-          icon={<Wand2 className="h-3.5 w-3.5" aria-hidden />}
-        >
+        <SectionHeading id="claude-skills-heading">
           Skills <CountBadge n={state.skills.length} />
         </SectionHeading>
         {state.skills.length > 0 ? (
@@ -191,9 +167,9 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
             ))}
           </div>
         ) : (
-          <p className="text-xs italic text-muted-foreground">
+          <p className="text-body italic text-muted-foreground">
             No skills configured under{" "}
-            <code className="font-mono">.claude/skills/</code>.
+            <code className="font-mono text-label">.claude/skills/</code>.
           </p>
         )}
       </section>
@@ -202,10 +178,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
       {/* Agents */}
       <section aria-labelledby="claude-agents-heading">
-        <SectionHeading
-          id="claude-agents-heading"
-          icon={<Bot className="h-3.5 w-3.5" aria-hidden />}
-        >
+        <SectionHeading id="claude-agents-heading">
           Agents <CountBadge n={state.agents.length} />
         </SectionHeading>
         {state.agents.length > 0 ? (
@@ -215,9 +188,9 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
             ))}
           </div>
         ) : (
-          <p className="text-xs italic text-muted-foreground">
+          <p className="text-body italic text-muted-foreground">
             No agents configured under{" "}
-            <code className="font-mono">.claude/agents/</code>.
+            <code className="font-mono text-label">.claude/agents/</code>.
           </p>
         )}
       </section>
@@ -226,10 +199,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
       {/* MCP servers */}
       <section aria-labelledby="claude-mcp-heading">
-        <SectionHeading
-          id="claude-mcp-heading"
-          icon={<Plug className="h-3.5 w-3.5" aria-hidden />}
-        >
+        <SectionHeading id="claude-mcp-heading">
           MCP servers <CountBadge n={state.mcpServers.length} />
         </SectionHeading>
         {state.mcpServers.length > 0 ? (
@@ -239,7 +209,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
             ))}
           </div>
         ) : (
-          <p className="text-xs italic text-muted-foreground">
+          <p className="text-body italic text-muted-foreground">
             No MCP servers configured for this repo.
           </p>
         )}
@@ -249,10 +219,7 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
       {/* Sessions */}
       <section aria-labelledby="claude-sessions-heading">
-        <SectionHeading
-          id="claude-sessions-heading"
-          icon={<History className="h-3.5 w-3.5" aria-hidden />}
-        >
+        <SectionHeading id="claude-sessions-heading">
           Sessions <CountBadge n={state.sessions.length} />
         </SectionHeading>
         <ClaudeSessionsTable slug={slug} sessions={state.sessions} />
@@ -263,17 +230,16 @@ export function ClaudeTab({ slug, repoName }: ClaudeTabProps) {
 
 interface SectionHeadingProps {
   id: string;
-  icon: React.ReactNode;
   children: React.ReactNode;
 }
 
-function SectionHeading({ id, icon, children }: SectionHeadingProps) {
+/** A section name, not an eyebrow: sentence case at the 12px tier. */
+function SectionHeading({ id, children }: SectionHeadingProps) {
   return (
     <h3
       id={id}
-      className="mb-2 flex items-center gap-1.5 atr-label font-semibold uppercase tracking-widest text-muted-foreground"
+      className="mb-2 flex items-center gap-1.5 text-label font-semibold text-muted-foreground"
     >
-      {icon}
       {children}
     </h3>
   );

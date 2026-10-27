@@ -90,6 +90,19 @@ interface DirRailProps {
   addingScanPath?: boolean;
   dirtyOnly?: boolean;
   onToggleDirty?: () => void;
+  /**
+   * Fired after a filter row narrows the catalog. The catalog route uses it to
+   * close the loop; the shell rail on the other routes uses it to return to
+   * `/`, because a filter is an instruction for the catalog to show — not a
+   * setting for whichever route you happened to press it on.
+   */
+  onAfterSelect?: () => void;
+  /**
+   * Whether this rail should show what the catalog currently has selected.
+   * The shell rail sits beside a route that is not the catalog, so a raised
+   * "All repos" row there would claim a filter that route is not showing.
+   */
+  showSelection?: boolean;
 }
 
 /** A count badge; dimmed until the row is hovered or selected. */
@@ -279,11 +292,7 @@ function DirRow({
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="atr-label px-2 pb-1 pt-3 font-mono font-medium uppercase tracking-wider text-muted-foreground/70">
-      {children}
-    </p>
-  );
+  return <p className="atr-eyebrow px-4 pb-2 pt-6">{children}</p>;
 }
 
 /**
@@ -362,7 +371,9 @@ function ScanRootRow({
             />
           )}
           <span className="atr-truncate font-medium">
-            {node.isOutsideScanRoots ? "Outside scan folders" : tildify(node.path)}
+            {node.isOutsideScanRoots
+              ? "Outside scan folders"
+              : tildify(node.path)}
           </span>
           {node.dirtyCount > 0 ? (
             <CircleDot
@@ -437,7 +448,7 @@ function ScanRootRow({
                   }
                 >
                   <Folder
-                    className="ml-6 h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
                     aria-hidden
                   />
                   <span className="atr-truncate italic text-muted-foreground">
@@ -468,6 +479,8 @@ export function DirRail({
   addingScanPath,
   dirtyOnly = false,
   onToggleDirty,
+  onAfterSelect,
+  showSelection = true,
 }: DirRailProps) {
   const selectedDir = useCatalogView((s) => s.selectedDir);
   const selectedDirExact = useCatalogView((s) => s.selectedDirExact);
@@ -536,15 +549,23 @@ export function DirRail({
     () => repos.filter((r) => r.isFavorite).length,
     [repos],
   );
-
   const allSelected =
-    selectedDir === null && ownershipFilter.length === 0 && !favoritesOnly && !dirtyOnly && activeGroupId === null;
+    showSelection &&
+    selectedDir === null &&
+    ownershipFilter.length === 0 &&
+    !favoritesOnly &&
+    !dirtyOnly &&
+    activeGroupId === null;
+  // Folders and views draw their selection from the same state. On a
+  // non-catalog route the state still exists (the store outlives the route),
+  // but it describes the catalog, not this page.
+  const selectedDirShown = showSelection ? selectedDir : null;
 
   return (
     <nav
       id="catalog-sidebar"
       aria-label="Catalog filters and folders"
-      className="flex h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-4"
+      className="flex h-full w-[232px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface pb-4"
     >
       <SectionLabel>Views</SectionLabel>
       <ul>
@@ -558,10 +579,11 @@ export function DirRail({
               clearOwnership();
               setFavoritesOnly(false);
               onSelectGroup(null);
+              onAfterSelect?.();
             }}
           >
             <Layers
-              className="ml-6 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden
             />
             <span className="atr-truncate">All repos</span>
@@ -573,12 +595,15 @@ export function DirRail({
           <button
             type="button"
             className="atr-rail-row"
-            data-selected={favoritesOnly ? "true" : "false"}
-            onClick={() => setFavoritesOnly(!favoritesOnly)}
+            data-selected={showSelection && favoritesOnly ? "true" : "false"}
+            onClick={() => {
+              setFavoritesOnly(!favoritesOnly);
+              onAfterSelect?.();
+            }}
             title="Repos you've pinned"
           >
             <Star
-              className="ml-6 h-3.5 w-3.5 shrink-0 text-warning"
+              className="h-3.5 w-3.5 shrink-0 text-warning"
               fill={favoritesOnly ? "currentColor" : "none"}
               aria-hidden
             />
@@ -601,13 +626,18 @@ export function DirRail({
                 type="button"
                 className="atr-rail-row"
                 data-selected={
-                  ownershipFilter.includes(kind) ? "true" : "false"
+                  showSelection && ownershipFilter.includes(kind)
+                    ? "true"
+                    : "false"
                 }
                 title={OWNERSHIP_HINTS[kind]}
-                onClick={() => toggleOwnership(kind)}
+                onClick={() => {
+                  toggleOwnership(kind);
+                  onAfterSelect?.();
+                }}
               >
                 <Icon
-                  className="ml-6 h-3.5 w-3.5 shrink-0"
+                  className="h-3.5 w-3.5 shrink-0"
                   style={{ color: `var(--color-own-${kind})` }}
                   aria-hidden
                 />
@@ -623,13 +653,13 @@ export function DirRail({
             <button
               type="button"
               className="atr-rail-row"
-              data-selected={dirtyOnly ? "true" : "false"}
-              aria-pressed={dirtyOnly}
+              data-selected={showSelection && dirtyOnly ? "true" : "false"}
+              aria-pressed={showSelection && dirtyOnly}
               onClick={onToggleDirty}
               title={`${dirtyTotal} repos have uncommitted changes`}
             >
               <CircleDot
-                className="ml-6 h-3.5 w-3.5 shrink-0 text-warning"
+                className="h-3.5 w-3.5 shrink-0 text-warning"
                 aria-hidden
               />
               <span className="atr-truncate">Uncommitted</span>
@@ -652,16 +682,18 @@ export function DirRail({
           <ScanRootRow
             key={root.path}
             node={root}
-            selectedDir={selectedDir}
-            selectedDirExact={selectedDirExact}
+            selectedDir={selectedDirShown}
+            selectedDirExact={showSelection && selectedDirExact}
             expanded={expanded}
             onToggle={toggleDir}
-            onSelect={(path) =>
-              setSelectedDir(selectedDir === path ? null : path)
-            }
+            onSelect={(path) => {
+              setSelectedDir(selectedDirShown === path ? null : path);
+              onAfterSelect?.();
+            }}
             onSelectExact={(path) => {
-              const already = selectedDir === path && selectedDirExact;
+              const already = selectedDirShown === path && selectedDirExact;
               setSelectedDir(already ? null : path, true);
+              onAfterSelect?.();
             }}
             onRescan={onRescan}
             onStopScanning={onStopScanning}
@@ -676,7 +708,7 @@ export function DirRail({
           disabled={addingScanPath}
           className="atr-rail-row mt-1 text-muted-foreground disabled:cursor-wait disabled:opacity-60"
         >
-          <Plus className="ml-6 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="atr-truncate">
             {addingScanPath ? "Adding…" : "Add folder to scan"}
           </span>
@@ -779,7 +811,7 @@ function GroupSection({
               >
                 <Sparkles
                   className={cn(
-                    "ml-6 h-3.5 w-3.5 shrink-0",
+                    "h-3.5 w-3.5 shrink-0",
                     group.isSmart ? "text-accent" : "text-muted-foreground",
                   )}
                   aria-hidden
@@ -811,7 +843,7 @@ function GroupSection({
             title="A list you fill by hand — pick repos, then Add to group"
             className="atr-rail-row text-muted-foreground"
           >
-            <Plus className="ml-6 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="atr-truncate">New group</span>
           </button>
         </li>
@@ -823,7 +855,7 @@ function GroupSection({
             title="A group that fills itself — every repo matching the conditions you choose"
             className="atr-rail-row text-muted-foreground"
           >
-            <Filter className="ml-6 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <Filter className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="atr-truncate">New saved filter</span>
           </button>
         </li>

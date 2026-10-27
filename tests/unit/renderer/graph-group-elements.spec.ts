@@ -17,7 +17,10 @@ import { describe, expect, it } from "vitest";
 
 import type { GraphCluster, GraphEdge } from "@shared/types";
 
-import { buildGroupElements, type Palette } from "@renderer/components/graph/graph-canvas";
+import {
+  buildGroupElements,
+  type Palette,
+} from "@renderer/components/graph/graph-canvas";
 import { buildClusterOverview } from "@renderer/lib/graph-clusters";
 
 const PALETTE: Palette = {
@@ -25,6 +28,7 @@ const PALETTE: Palette = {
   muted: "rgb(130,130,130)",
   border: "rgb(70,70,70)",
   borderStrong: "rgb(105,105,105)",
+  surfaceRaised: "rgb(30,36,44)",
   accent: "rgb(120,220,170)",
   warning: "rgb(230,190,90)",
   background: "rgb(12,16,20)",
@@ -48,13 +52,18 @@ function cluster(
   };
 }
 
-const CLUSTERS = [cluster(0, "hub", ["a", "b", "c"], ["c"]), cluster(1, "pair", ["d", "e"])];
+const CLUSTERS = [
+  cluster(0, "hub", ["a", "b", "c"], ["c"]),
+  cluster(1, "pair", ["d", "e"]),
+];
 const EDGES: GraphEdge[] = [
   { source: "a", target: "d", weight: 1, signals: ["owner"], why: [] },
   { source: "a", target: "e", weight: 1, signals: ["owner"], why: [] },
 ];
 
-function elements(ungrouped: string[] = ["loose-1"]): ReturnType<typeof buildGroupElements> {
+function elements(
+  ungrouped: string[] = ["loose-1"],
+): ReturnType<typeof buildGroupElements> {
   return buildGroupElements(
     buildClusterOverview(CLUSTERS, EDGES, ungrouped),
     PALETTE,

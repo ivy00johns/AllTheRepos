@@ -7,6 +7,17 @@
  *
  * Section headers are sticky: when you're 400 rows into a folder-grouped
  * catalog, "which folder am I looking at" has to stay answerable.
+ *
+ * The index is one column, not a grid.
+ *
+ * The handoff's index lays entries out in `auto-fill` columns, and at 1440 a
+ * group of one left two empty columns and a group of two left one — a page of
+ * holes whose width depended on how many repos happened to be in a folder.
+ * Worse, a 280px column truncated every description after about thirty
+ * characters, so the one line that says what a project IS read as a fragment.
+ * An index is a list: one full-width row per repo, grouped by section, so the
+ * rows share a left edge and the width goes to the description instead of to
+ * empty cells.
  */
 
 import * as React from "react";
@@ -31,22 +42,9 @@ import {
 } from "@renderer/lib/ownership";
 import { useCatalogView, type GroupBy } from "@renderer/stores/catalog-view";
 
-import { RepoCard } from "./repo-card";
+import { RepoIndexEntry } from "./repo-index-entry";
+import { POSTER_ITEM, RepoPoster } from "./repo-poster";
 import { RepoTable } from "./repo-table";
-
-/**
- * Column tracks per density.
- *
- * Grid mode's minimum has to leave room for two columns *after* the
- * fixed-width rail (256px) and the open detail panel (380px) have taken
- * their share. At the default 1280px window that is 644px of content, so
- * a 320px minimum left `auto-fill` with exactly one full-width column —
- * the view read as a list of expanded rows rather than a grid. 240px
- * keeps two (and often three) real columns at that width while still
- * fitting a 44px cover plus a readable metadata column.
- */
-const GRID_COLUMNS = "grid-cols-[repeat(auto-fill,minmax(240px,1fr))]";
-const GALLERY_COLUMNS = "grid-cols-[repeat(auto-fill,minmax(248px,1fr))]";
 
 export interface RepoGridProps {
   repos: Repo[];
@@ -54,8 +52,6 @@ export interface RepoGridProps {
   folderLabelFor: (repo: Repo) => string;
   /** Stable, unambiguous grouping key (the absolute directory). */
   folderKeyFor?: (repo: Repo) => string;
-  coverFor?: (repo: Repo) => string | null | undefined;
-  commonTags?: ReadonlySet<string>;
   selectedSlug: string | null;
   checkedSlugs: ReadonlySet<string>;
   onSelect: (slug: string) => void;
@@ -160,30 +156,44 @@ function groupRepos(
   });
 }
 
+/*
+ * A group heading is a name, not an eyebrow.
+ *
+ * It used to be `atr-label … uppercase tracking-wider`: the same tracked mono
+ * as `VIEWS` and `LANGUAGES`, which spent the handoff's uppercase budget on a
+ * folder's own name (`design` read as `DESIGN`) and left the panel's real
+ * section labels with nothing to distinguish them. Sentence case at 12/600 in
+ * muted ink is a heading that stays quiet, and the count keeps the mono tier
+ * because a count is data.
+ */
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
-    <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-baseline gap-2 border-b border-border/60 bg-background/95 px-4 py-1.5 backdrop-blur-sm">
-      <h2 className="atr-label font-mono font-semibold uppercase tracking-wider text-foreground">
-        {label}
-      </h2>
+    <div className="sticky top-0 z-10 -mx-4 mb-2 flex items-baseline gap-2 border-b border-border/60 bg-background px-4 pb-2 pt-7">
+      <h2 className="text-label font-semibold text-muted-foreground">{label}</h2>
       <span className="atr-meta tabular-nums">{count}</span>
     </div>
   );
 }
 
-function GridSkeleton({ gallery }: { gallery: boolean }) {
+function GridSkeleton({ posters }: { posters: boolean }) {
   return (
     <div
       aria-busy="true"
       aria-live="polite"
-      className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
+      className={cn(
+        posters ? "flex flex-wrap gap-x-6" : "flex flex-col",
+      )}
     >
-      {Array.from({ length: gallery ? 8 : 9 }).map((_, index) => (
+      {Array.from({ length: posters ? 8 : 9 }).map((_, index) => (
         <Skeleton
           key={index}
           className={cn(
-            "rounded-lg border border-border bg-card",
-            gallery ? "h-64" : "h-[124px]",
+            posters
+              ? cn(
+                  POSTER_ITEM,
+                  "h-64 rounded-none border-t border-border bg-transparent",
+                )
+              : "h-[84px] rounded-none border-t border-border bg-transparent",
           )}
         />
       ))}
@@ -196,8 +206,6 @@ export function RepoGrid({
   ownershipFor,
   folderLabelFor,
   folderKeyFor,
-  coverFor,
-  commonTags,
   selectedSlug,
   checkedSlugs,
   onSelect,
@@ -211,7 +219,7 @@ export function RepoGrid({
 }: RepoGridProps) {
   const mode = useCatalogView((s) => s.mode);
   const groupBy = useCatalogView((s) => s.groupBy);
-  const gallery = mode === "gallery";
+  const posters = mode === "gallery";
 
   const keyFor = folderKeyFor ?? folderLabelFor;
   const sections = React.useMemo(
@@ -219,7 +227,7 @@ export function RepoGrid({
     [repos, groupBy, ownershipFor, folderLabelFor, keyFor],
   );
 
-  if (loading) return <GridSkeleton gallery={gallery} />;
+  if (loading) return <GridSkeleton posters={posters} />;
 
   if (repos.length === 0) {
     return (
@@ -240,6 +248,18 @@ export function RepoGrid({
     );
   }
 
+  if (mode === "table") {
+    return (
+      <RepoTable
+        sections={sections}
+        selectedSlug={selectedSlug}
+        onSelect={onSelect}
+        onToggleChecked={onToggleChecked}
+        onOpenEditor={onOpenEditor}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {sections.map((section) => (
@@ -248,42 +268,45 @@ export function RepoGrid({
             <SectionHeader label={section.label} count={section.repos.length} />
           ) : null}
 
-          {mode === "table" ? (
-            <RepoTable
-              repos={section.repos}
-              ownershipFor={ownershipFor}
-              folderLabelFor={folderLabelFor}
-              coverFor={coverFor}
-              selectedSlug={selectedSlug}
-              checkedSlugs={checkedSlugs}
-              onSelect={onSelect}
-              onToggleChecked={onToggleChecked}
-              onOpenEditor={onOpenEditor}
-            />
-          ) : (
-            <div
-              role="list"
-              className={cn("grid gap-3", gallery ? GALLERY_COLUMNS : GRID_COLUMNS)}
-            >
-              {section.repos.map((repo) => (
-                <div key={repo.slug} role="listitem" className="contents">
-                  <RepoCard
+          <div
+            role="list"
+            className={cn(
+              posters ? "flex flex-wrap gap-x-6" : "flex flex-col",
+              /*
+               * The section heading already draws the rule that opens the
+               * group. Without this the first entry drew a second one 8px
+               * below it, so every group began with a pair of hairlines a
+               * pixel wide and a gap apart — true of both densities.
+               */
+              "[&>div:first-child>article]:border-t-0",
+            )}
+          >
+            {section.repos.map((repo) => (
+              <div key={repo.slug} role="listitem" className="contents">
+                {posters ? (
+                  <RepoPoster
                     repo={repo}
                     ownership={ownershipFor(repo)}
-                    folderLabel={folderLabelFor(repo)}
-                    coverSrc={coverFor?.(repo)}
-                    commonTags={commonTags}
-                    variant={gallery ? "gallery" : "grid"}
                     selected={selectedSlug === repo.slug}
                     checked={checkedSlugs.has(repo.slug)}
                     onSelect={onSelect}
                     onToggleChecked={onToggleChecked}
                     onOpenEditor={onOpenEditor}
                   />
-                </div>
-              ))}
-            </div>
-          )}
+                ) : (
+                  <RepoIndexEntry
+                    repo={repo}
+                    ownership={ownershipFor(repo)}
+                    selected={selectedSlug === repo.slug}
+                    checked={checkedSlugs.has(repo.slug)}
+                    onSelect={onSelect}
+                    onToggleChecked={onToggleChecked}
+                    onOpenEditor={onOpenEditor}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </section>
       ))}
     </div>

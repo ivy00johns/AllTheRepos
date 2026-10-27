@@ -37,13 +37,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -139,7 +133,19 @@ async function buildTemplateProfile(): Promise<{
   // kernel resolves it) against the catalog's stored path. Seeding the
   // unresolved form would make every seeded repo unmatchable, which is a
   // fixture artifact: a developer's own repos sit under canonical paths.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "atr-e2e-template-")));
+  // A digits-only, fixed-length suffix rather than `mkdtemp`'s random letters.
+  // The visual baseline masks this path, but a mask is painted at the text's
+  // measured width: a random suffix made the group heading's proportional face
+  // a few pixels wider or narrower from run to run, which Playwright reported as
+  // a diff at the mask's own edge. Digits share an advance width, so the mask —
+  // and the picture around it — stays the same while the directory stays unique
+  // per run. A stale directory from a crashed run with the same PID is ours to
+  // clear, which is why the mkdir is not `recursive: false`.
+  const suffix = String(process.pid).padStart(6, "0").slice(-6);
+  const templateRoot = join(tmpdir(), `atr-e2e-template-${suffix}`);
+  rmSync(templateRoot, { recursive: true, force: true });
+  mkdirSync(templateRoot, { recursive: true });
+  const root = realpathSync(templateRoot);
   const profileDir = join(root, "profile");
   const libraryDir = join(root, "repos");
   mkdirSync(profileDir, { recursive: true });

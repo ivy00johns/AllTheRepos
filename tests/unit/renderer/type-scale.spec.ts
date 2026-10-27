@@ -16,6 +16,8 @@
  *     data (a badge count, a PID, a percentage), never a label or a sentence.
  *   - `.atr-meta`  — the metadata tier that already existed: 11px mono muted
  *     timestamps, paths and counts sitting inside running text.
+ *   - `.atr-eyebrow` — the only uppercase, tracked spelling: 11px mono muted,
+ *     section labels only, never a sentence.
  *   - `text-body`  — the 13px dense-content step, for the text a row is *about*:
  *     a rail row's own label, the repo name in the table, a legend glyph standing
  *     beside its `.atr-meta` caption. A theme token (`--text-body`) rather than a
@@ -44,11 +46,22 @@
  * than a violation of it. A rule written as "prefer the tokens" is one nobody can
  * enforce; this one is a line the walk below either finds or does not.
  *
+ * The 2026-10 "Catalogue" handoff (docs/design_handoff_catalogue) re-cut the scale
+ * into `--text-*` tokens — display 28, name-lg 22, title 18, name 15, body 13,
+ * label 12, meta 11, eyebrow 11, micro 10 — and the component classes now name
+ * those tokens instead of restating a size. That matters here for one reason: the
+ * 12px step had been spelled two ways (`text-xs` and `.atr-label`), which is the
+ * same drift the review opened this file about.
+ *
  * The second test pins each tier to the one place it is defined and to the size it
  * claims, so a tier cannot be quietly deleted or re-sized while the walk stays
  * green. The third is a positive control: a walk that silently stopped finding
  * anything — a typo'd regex, a directory that moved — would turn this file green
  * and stay green, so both detectors are run over strings in memory first.
+ *
+ * The fourth is the same argument for colour: the redesign made ink the one
+ * interaction hue and demoted the accent to the app icon, so "selected" cannot
+ * go back to being a green outline the next time somebody likes the colour better.
  */
 
 import fs from "node:fs";
@@ -171,7 +184,7 @@ describe("renderer type scale", () => {
 
     expect(
       found.map((o) => `${o.file}:${o.line} ${o.match} — ${o.context}`),
-      "use a named step: .atr-label (12px, every label/caption/heading), .atr-micro (10px, a number or unit read as data), .atr-meta (11px metadata), text-body (13px, the text a row is about), or Tailwind's own text-xs/text-sm; see the tier contract in src/renderer/styles/globals.css",
+      "use a named step: text-display (28), text-name-lg (22), text-title (18), text-name (15), text-body (13, the text a row is about), text-label (12, every label/caption/heading), text-meta (11, mono data), text-eyebrow (11, uppercase section labels) or text-micro (10, a number or unit read as data), or the .atr-label/.atr-micro/.atr-meta/.atr-eyebrow spellings; see the tier contract in src/renderer/styles/globals.css",
     ).toEqual([]);
 
     // The canvas form: cytoscape takes a number, so a component that styles a
@@ -192,22 +205,101 @@ describe("renderer type scale", () => {
       return block ?? "";
     };
 
-    // The floor the review asked for, and the one sanctioned exception.
-    expect(tier("atr-label")).toContain("text-xs");
-    expect(tier("atr-micro")).toContain("text-[10px]");
-    // Unchanged on purpose: 11px is this tier's decision too, and it sets its own
-    // colour and family, which is why nothing else may use it as a size.
-    expect(tier("atr-meta")).toContain("text-[11px]");
+    // Every step the handoff names, at the size it names it. A token that drifts
+    // moves real text on every screen that names it, which is why this is pinned
+    // rather than trusted.
+    const STEPS: Array<[string, number]> = [
+      ["display", 28],
+      ["name-lg", 22],
+      ["title", 18],
+      ["name", 15],
+      ["body", 13],
+      ["label", 12],
+      ["meta", 11],
+      ["eyebrow", 11],
+      ["micro", 10],
+    ];
 
-    // The dense-content step: one token, and the class whose size cannot be
-    // `@apply`'d from another component class has to reach it through the token.
-    const body = /--text-body:\s*([^;]+);/.exec(css)?.[1]?.trim();
-    expect(body, "--text-body is not declared in @theme").toBeTruthy();
-    // 13px, whatever the unit spelling: the sweep that produced it moved 13px
-    // type onto this step, so a token that drifted would move real text.
-    const px = Number.parseFloat((body ?? "").replace(/rem$/, "")) * 16;
-    expect(px, `--text-body is ${body}, which is not the 13px step`).toBe(13);
+    for (const [step, expected] of STEPS) {
+      // The size key only: `--text-label--line-height` is a separate declaration
+      // and must not count as a second definition of the step.
+      const declared = [
+        ...css.matchAll(new RegExp(`--text-${step}:\\s*([^;]+);`, "g")),
+      ];
+      expect(
+        declared.length,
+        `--text-${step} is declared ${declared.length} time(s) in globals.css`,
+      ).toBe(1);
+      const value = (declared[0]?.[1] ?? "").trim();
+      // `rem` is the one unit the theme block uses; anything else would be a
+      // second spelling of a step that already exists.
+      const px = Number.parseFloat(value.replace(/rem$/, "")) * 16;
+      expect(
+        px,
+        `--text-${step} is ${value}, which is not the ${expected}px step`,
+      ).toBe(expected);
+    }
+
+    // The component spellings name the steps rather than restating a size.
+    expect(tier("atr-label")).toContain("text-label");
+    expect(tier("atr-micro")).toContain("text-micro");
+    expect(tier("atr-meta")).toContain("text-meta");
+    expect(tier("atr-eyebrow")).toContain("text-eyebrow");
     expect(tier("atr-rail-row")).toContain("text-body");
+
+    // Inline mono data keeps its own leading, so a timestamp can never decide the
+    // height of a fixed row.
+    expect(tier("atr-meta")).toContain("leading-none");
+
+    // Uppercase and tracking belong to the eyebrow alone — the change that stops
+    // a dense index reading as a wall of shouting.
+    expect(tier("atr-eyebrow")).toContain("uppercase");
+    expect(tier("atr-label")).not.toContain("uppercase");
+    expect(tier("atr-micro")).not.toContain("uppercase");
+  });
+
+  /**
+   * The redesign's colour rule, held where it was decided.
+   *
+   * Ink is the interaction hue; the accent is the app icon. Three marks used to be
+   * green — a selected surface's border, a segmented control's "on", and the focus
+   * ring every route inherits — and each one read as "live" on a screen that also
+   * had a running port. Those three are here; the fourth, a checked card's ring,
+   * is a single class in `repo-card.tsx`.
+   */
+  test("selection is ink, not the accent", () => {
+    const css = fs.readFileSync(GLOBALS, "utf8");
+
+    /** The declaration block after a selector, up to its closing brace. */
+    const blockFor = (selector: string): string => {
+      const at = css.indexOf(selector);
+      expect(at, `${selector} is not in globals.css`).toBeGreaterThan(-1);
+      return css.slice(at, css.indexOf("}", at));
+    };
+
+    expect(blockFor('.atr-surface[data-selected="true"]')).toContain(
+      "bg-surface-raised",
+    );
+    expect(blockFor('.atr-surface[data-selected="true"]')).not.toContain(
+      "accent",
+    );
+
+    // The rail's selected row keeps the handoff's 2px ink spine.
+    expect(blockFor('.atr-rail-row[data-selected="true"]')).toContain(
+      "var(--color-foreground)",
+    );
+    expect(blockFor('.atr-rail-row[data-selected="true"]')).not.toContain(
+      "accent",
+    );
+
+    expect(blockFor('.atr-segment[data-active="true"]')).not.toContain("accent");
+
+    // And the focus ring every route inherits.
+    const ring = /--color-ring:\s*([^;]+);/.exec(css)?.[1] ?? "";
+    expect(ring, "--color-ring does not resolve to ink").toContain(
+      "--color-foreground",
+    );
+    expect(ring).not.toContain("accent");
   });
 
   test("the detector reports the forms that were actually wrong", () => {
