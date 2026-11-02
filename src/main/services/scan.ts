@@ -57,6 +57,7 @@ interface WorkerDiscovered {
     readmeContent: string | null;
     readmeHash: string | null;
     description: string | null;
+    deployText: string | null;
   };
 }
 
@@ -276,6 +277,7 @@ class ScanService {
             readmeContent: msg.metadata.readmeContent,
             readmeHash: msg.metadata.readmeHash,
             sizeBytes: msg.metadata.sizeBytes,
+            deployText: msg.metadata.deployText,
           };
           const { row } = upsertRepo(input);
           const repo: Repo = rowToRepo(row);

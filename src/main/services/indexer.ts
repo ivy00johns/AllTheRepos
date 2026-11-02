@@ -79,6 +79,7 @@ export function indexRepoFromMetadata(
     description: metadata.description,
     readmeContent: metadata.readmeContent,
     readmeHash: metadata.readmeHash,
+    deployText: metadata.deployText,
     sizeBytes: metadata.sizeBytes,
   };
 

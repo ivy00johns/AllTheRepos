@@ -58,13 +58,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS repos_fts USING fts5(
   description,
   readme_content,
   tags_text,
+  deploy_text,
   tokenize = 'porter unicode61'
 );
 
 DROP TRIGGER IF EXISTS repos_fts_insert;
 CREATE TRIGGER repos_fts_insert AFTER INSERT ON repos BEGIN
-  INSERT INTO repos_fts(slug, name, description, readme_content, tags_text)
-  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), COALESCE(NEW.tags_json,''));
+  INSERT INTO repos_fts(slug, name, description, readme_content, tags_text, deploy_text)
+  VALUES (NEW.slug, NEW.name, COALESCE(NEW.description,''), COALESCE(NEW.readme_content,''), COALESCE(NEW.tags_json,''), COALESCE(NEW.deploy_text,''));
 END;
 
 DROP TRIGGER IF EXISTS repos_fts_update;
@@ -73,7 +74,8 @@ CREATE TRIGGER repos_fts_update AFTER UPDATE ON repos BEGIN
     name = NEW.name,
     description = COALESCE(NEW.description,''),
     readme_content = COALESCE(NEW.readme_content,''),
-    tags_text = COALESCE(NEW.tags_json,'')
+    tags_text = COALESCE(NEW.tags_json,''),
+    deploy_text = COALESCE(NEW.deploy_text,'')
   WHERE slug = NEW.slug;
 END;
 
@@ -104,6 +106,35 @@ WHERE tags_text IS NOT COALESCE(
   ''
 );
 `;
+
+/**
+ * FTS5 cannot add a column to an existing table, so an index from before
+ * `deploy_text` is dropped and refilled from `repos`, which holds everything it
+ * indexes. Boot-time only, and only once: afterwards the column is there.
+ */
+const FTS_REFILL_SQL = `
+INSERT INTO repos_fts(slug, name, description, readme_content, tags_text, deploy_text)
+SELECT slug, name, COALESCE(description,''), COALESCE(readme_content,''), COALESCE(tags_json,''), COALESCE(deploy_text,'')
+FROM repos;
+`;
+
+function setUpFts(sqlite: Database.Database): void {
+  const columns = sqlite
+    .prepare("PRAGMA table_info(repos_fts)")
+    .all() as Array<{ name: string }>;
+  const isOldShape =
+    columns.length > 0 && !columns.some((c) => c.name === "deploy_text");
+  if (!isOldShape) {
+    sqlite.exec(FTS_SQL);
+    return;
+  }
+  // One transaction: a failure leaves the old index and its triggers working.
+  sqlite.transaction(() => {
+    sqlite.exec("DROP TABLE repos_fts;");
+    sqlite.exec(FTS_SQL);
+    sqlite.exec(FTS_REFILL_SQL);
+  })();
+}
 
 /**
  * Override the data directory used for `getDb()`. Intended for:
@@ -174,6 +205,11 @@ const ADDITIVE_COLUMNS: Array<{ table: string; column: string; ddl: string }> =
       table: "repos",
       column: "favorited_at",
       ddl: "ALTER TABLE repos ADD COLUMN favorited_at TEXT",
+    },
+    {
+      table: "repos",
+      column: "deploy_text",
+      ddl: "ALTER TABLE repos ADD COLUMN deploy_text TEXT",
     },
   ];
 
@@ -259,7 +295,7 @@ export function getDb(): Db {
   ensureAdditiveColumns(sqlite);
 
   try {
-    sqlite.exec(FTS_SQL);
+    setUpFts(sqlite);
   } catch (err) {
     console.error("[backend] fts setup error", err);
   }

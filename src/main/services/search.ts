@@ -29,6 +29,7 @@ import type { RepoRow } from "@main/db/schema";
 import { getSqlite } from "@main/db/client";
 import { mapRawRepoRow, rowToRepo } from "@main/db/queries";
 
+import { deployLookupExpr } from "./deploy-targets";
 import { embed, EmbedUnavailableError } from "./embedding";
 import { vectorSearch, vectorStoreStatus } from "./vector-store";
 
@@ -54,6 +55,10 @@ function escapeFtsQuery(q: string): string {
 function ftsSearch(query: string, limit: number): FtsMatch[] {
   const expr = escapeFtsQuery(query);
   if (!expr) return [];
+  return runFts(expr, limit);
+}
+
+function runFts(expr: string, limit: number): FtsMatch[] {
   const sqlite = getSqlite();
   try {
     const rows = sqlite
@@ -74,6 +79,21 @@ function ftsSearch(query: string, limit: number): FtsMatch[] {
     console.error("[backend] fts query error", err);
     return [];
   }
+}
+
+/**
+ * Repos whose deploy config declares the query as whole words. These come first
+ * in the results: a repo serving a site outranks READMEs that only mention it,
+ * however often, and scoring cannot promise that because a name match plus a
+ * wordy README outscores a one-word column.
+ */
+function servingSlugs(query: string, limit: number): Set<string> {
+  const words = query.replace(/"/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return new Set();
+  const phrases = words.map((word) => `"${word}"`).join(" ");
+  return new Set(
+    runFts(`deploy_text : (${phrases})`, limit).map((match) => match.slug),
+  );
 }
 
 function fetchReposBySlugs(slugs: string[]): Map<string, RepoRow> {
@@ -209,10 +229,18 @@ export async function hybridSearch(
   const limit = Math.min(q.limit ?? 50, 200);
   const candidateLimit = Math.max(limit * 3, 100);
 
+  // A URL that a repo declares as a deploy target has a definite answer, so it
+  // skips the keyword and vector matches on words that merely resemble it.
+  const deployExpr = mode === "vector" ? null : deployLookupExpr(q.query);
+  const deployMatches = deployExpr ? runFts(deployExpr, candidateLimit) : [];
+  const isDeployMatch = deployMatches.length > 0;
+
   // 1. FTS — skipped only when the caller asked for vectors alone.
   const ftsBySlug = new Map<string, FtsMatch>();
   if (mode !== "vector") {
-    const ftsResults = ftsSearch(q.query, candidateLimit);
+    const ftsResults = isDeployMatch
+      ? deployMatches
+      : ftsSearch(q.query, candidateLimit);
     ftsResults.forEach((m, idx) => ftsBySlug.set(m.slug, { ...m, rank: idx }));
   }
 
@@ -224,7 +252,7 @@ export async function hybridSearch(
     hits: { slug: string; score: number }[];
     status: SemanticSearchStatus;
   } =
-    mode === "fts"
+    mode === "fts" || isDeployMatch
       ? {
           hits: [],
           status: { state: "off", reason: "requested", detail: null },
@@ -296,7 +324,13 @@ export async function hybridSearch(
     };
   });
 
-  hits.sort((a, b) => b.score - a.score);
+  const serving =
+    mode === "vector" ? new Set<string>() : servingSlugs(q.query, candidateLimit);
+  hits.sort(
+    (a, b) =>
+      Number(serving.has(b.repo.slug)) - Number(serving.has(a.repo.slug)) ||
+      b.score - a.score,
+  );
   return { hits: hits.slice(0, limit), semantic };
 }
 

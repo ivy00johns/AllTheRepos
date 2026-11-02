@@ -55,6 +55,8 @@ export default defineConfig({
   // vector-store.spec.ts — the sqlite-vec extension and what the app does
   // without one: it loads the real library the app ships and drives a search
   // through it, so it measures the machine rather than the metadata.
+  // deploy-target-search.spec.ts — a real scan reading wrangler.jsonc, and a
+  // live URL typed into the search box finding the repo that serves it.
   // semantic-search.spec.ts — a scan storing an embedding and a search coming
   // back ranked with it, which is the only place the two halves meet.
   // Everything else shares the seeded template profile built in global setup
@@ -138,7 +140,7 @@ export default defineConfig({
     // retry-and-loading and viewport-fit, and the graph pass added
     // window-route-restore. Every name here has a spec beside it, and each one
     // has its paragraph above.
-    /(electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup|groups-flow|catalog-refresh|settings-scan-paths|harness-teardown|favorite-toggle)\.spec\.ts$/,
+    /(deploy-target-search|electron-launch|catalog-flow|palette-flow|process-flow|launcher-flow|claude-flow|curate-link-flow|vector-store|semantic-search|packaged-update-check|layout-overflow|nav-card-a11y|workstream-b|workstream-c|type-scale|catalog-visual|accessibility|detail-readme|retry-and-loading|viewport-fit|window-route-restore|tag-cleanup|groups-flow|catalog-refresh|settings-scan-paths|harness-teardown|favorite-toggle)\.spec\.ts$/,
   // Rebuild native modules for Electron's ABI + rebuild the bundle
   // BEFORE any spec runs. Without this, switching between
   // `pnpm test` (host Node ABI) and Electron E2E breaks the .node loader.
