@@ -10,10 +10,42 @@
  * Pure: no filesystem, no DB, no Electron. Runs in the scanner worker too.
  */
 
-/** Strings are matched first so `//` and `,}` inside one are left alone. */
-const JSONC_COMMENT = /"(?:\\.|[^"\\])*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+/**
+ * These files come from whatever repo was cloned, and parsing can run on the main
+ * thread, so nothing here may backtrack on their contents. The largest real config
+ * seen is under 6 KiB; a file past this size is not one anybody wrote by hand.
+ */
+export const DEPLOY_CONFIG_MAX_BYTES = 32 * 1024;
+
+/** Strings are matched first so `,}` and `#` inside one are left alone. */
 const JSONC_TRAILING_COMMA = /"(?:\\.|[^"\\])*"|,(?=\s*[}\]])/g;
 const TOML_COMMENT = /"(?:\\.|[^"\\])*"|'[^']*'|#[^\n]*/g;
+
+/** One pass, so an unterminated run of block comments cannot rescan the file. */
+function stripJsoncComments(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"') {
+      const start = i;
+      i += 1;
+      while (i < text.length && text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
+      i += 1;
+      out += text.slice(start, i);
+    } else if (ch === "/" && text[i + 1] === "/") {
+      const end = text.indexOf("\n", i);
+      i = end === -1 ? text.length : end;
+    } else if (ch === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? text.length : end + 2;
+    } else {
+      out += ch;
+      i += 1;
+    }
+  }
+  return out;
+}
 
 const keepStrings = (match: string): string =>
   match[0] === '"' || match[0] === "'" ? match : "";
@@ -66,9 +98,7 @@ function parseJsonc(text: string): string[] {
   let config: unknown;
   try {
     config = JSON.parse(
-      text
-        .replace(JSONC_COMMENT, keepStrings)
-        .replace(JSONC_TRAILING_COMMA, keepStrings),
+      stripJsoncComments(text).replace(JSONC_TRAILING_COMMA, keepStrings),
     );
   } catch {
     return [];
@@ -107,12 +137,22 @@ const quotedValue = (text: string): string | undefined => {
 /** Every pattern in a TOML route value: a string, an inline table, or an array of either. */
 function tomlRoutePatterns(value: string): string[] {
   const out: string[] = [];
-  const withoutTables = value.replace(/\{[^}]*\}/g, (table) => {
+  let withoutTables = "";
+  let at = 0;
+  while (at < value.length) {
+    const open = value.indexOf("{", at);
+    const close = open === -1 ? -1 : value.indexOf("}", open);
+    if (close === -1) {
+      withoutTables += value.slice(at);
+      break;
+    }
+    withoutTables += value.slice(at, open);
+    const table = value.slice(open, close + 1);
     const pattern = /pattern\s*=\s*(.+?)(?:,|\}|$)/.exec(table);
     const quoted = pattern ? quotedValue(pattern[1]) : undefined;
     if (quoted) out.push(quoted);
-    return "";
-  });
+    at = close + 1;
+  }
   for (const match of withoutTables.matchAll(/"([^"]*)"|'([^']*)'/g)) {
     out.push(match[1] ?? match[2]);
   }
@@ -150,11 +190,11 @@ function parseToml(text: string): string[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    const header = /^\[\[?\s*([^\]]+?)\s*\]\]?$/.exec(line);
-    if (header) {
-      section = header[1];
-      const env = /^env\.([^.]+)/.exec(section)?.[1];
-      if (env) envScope(env);
+    if (line.startsWith("[") && line.endsWith("]")) {
+      const isArrayTable = line.startsWith("[[") && line.endsWith("]]");
+      section = line.slice(isArrayTable ? 2 : 1, isArrayTable ? -2 : -1).trim();
+      const headerEnv = /^env\.([^.]+)/.exec(section)?.[1];
+      if (headerEnv) envScope(headerEnv);
       continue;
     }
     const assignment = /^([A-Za-z_]+)\s*=\s*(.*)$/.exec(line);
@@ -173,10 +213,14 @@ function parseToml(text: string): string[] {
     } else if (isWorkerScope && key === "name") {
       scope.name = quotedValue(value);
     } else if (isWorkerScope && (key === "route" || key === "routes")) {
-      while (bracketDepth(value) > 0 && i + 1 < lines.length) {
+      const parts = [value];
+      let depth = bracketDepth(value);
+      while (depth > 0 && i + 1 < lines.length) {
         i += 1;
-        value += ` ${lines[i]}`;
+        parts.push(lines[i]);
+        depth += bracketDepth(lines[i]);
       }
+      value = parts.join(" ");
       scope.routes.push(...tomlRoutePatterns(value));
     }
   }
@@ -196,6 +240,7 @@ function parseToml(text: string): string[] {
  * that does not parse yields nothing: a scan must not fail over one bad config.
  */
 export function parseWranglerConfig(filename: string, text: string): string[] {
+  if (text.length > DEPLOY_CONFIG_MAX_BYTES) return [];
   return filename.endsWith(".toml") ? parseToml(text) : parseJsonc(text);
 }
 

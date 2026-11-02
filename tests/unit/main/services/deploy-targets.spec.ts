@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEPLOY_CONFIG_MAX_BYTES,
   deployLookupExpr,
   parseWranglerConfig,
 } from "@main/services/deploy-targets";
@@ -152,6 +153,41 @@ name = "site-live"
       "site-staging",
       "staging.example",
       "site-live",
+    ]);
+  });
+});
+
+describe("parseWranglerConfig: a hostile config", () => {
+  const N = DEPLOY_CONFIG_MAX_BYTES;
+
+  // A cloned repo controls these bytes and parsing can run on the main thread.
+  // Before the fix, the first two took about two minutes each at 256 KiB.
+  it.each([
+    ["spaces in a table header", "wrangler.toml", "[a" + " ".repeat(N - 3) + "x"],
+    ["unclosed inline tables", "wrangler.toml", "routes = [ " + "{".repeat(N - 11)],
+    ["an array that never closes", "wrangler.toml", "routes = [\n" + "x\n".repeat((N - 11) / 2)],
+    ["nested arrays", "wrangler.toml", "routes = " + "[\n".repeat((N - 9) / 2)],
+    ["mixed quotes", "wrangler.toml", "name = " + "\"'".repeat((N - 7) / 2)],
+    ["unclosed block comments", "wrangler.jsonc", "/*".repeat(N / 2)],
+    ["only commas", "wrangler.jsonc", ",".repeat(N)],
+    ["an unterminated string", "wrangler.jsonc", '"' + "\\a".repeat((N - 1) / 2)],
+    ["closing brackets in a header", "wrangler.toml", "[" + "]".repeat(N - 3) + "a]"],
+  ])("stays fast on %s", (_label, filename, text) => {
+    const started = performance.now();
+    parseWranglerConfig(filename, text);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
+  it("does not parse a file past the size cap", () => {
+    const padded = `name = "too-big"\n` + "#".repeat(N);
+    expect(parseWranglerConfig("wrangler.toml", padded)).toEqual([]);
+  });
+
+  it("keeps // inside a string while stripping real comments", () => {
+    const text = `{ /* a */ "name": "x//y", // b\n "route": "h.example/*" /* c */ }`;
+    expect(parseWranglerConfig("wrangler.jsonc", text)).toEqual([
+      "x//y",
+      "h.example",
     ]);
   });
 });

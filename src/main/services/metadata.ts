@@ -21,7 +21,7 @@ import { catalogGit } from "@main/security/catalog-git";
 import gitUrlParse from "git-url-parse";
 
 import type { LanguageBytes } from "@shared/types";
-import { parseWranglerConfig } from "./deploy-targets";
+import { DEPLOY_CONFIG_MAX_BYTES, parseWranglerConfig } from "./deploy-targets";
 import { languageForPath } from "./languages";
 
 export interface RepoMetadata {
@@ -222,7 +222,6 @@ const WRANGLER_CONFIGS = new Set([
   "wrangler.json",
   "wrangler.jsonc",
 ]);
-const DEPLOY_CONFIG_MAX_BYTES = 256 * 1024;
 
 /**
  * Worker names and hosts from every wrangler config in the repo, space-separated
