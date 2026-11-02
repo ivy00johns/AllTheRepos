@@ -92,6 +92,7 @@ export function mapRawRepoRow(raw: Record<string, unknown>): RepoRow {
     lastOpenedAt: (raw.last_opened_at as string | null) ?? null,
     isFavorite: Boolean(raw.is_favorite),
     favoritedAt: (raw.favorited_at as string | null) ?? null,
+    deployText: (raw.deploy_text as string | null) ?? null,
     createdAt: raw.created_at as string,
     updatedAt: raw.updated_at as string,
     source: (raw.source as RepoRow["source"]) ?? "filesystem_scan",
@@ -388,6 +389,8 @@ export interface UpsertRepoInput {
   readmeContent: string | null;
   readmeHash: string | null;
   sizeBytes: number | null;
+  /** Worker names and hosts from the repo's deploy config, if it has any. */
+  deployText?: string | null;
 }
 
 export interface UpsertRepoResult {
@@ -468,8 +471,8 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
           last_commit_hash, last_commit_date, last_commit_msg, is_dirty,
           primary_language, languages_json, tags_json, description,
           readme_content, readme_hash, size_bytes, last_scanned_at,
-          created_at, updated_at, source
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          created_at, updated_at, source, deploy_text
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         input.slug,
@@ -493,6 +496,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
         now,
         now,
         "filesystem_scan",
+        input.deployText ?? null,
       );
     const created = mapRawRepoRow(
       existingStmt.get(input.fullPath) as Record<string, unknown>,
@@ -543,6 +547,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
         readme_content = ?,
         readme_hash = ?,
         size_bytes = ?,
+        deploy_text = ?,
         last_scanned_at = ?,
         updated_at = ?
       WHERE id = ?`,
@@ -564,6 +569,7 @@ export function upsertRepo(input: UpsertRepoInput): UpsertRepoResult {
       input.readmeContent,
       input.readmeHash,
       input.sizeBytes,
+      input.deployText ?? null,
       now,
       now,
       existing.id,

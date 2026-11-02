@@ -21,6 +21,7 @@ import { catalogGit } from "@main/security/catalog-git";
 import gitUrlParse from "git-url-parse";
 
 import type { LanguageBytes } from "@shared/types";
+import { parseWranglerConfig } from "./deploy-targets";
 import { languageForPath } from "./languages";
 
 export interface RepoMetadata {
@@ -38,6 +39,7 @@ export interface RepoMetadata {
   readmeContent: string | null;
   readmeHash: string | null;
   description: string | null;
+  deployText: string | null;
 }
 
 const SKIP_DIRS = new Set([
@@ -215,6 +217,53 @@ function repoSize(root: string, maxDepth = 2): number {
   return total;
 }
 
+const WRANGLER_CONFIGS = new Set([
+  "wrangler.toml",
+  "wrangler.json",
+  "wrangler.jsonc",
+]);
+const DEPLOY_CONFIG_MAX_BYTES = 256 * 1024;
+
+/**
+ * Worker names and hosts from every wrangler config in the repo, space-separated
+ * for the search index. Walks as deep as the language count, which reaches
+ * `workers/<name>/` and `apps/<name>/`; a config it cannot read adds nothing.
+ */
+function readDeployText(root: string, maxDepth = 2): string | null {
+  const terms = new Set<string>();
+  const queue: Array<{ dir: string; depth: number }> = [
+    { dir: root, depth: 0 },
+  ];
+  while (queue.length) {
+    const { dir, depth } = queue.shift()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (ent.name.startsWith(".") || SKIP_DIRS.has(ent.name)) continue;
+        if (depth < maxDepth) queue.push({ dir: full, depth: depth + 1 });
+        continue;
+      }
+      if (!ent.isFile() || !WRANGLER_CONFIGS.has(ent.name)) continue;
+      try {
+        if (fs.statSync(full).size > DEPLOY_CONFIG_MAX_BYTES) continue;
+        const text = fs.readFileSync(full, "utf8");
+        for (const term of parseWranglerConfig(ent.name, text)) {
+          terms.add(term);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return terms.size > 0 ? [...terms].join(" ") : null;
+}
+
 function argmaxLanguage(counts: Map<string, LangCounter>): {
   primary: string | null;
   languages: LanguageBytes[];
@@ -344,6 +393,7 @@ export async function readRepoMetadata(
       readmeContent: readme.content,
       readmeHash: readme.hash,
       description,
+      deployText: readDeployText(root),
     },
   };
 }

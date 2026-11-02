@@ -45,6 +45,11 @@ export const repos = sqliteTable(
       .notNull()
       .default(false),
     favoritedAt: text("favorited_at"),
+    /**
+     * Worker names and hosts from the repo's deploy config, space-separated.
+     * Additive column — see `ensureAdditiveColumns`.
+     */
+    deployText: text("deploy_text"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
